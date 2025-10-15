@@ -11,15 +11,29 @@ GRID_SIZE = 16  # Doubled from 8 to 16 for better visibility
 GRID_WIDTH = SCREEN_WIDTH // GRID_SIZE
 GRID_HEIGHT = (SCREEN_HEIGHT - HUD_HEIGHT) // GRID_SIZE  # Grid height excludes HUD
 
-# Colors
+# Colors - Neon Rave Theme
 BLACK = (0, 0, 0)
+DARK_BG = (10, 5, 20)  # Deep purple-black background
 WHITE = (255, 255, 255)
-GREEN = (0, 255, 0)
-DARK_GREEN = (0, 180, 0)
-RED = (255, 0, 0)
-YELLOW = (255, 255, 0)
-ORANGE = (255, 165, 0)
-DARK_GRAY = (64, 64, 64)
+NEON_GREEN = (57, 255, 20)  # Bright neon green
+NEON_LIME = (191, 255, 0)  # Electric lime
+NEON_PINK = (255, 16, 240)  # Hot pink
+NEON_CYAN = (0, 255, 255)  # Electric cyan
+NEON_ORANGE = (255, 95, 31)  # Neon orange
+NEON_PURPLE = (191, 0, 255)  # Electric purple
+NEON_YELLOW = (255, 255, 0)  # Bright yellow
+NEON_BLUE = (0, 168, 255)  # Electric blue
+GRID_COLOR = (40, 20, 60)  # Dark purple grid
+HUD_BG = (20, 10, 40)  # Dark purple HUD background
+
+# Legacy color names for compatibility
+GREEN = NEON_GREEN
+DARK_GREEN = NEON_LIME
+RED = NEON_PINK
+YELLOW = NEON_YELLOW
+ORANGE = NEON_ORANGE
+GRAY = (128, 128, 128)
+DARK_GRAY = GRID_COLOR
 
 # Button mappings
 class GamepadButton:
@@ -57,7 +71,7 @@ class Particle:
         self.color = color
         self.vx, self.vy = velocity
         self.lifetime = 30
-        self.size = random.randint(2, 4)
+        self.size = random.randint(4, 8)  # Doubled from 2-4 to 4-8
     
     def update(self):
         self.x += self.vx
@@ -75,14 +89,15 @@ class Particle:
 class MusicManager:
     """Manages random music playback without immediate repeats"""
     def __init__(self):
-        self.tracks = ['music1.mp3', 'music2.mp3', 'music3.mp3']
+        self.tracks = ['sound/music1.mp3', 'sound/music2.mp3', 'sound/music3.mp3']
         self.last_track = None
         self.current_track = None
         self.music_enabled = True
+        self.game_over_mode = False
         
     def play_next(self):
         """Play a random track that's different from the last one"""
-        if not self.music_enabled:
+        if not self.music_enabled or self.game_over_mode:
             return
             
         available_tracks = [t for t in self.tracks if t != self.last_track]
@@ -98,10 +113,57 @@ class MusicManager:
         except:
             print(f"Warning: Could not load {self.current_track}")
     
+    def play_game_over_music(self):
+        """Play the game over music"""
+        self.game_over_mode = True
+        try:
+            pygame.mixer.music.load('sound/GameOver.mp3')
+            pygame.mixer.music.play(-1)  # Loop indefinitely
+        except:
+            print("Warning: Could not load GameOver.mp3")
+    
+    def stop_game_over_music(self):
+        """Stop game over music and resume normal music"""
+        if self.game_over_mode:
+            self.game_over_mode = False
+            pygame.mixer.music.stop()
+            self.play_next()
+    
     def update(self):
         """Check if music finished and play next track"""
-        if self.music_enabled and not pygame.mixer.music.get_busy():
+        if self.music_enabled and not self.game_over_mode and not pygame.mixer.music.get_busy():
             self.play_next()
+
+
+class SoundManager:
+    """Manages sound effects for game events"""
+    def __init__(self):
+        self.sounds = {}
+        self.sound_enabled = True
+        
+        # Load all sound effects
+        sound_files = {
+            'blip_select': 'sound/blipSelect.wav',
+            'die': 'sound/die.wav',
+            'eat_fruit': 'sound/EatFruit.wav',
+            'level_up': 'sound/LevelUp.wav',
+            'no_lives': 'sound/NoLives.wav',
+            'powerup': 'sound/powerup.wav',
+            'select_letter': 'sound/SelectLetter.wav',
+            'start_game': 'sound/StartGame.wav'
+        }
+        
+        for name, path in sound_files.items():
+            try:
+                self.sounds[name] = pygame.mixer.Sound(path)
+            except:
+                print(f"Warning: Could not load {path}")
+                self.sounds[name] = None
+    
+    def play(self, sound_name):
+        """Play a sound effect by name"""
+        if self.sound_enabled and sound_name in self.sounds and self.sounds[sound_name]:
+            self.sounds[sound_name].play()
 
 class Snake:
     """Snake game logic"""
