@@ -5,6 +5,9 @@ import os
 import random
 from game_core import *
 
+# Get the directory where this script is located
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
 pygame.init()
 pygame.mixer.init()
 
@@ -12,20 +15,70 @@ FPS = 60
 
 class SnakeGame:
     def __init__(self):
-        self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
+        # Scaling factor
+        self.scale = 1
+        
+        # Create the actual display window (scaled up)
+        self.display = pygame.display.set_mode((SCREEN_WIDTH * self.scale, SCREEN_HEIGHT * self.scale))
+        
+        # Create the render surface (native resolution)
+        self.screen = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+        
         pygame.display.set_caption("Snake Game")
+        pygame.mouse.set_visible(False)  # Hide mouse cursor
         self.clock = pygame.time.Clock()
-        self.font_small = pygame.font.Font(None, 24)  # 2x larger (was 16)
-        self.font_medium = pygame.font.Font(None, 24)  # 2x larger (was 24)
-        self.font_large = pygame.font.Font(None, 36)  # 2x larger (was 36)
+        self.font_small = pygame.font.Font(None, 32)  # 2x larger (was 16)
+        self.font_medium = pygame.font.Font(None, 48)  # 2x larger (was 24)
+        self.font_large = pygame.font.Font(None, 72)  # 2x larger (was 36)
         
         # Load background image
         try:
-            self.background = pygame.image.load('bg.png').convert()
+            bg_path = os.path.join(SCRIPT_DIR, 'bg.png')
+            self.background = pygame.image.load(bg_path).convert()
             self.background = pygame.transform.scale(self.background, (SCREEN_WIDTH, SCREEN_HEIGHT))
         except:
             self.background = None
             print("Warning: bg.png not found, using default background")
+        
+        # Load snake graphics
+        try:
+            body_path = os.path.join(SCRIPT_DIR, 'HatchlingBody.png')
+            self.snake_body_img = pygame.image.load(body_path).convert_alpha()
+            self.snake_body_img = pygame.transform.scale(self.snake_body_img, (GRID_SIZE - 2, GRID_SIZE - 2))
+        except Exception as e:
+            self.snake_body_img = None
+            print("Warning: HatchlingBody.png not found, using default body graphic: {}".format(e))
+        
+        # Load snake head animation (GIF)
+        try:
+            from PIL import Image
+            head_path = os.path.join(SCRIPT_DIR, 'HatchlingHead1.gif')
+            self.snake_head_frames = []
+            
+            # Load GIF frames using PIL
+            gif = Image.open(head_path)
+            frame_count = 0
+            try:
+                while True:
+                    # Convert PIL image to pygame surface
+                    frame = gif.copy().convert('RGBA')
+                    pygame_frame = pygame.image.frombytes(
+                        frame.tobytes(), frame.size, frame.mode
+                    ).convert_alpha()
+                    pygame_frame = pygame.transform.scale(pygame_frame, (GRID_SIZE - 2, GRID_SIZE - 2))
+                    self.snake_head_frames.append(pygame_frame)
+                    frame_count += 1
+                    gif.seek(frame_count)
+            except EOFError:
+                pass  # End of frames
+            
+            self.head_frame_index = 0
+            self.head_animation_speed = 5  # Change frame every N game frames
+            self.head_animation_counter = 0
+            print("Loaded {} frames for snake head animation".format(len(self.snake_head_frames)))
+        except Exception as e:
+            self.snake_head_frames = []
+            print("Warning: HatchlingHead1.gif not found or could not be loaded: {}".format(e))
         
         self.state = GameState.MENU
         self.snake = Snake()
@@ -35,16 +88,26 @@ class SnakeGame:
         self.score = 0
         self.level = 1
         self.lives = 3
+        self.fruits_eaten_this_level = 0  # Track fruits eaten for leveling up
         self.move_timer = 0
         self.particles = []
         self.game_over_timer = 0
         self.game_over_delay = 180  # 3 seconds at 60 FPS
         
         self.joystick = None
+        self.joystick_has_hat = False
+        self.axis_was_neutral = True  # Track if axis was in neutral position
         if pygame.joystick.get_count() > 0:
             self.joystick = pygame.joystick.Joystick(0)
-            self.joystick.init()
-            print(f"Gamepad connected: {self.joystick.get_name()}")
+            # No need to call init() - it's deprecated and joystick is auto-initialized
+            print("Gamepad connected: {}".format(self.joystick.get_name()))
+            # Check if joystick has a hat (D-pad)
+            if self.joystick.get_numhats() > 0:
+                self.joystick_has_hat = True
+                print("Joystick has {} hat(s)".format(self.joystick.get_numhats()))
+            else:
+                print("Joystick has no hats, will use axes/buttons only")
+                print("Axes: {}, Buttons: {}".format(self.joystick.get_numaxes(), self.joystick.get_numbuttons()))
         
         self.music_manager = MusicManager()
         self.music_manager.play_next()
@@ -65,12 +128,17 @@ class SnakeGame:
         self.menu_selection = 0
         self.menu_options = ["Start Game", "High Scores", "Quit"]
         
+        self.difficulty = Difficulty.MEDIUM  # Default difficulty
+        self.difficulty_selection = 1  # Start on Medium
+        self.difficulty_options = ["Easy", "Medium", "Hard"]
+        
         self.spawn_food()
     
     def load_high_scores(self):
         try:
-            if os.path.exists('highscores.json'):
-                with open('highscores.json', 'r') as f:
+            highscores_path = os.path.join(SCRIPT_DIR, 'highscores.json')
+            if os.path.exists(highscores_path):
+                with open(highscores_path, 'r') as f:
                     return json.load(f)
         except:
             pass
@@ -78,7 +146,8 @@ class SnakeGame:
     
     def save_high_scores(self):
         try:
-            with open('highscores.json', 'w') as f:
+            highscores_path = os.path.join(SCRIPT_DIR, 'highscores.json')
+            with open(highscores_path, 'w') as f:
                 json.dump(self.high_scores, f)
         except:
             pass
@@ -111,21 +180,89 @@ class SnakeGame:
     
     def get_next_level_score(self):
         """Calculate the score needed to reach the next level.
-        Level 2: 500, Level 3: 750, Level 4: 1000, Level 5: 1250, etc.
-        Formula: 250 * level + 250
+        Level 2: 200, Level 3: 400, Level 4: 600, Level 5: 800, etc.
+        Formula: 200 * level - lower threshold for faster progression
         """
-        return 250 * self.level + 250
+        return 200 * self.level
     
-    def create_particles(self, x, y, color, count=20):
+    def get_score_multiplier(self):
+        """Get the score multiplier based on difficulty."""
+        if self.difficulty == Difficulty.EASY:
+            return 0.5
+        elif self.difficulty == Difficulty.MEDIUM:
+            return 1.0
+        elif self.difficulty == Difficulty.HARD:
+            return 2.0
+        return 1.0
+    def get_difficulty_length_modifier(self):
+        if self.difficulty == Difficulty.EASY:
+            return 1
+        elif self.difficulty == Difficulty.MEDIUM:
+            return 2
+        elif self.difficulty == Difficulty.HARD:
+            return 3
+        return 1
+    def create_particles(self, x, y, color, count=10):
+        # Limit total particles for performance on low-end hardware
+        max_particles = 50
         for _ in range(count):
+            if len(self.particles) >= max_particles:
+                break
             angle = random.uniform(0, 2 * 3.14159)
             speed = random.uniform(1, 3)
             velocity = (speed * pygame.math.Vector2(1, 0).rotate_rad(angle).x,
                        speed * pygame.math.Vector2(1, 0).rotate_rad(angle).y)
             self.particles.append(Particle(x, y, color, velocity))
     
+    def get_interpolated_snake_positions(self):
+        """Calculate smooth interpolated positions for snake segments"""
+        move_interval = max(1, 16 - self.level // 2)
+        progress = self.move_timer / move_interval  # 0.0 to 1.0
+        
+        interpolated_positions = []
+        for i in range(len(self.snake.body)):
+            current_pos = self.snake.body[i]
+            
+            # Get previous position, handling edge cases
+            if i < len(self.snake.previous_body):
+                previous_pos = self.snake.previous_body[i]
+            else:
+                previous_pos = current_pos  # Newly grown segment
+            
+            # Handle wrapping - detect if snake wrapped around screen edges
+            dx = current_pos[0] - previous_pos[0]
+            dy = current_pos[1] - previous_pos[1]
+            
+            # Adjust for wrapping (if difference is too large, it wrapped)
+            if abs(dx) > GRID_WIDTH // 2:
+                if dx > 0:
+                    previous_pos = (previous_pos[0] + GRID_WIDTH, previous_pos[1])
+                else:
+                    previous_pos = (previous_pos[0] - GRID_WIDTH, previous_pos[1])
+            
+            if abs(dy) > GRID_HEIGHT // 2:
+                if dy > 0:
+                    previous_pos = (previous_pos[0], previous_pos[1] + GRID_HEIGHT)
+                else:
+                    previous_pos = (previous_pos[0], previous_pos[1] - GRID_HEIGHT)
+            
+            # Linear interpolation
+            interp_x = previous_pos[0] + (current_pos[0] - previous_pos[0]) * progress
+            interp_y = previous_pos[1] + (current_pos[1] - previous_pos[1]) * progress
+            
+            interpolated_positions.append((interp_x, interp_y))
+        
+        return interpolated_positions
+    
     def update_game(self):
         self.music_manager.update()
+        
+        # Update snake head animation
+        if self.snake_head_frames:
+            self.head_animation_counter += 1
+            if self.head_animation_counter >= self.head_animation_speed:
+                self.head_animation_counter = 0
+                self.head_frame_index = (self.head_frame_index + 1) % len(self.snake_head_frames)
         
         # Handle game over timer countdown
         if self.state == GameState.GAME_OVER and self.game_over_timer > 0:
@@ -148,18 +285,20 @@ class SnakeGame:
                 self.bonus_food_pos = None
         
         self.move_timer += 1
-        move_interval = max(1, 15 - self.level)
+        # Speed formula: starts at 15 frames (good pace), max speed at level 25
+        move_interval = max(1, 16 - self.level // 2)
         
         if self.move_timer >= move_interval:
             self.move_timer = 0
-            self.snake.move()
+            self.snake.move()  # Wrapping now happens automatically inside move()
             
-            if self.snake.check_collision():
+            # Check collision (only self-collision, no wall collision)
+            if self.snake.check_collision(wrap_around=True):
                 self.sound_manager.play('die')
                 self.lives -= 1
                 head_x, head_y = self.snake.body[0]
                 self.create_particles(head_x * GRID_SIZE + GRID_SIZE // 2,
-                                    head_y * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y, RED, 20)
+                                    head_y * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y, RED, 10)
                 
                 if self.lives <= 0:
                     self.sound_manager.play('no_lives')
@@ -172,32 +311,32 @@ class SnakeGame:
             
             if self.snake.body[0] == self.food_pos:
                 self.sound_manager.play('eat_fruit')
-                self.snake.grow(1)
-                old_score = self.score
-                self.score += 10 * self.level
+                self.snake.grow(self.get_difficulty_length_modifier())
+                base_points = (7 + len(self.snake.body)) *  self.level
+                self.score += int(base_points * self.get_score_multiplier())
                 fx, fy = self.food_pos
                 self.create_particles(fx * GRID_SIZE + GRID_SIZE // 2,
-                                    fy * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y, RED, 15)
+                                    fy * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y, RED, 10)
                 self.spawn_food()
                 
                 # Check if snake filled the entire grid (GRID_WIDTH * GRID_HEIGHT = 225 cells)
                 max_snake_length = GRID_WIDTH * GRID_HEIGHT
                 if len(self.snake.body) >= max_snake_length:
                     self.sound_manager.play('powerup')
-                    self.score += 1000
+                    self.score += int(1000 * self.level * self.get_score_multiplier())
                     self.lives = min(99, self.lives + 10)  # Award 10 extra lives
                     # Create massive particle explosion
                     center_x = SCREEN_WIDTH // 2
                     center_y = (SCREEN_HEIGHT + GAME_OFFSET_Y) // 2
-                    self.create_particles(center_x, center_y, NEON_YELLOW, 50)
-                    self.create_particles(center_x, center_y, NEON_CYAN, 50)
+                    self.create_particles(center_x, center_y, NEON_YELLOW, 20)
+                    self.create_particles(center_x, center_y, NEON_CYAN, 20)
                     # Reset snake after this incredible achievement
                     self.snake.reset()
                     self.spawn_food()
                 
-                # Check if player reached the score threshold for next level
-                next_level_score = self.get_next_level_score()
-                if old_score < next_level_score and self.score >= next_level_score:
+                # Increment fruit counter and check if player leveled up (20 fruits per level)
+                self.fruits_eaten_this_level += 1
+                if self.fruits_eaten_this_level >= 20:
                     self.sound_manager.play('level_up')
                     self.state = GameState.LEVEL_COMPLETE
                 
@@ -207,11 +346,11 @@ class SnakeGame:
             if self.bonus_food_pos and self.snake.body[0] == self.bonus_food_pos:
                 self.sound_manager.play('powerup')
                 self.snake.grow(1)
-                old_score = self.score
-                self.score += 50 * self.level
+                base_points = (47 + len(self.snake.body)) * self.level
+                self.score += int(base_points * self.get_score_multiplier())
                 bx, by = self.bonus_food_pos
                 self.create_particles(bx * GRID_SIZE + GRID_SIZE // 2,
-                                    by * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y, YELLOW, 20)
+                                    by * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y, YELLOW, 10)
                 self.bonus_food_pos = None
                 self.bonus_food_timer = 0
                 
@@ -219,24 +358,28 @@ class SnakeGame:
                 max_snake_length = GRID_WIDTH * GRID_HEIGHT
                 if len(self.snake.body) >= max_snake_length:
                     self.sound_manager.play('powerup')
-                    self.score += 1000
+                    self.score += int(1000 * self.level * self.get_score_multiplier())
                     self.lives = min(99, self.lives + 10)  # Award 10 extra lives
                     # Create massive particle explosion
                     center_x = SCREEN_WIDTH // 2
                     center_y = (SCREEN_HEIGHT + GAME_OFFSET_Y) // 2
-                    self.create_particles(center_x, center_y, NEON_YELLOW, 50)
-                    self.create_particles(center_x, center_y, NEON_CYAN, 50)
+                    self.create_particles(center_x, center_y, NEON_YELLOW, 20)
+                    self.create_particles(center_x, center_y, NEON_CYAN, 20)
                     # Reset snake after this incredible achievement
                     self.snake.reset()
                     self.spawn_food()
                 
-                # Check if player reached the score threshold for next level
-                next_level_score = self.get_next_level_score()
-                if old_score < next_level_score and self.score >= next_level_score:
-                    self.sound_manager.play('level_up')
-                    self.state = GameState.LEVEL_COMPLETE
+                # Note: Bonus food gives extra points but doesn't count toward level progression
     
     def handle_input(self):
+        # Check for Start + Select combo to quit (gamepad)
+        if self.joystick:
+            start_pressed = self.joystick.get_button(GamepadButton.BTN_START)
+            select_pressed = self.joystick.get_button(GamepadButton.BTN_SELECT)
+            if start_pressed and select_pressed:
+                pygame.quit()
+                exit()
+        
         keys = pygame.key.get_pressed()
         
         if self.state == GameState.PLAYING:
@@ -249,7 +392,8 @@ class SnakeGame:
             elif keys[pygame.K_RIGHT]:
                 self.snake.change_direction(Direction.RIGHT)
         
-        if self.joystick:
+        # Only poll hat if joystick has one (otherwise rely on JOYHATMOTION events or axes)
+        if self.joystick and self.joystick_has_hat:
             hat = self.joystick.get_hat(0)
             if self.state == GameState.PLAYING:
                 if hat[1] == 1:
@@ -260,6 +404,79 @@ class SnakeGame:
                     self.snake.change_direction(Direction.LEFT)
                 elif hat[0] == 1:
                     self.snake.change_direction(Direction.RIGHT)
+        
+        # For joysticks without hats, use axes (analog stick)
+        elif self.joystick and not self.joystick_has_hat:
+            if self.joystick.get_numaxes() >= 2:
+                axis_x = self.joystick.get_axis(0)
+                axis_y = self.joystick.get_axis(1)
+                
+                # Use a threshold to avoid drift
+                threshold = 0.5
+                
+                # Check if axis is in neutral position
+                is_neutral = abs(axis_x) < threshold and abs(axis_y) < threshold
+                
+                if self.state == GameState.PLAYING:
+                    # Prioritize the axis with larger absolute value
+                    if abs(axis_y) > abs(axis_x) and abs(axis_y) > threshold:
+                        if axis_y < -threshold:
+                            self.snake.change_direction(Direction.UP)
+                        elif axis_y > threshold:
+                            self.snake.change_direction(Direction.DOWN)
+                    elif abs(axis_x) > threshold:
+                        if axis_x < -threshold:
+                            self.snake.change_direction(Direction.LEFT)
+                        elif axis_x > threshold:
+                            self.snake.change_direction(Direction.RIGHT)
+                
+                # Handle menu navigation with debouncing
+                elif self.state == GameState.MENU:
+                    if self.axis_was_neutral and abs(axis_y) > threshold:
+                        if axis_y < -threshold:
+                            self.menu_selection = (self.menu_selection - 1) % len(self.menu_options)
+                            self.sound_manager.play('blip_select')
+                            self.axis_was_neutral = False
+                        elif axis_y > threshold:
+                            self.menu_selection = (self.menu_selection + 1) % len(self.menu_options)
+                            self.sound_manager.play('blip_select')
+                            self.axis_was_neutral = False
+                
+                elif self.state == GameState.DIFFICULTY_SELECT:
+                    if self.axis_was_neutral and abs(axis_y) > threshold:
+                        if axis_y < -threshold:
+                            self.difficulty_selection = (self.difficulty_selection - 1) % 3
+                            self.sound_manager.play('blip_select')
+                            self.axis_was_neutral = False
+                        elif axis_y > threshold:
+                            self.difficulty_selection = (self.difficulty_selection + 1) % 3
+                            self.sound_manager.play('blip_select')
+                            self.axis_was_neutral = False
+                
+                elif self.state == GameState.HIGH_SCORE_ENTRY:
+                    if self.axis_was_neutral:
+                        if abs(axis_x) > threshold:
+                            if axis_x < -threshold:
+                                self.keyboard_selection[1] = max(0, self.keyboard_selection[1] - 1)
+                                self.sound_manager.play('blip_select')
+                                self.axis_was_neutral = False
+                            elif axis_x > threshold:
+                                self.keyboard_selection[1] = min(9, self.keyboard_selection[1] + 1)
+                                self.sound_manager.play('blip_select')
+                                self.axis_was_neutral = False
+                        elif abs(axis_y) > threshold:
+                            if axis_y < -threshold:
+                                self.keyboard_selection[0] = max(0, self.keyboard_selection[0] - 1)
+                                self.sound_manager.play('blip_select')
+                                self.axis_was_neutral = False
+                            elif axis_y > threshold:
+                                self.keyboard_selection[0] = min(3, self.keyboard_selection[0] + 1)
+                                self.sound_manager.play('blip_select')
+                                self.axis_was_neutral = False
+                
+                # Reset neutral flag when axis returns to center
+                if is_neutral:
+                    self.axis_was_neutral = True
     
     def handle_event(self, event):
         if event.type == pygame.QUIT:
@@ -294,6 +511,25 @@ class SnakeGame:
             elif self.state == GameState.HIGH_SCORES:
                 if event.key == pygame.K_RETURN:
                     self.state = GameState.MENU
+            elif self.state == GameState.DIFFICULTY_SELECT:
+                if event.key == pygame.K_UP:
+                    self.difficulty_selection = (self.difficulty_selection - 1) % 3
+                    self.sound_manager.play('blip_select')
+                elif event.key == pygame.K_DOWN:
+                    self.difficulty_selection = (self.difficulty_selection + 1) % 3
+                    self.sound_manager.play('blip_select')
+                elif event.key == pygame.K_RETURN:
+                    # Set difficulty and start game
+                    if self.difficulty_selection == 0:
+                        self.difficulty = Difficulty.EASY
+                    elif self.difficulty_selection == 1:
+                        self.difficulty = Difficulty.MEDIUM
+                    else:
+                        self.difficulty = Difficulty.HARD
+                    self.sound_manager.play('start_game')
+                    self.music_manager.stop_game_over_music()
+                    self.reset_game()
+                    self.state = GameState.PLAYING
         
         if event.type == pygame.JOYBUTTONDOWN and self.joystick:
             button = event.button
@@ -327,6 +563,19 @@ class SnakeGame:
             elif self.state == GameState.HIGH_SCORES:
                 if button == GamepadButton.BTN_START:
                     self.state = GameState.MENU
+            elif self.state == GameState.DIFFICULTY_SELECT:
+                if button == GamepadButton.BTN_START:
+                    # Set difficulty and start game
+                    if self.difficulty_selection == 0:
+                        self.difficulty = Difficulty.EASY
+                    elif self.difficulty_selection == 1:
+                        self.difficulty = Difficulty.MEDIUM
+                    else:
+                        self.difficulty = Difficulty.HARD
+                    self.sound_manager.play('start_game')
+                    self.music_manager.stop_game_over_music()
+                    self.reset_game()
+                    self.state = GameState.PLAYING
         
         if event.type == pygame.JOYHATMOTION and self.joystick:
             hat = event.value
@@ -336,6 +585,13 @@ class SnakeGame:
                     self.sound_manager.play('blip_select')
                 elif hat[1] == -1:
                     self.menu_selection = (self.menu_selection + 1) % len(self.menu_options)
+                    self.sound_manager.play('blip_select')
+            elif self.state == GameState.DIFFICULTY_SELECT:
+                if hat[1] == 1:
+                    self.difficulty_selection = (self.difficulty_selection - 1) % 3
+                    self.sound_manager.play('blip_select')
+                elif hat[1] == -1:
+                    self.difficulty_selection = (self.difficulty_selection + 1) % 3
                     self.sound_manager.play('blip_select')
             elif self.state == GameState.HIGH_SCORE_ENTRY:
                 if hat[0] == -1:
@@ -409,10 +665,9 @@ class SnakeGame:
     
     def select_menu_option(self):
         if self.menu_selection == 0:
-            self.sound_manager.play('start_game')
-            self.music_manager.stop_game_over_music()
-            self.reset_game()
-            self.state = GameState.PLAYING
+            # Go to difficulty selection instead of starting directly
+            self.sound_manager.play('blip_select')
+            self.state = GameState.DIFFICULTY_SELECT
         elif self.menu_selection == 1:
             self.state = GameState.HIGH_SCORES
         elif self.menu_selection == 2:
@@ -425,6 +680,7 @@ class SnakeGame:
         self.score = 0
         self.level = 1
         self.lives = 3
+        self.fruits_eaten_this_level = 0
         self.spawn_food()
         self.bonus_food_pos = None
         self.bonus_food_timer = 0
@@ -433,6 +689,7 @@ class SnakeGame:
     def next_level(self):
         self.level += 1
         self.lives = min(5, self.lives + 1)
+        self.fruits_eaten_this_level = 0  # Reset fruit counter for new level
         # Don't reset snake - size persists across levels!
         self.spawn_food()
         self.bonus_food_pos = None
@@ -486,7 +743,11 @@ class SnakeGame:
         elif self.state == GameState.LEVEL_COMPLETE:
             self.draw_game()
             self.draw_level_complete()
+        elif self.state == GameState.DIFFICULTY_SELECT:
+            self.draw_difficulty_select()
         
+        # Scale the render surface to the display surface
+        self.display.blit(pygame.transform.scale(self.screen, (SCREEN_WIDTH * self.scale, SCREEN_HEIGHT * self.scale)), (0, 0))
         pygame.display.flip()
     
     def draw_menu(self):
@@ -498,23 +759,68 @@ class SnakeGame:
         
         # Render title
         title = self.font_large.render("SNAKE", True, NEON_GREEN)
-        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 40))
+        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 80))
         self.screen.blit(title, title_rect)
         
         # Render menu options
         for i, option in enumerate(self.menu_options):
             color = NEON_YELLOW if i == self.menu_selection else NEON_CYAN
             text = self.font_medium.render(option, True, color)
-            text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, 100 + i * 30))
+            text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, 200 + i * 60))
             
             # Draw selection box
             if i == self.menu_selection:
-                glow_rect = pygame.Rect(text_rect.left - 10, text_rect.top, 
-                                       text_rect.width + 20, text_rect.height)
+                glow_rect = pygame.Rect(text_rect.left - 20, text_rect.top, 
+                                       text_rect.width + 40, text_rect.height)
                 pygame.draw.rect(self.screen, NEON_PINK, glow_rect, 2)
             
             # Draw text
             self.screen.blit(text, text_rect)
+    
+    def draw_difficulty_select(self):
+        # Draw background
+        if self.background:
+            self.screen.blit(self.background, (0, 0))
+        else:
+            self.screen.fill(DARK_BG)
+        
+        # Render title
+        title = self.font_large.render("SELECT DIFFICULTY", True, NEON_CYAN)
+        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 40))
+        self.screen.blit(title, title_rect)
+        
+        # Difficulty descriptions
+        descriptions = [
+            "Chill mode, 0.5x score",
+            "Normal mode, 1x score",
+            "Enemies, 2x score"
+        ]
+        
+        # Render difficulty options
+        for i, option in enumerate(self.difficulty_options):
+            color = NEON_YELLOW if i == self.difficulty_selection else NEON_GREEN
+            
+            # Draw option text
+            text = self.font_medium.render(option, True, color)
+            text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, 90 + i * 40))
+            
+            # Draw selection box
+            if i == self.difficulty_selection:
+                glow_rect = pygame.Rect(text_rect.left - 10, text_rect.top, 
+                                       text_rect.width + 20, text_rect.height)
+                pygame.draw.rect(self.screen, NEON_PINK, glow_rect, 2)
+            
+            self.screen.blit(text, text_rect)
+            
+            # Draw description below
+            desc_text = self.font_small.render(descriptions[i], True, NEON_PURPLE)
+            desc_rect = desc_text.get_rect(center=(SCREEN_WIDTH // 2, 90 + i * 40 + 15))
+            self.screen.blit(desc_text, desc_rect)
+        
+        # Draw hint
+        hint_text = self.font_small.render("Start to confirm", True, NEON_CYAN)
+        hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 220))
+        self.screen.blit(hint_text, hint_rect)
     
     def draw_game(self):
         # Draw background
@@ -522,22 +828,6 @@ class SnakeGame:
             self.screen.blit(self.background, (0, 0))
         else:
             self.screen.fill(DARK_BG)
-        
-        # Draw HUD bar at the top
-        pygame.draw.rect(self.screen, HUD_BG, (0, 0, SCREEN_WIDTH, HUD_HEIGHT))
-        pygame.draw.line(self.screen, NEON_CYAN, (0, HUD_HEIGHT), (SCREEN_WIDTH, HUD_HEIGHT), 2)
-        
-        # Draw HUD text
-        score_text = self.font_small.render(f"{self.score}", True, NEON_CYAN)
-        self.screen.blit(score_text, (5, 0))
-        
-        level_text = self.font_small.render(f"LVL: {self.level}", True, NEON_PURPLE)
-        level_rect = level_text.get_rect(center=(SCREEN_WIDTH // 2, (HUD_HEIGHT // 2)+1))
-        self.screen.blit(level_text, level_rect)
-        
-        lives_text = self.font_small.render(f"Lives: {self.lives}", True, NEON_PINK)
-        lives_rect = lives_text.get_rect(right=SCREEN_WIDTH - 5, top=0)
-        self.screen.blit(lives_text, lives_rect)
         
         # # Draw grid with subtle neon glow
         # for x in range(0, SCREEN_WIDTH, GRID_SIZE):
@@ -568,40 +858,89 @@ class SnakeGame:
             center_y = by * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y
             pygame.draw.circle(self.screen, NEON_YELLOW, (center_x, center_y), size)
         
-        # Draw snake with gradient
-        for i, (x, y) in enumerate(self.snake.body):
-            ratio = i / max(len(self.snake.body) - 1, 1)
-            # Gradient from neon green to neon lime
-            color = (int(NEON_GREEN[0] + (NEON_LIME[0] - NEON_GREEN[0]) * ratio),
-                    int(NEON_GREEN[1] + (NEON_LIME[1] - NEON_GREEN[1]) * ratio),
-                    int(NEON_GREEN[2] + (NEON_LIME[2] - NEON_GREEN[2]) * ratio))
+        # Draw snake with graphics or gradient fallback - using interpolated positions for smooth movement
+        interpolated_positions = self.get_interpolated_snake_positions()
+        
+        for i, (x, y) in enumerate(interpolated_positions):
+            # Convert interpolated grid coordinates to pixel coordinates
+            pixel_x = x * GRID_SIZE + 1
+            pixel_y = y * GRID_SIZE + 1 + GAME_OFFSET_Y
             
-            rect = pygame.Rect(x * GRID_SIZE + 1, y * GRID_SIZE + 1 + GAME_OFFSET_Y, 
-                             GRID_SIZE - 2, GRID_SIZE - 2)
-            pygame.draw.rect(self.screen, color, rect, border_radius=2)
-            
-            # Draw eyes on head
             if i == 0:
-                dx, dy = self.snake.direction.value
-                if dx == 1:
-                    eye1 = (x * GRID_SIZE + GRID_SIZE - 4, y * GRID_SIZE + 4 + GAME_OFFSET_Y)
-                    eye2 = (x * GRID_SIZE + GRID_SIZE - 4, y * GRID_SIZE + GRID_SIZE - 4 + GAME_OFFSET_Y)
-                elif dx == -1:
-                    eye1 = (x * GRID_SIZE + 4, y * GRID_SIZE + 4 + GAME_OFFSET_Y)
-                    eye2 = (x * GRID_SIZE + 4, y * GRID_SIZE + GRID_SIZE - 4 + GAME_OFFSET_Y)
-                elif dy == -1:
-                    eye1 = (x * GRID_SIZE + 4, y * GRID_SIZE + 4 + GAME_OFFSET_Y)
-                    eye2 = (x * GRID_SIZE + GRID_SIZE - 4, y * GRID_SIZE + 4 + GAME_OFFSET_Y)
+                # Draw head with animation
+                if self.snake_head_frames:
+                    head_img = self.snake_head_frames[self.head_frame_index]
+                    # Rotate head based on direction
+                    dx, dy = self.snake.direction.value
+                    if dx == 1:  # Right
+                        rotated_head = pygame.transform.rotate(head_img, 90)
+                    elif dx == -1:  # Left
+                        rotated_head = pygame.transform.rotate(head_img, -90)
+                    elif dy == -1:  # Up
+                        rotated_head = pygame.transform.rotate(head_img, 180)
+                    else:  # Down
+                        rotated_head = head_img
+                    
+                    self.screen.blit(rotated_head, (int(pixel_x), int(pixel_y)))
                 else:
-                    eye1 = (x * GRID_SIZE + 4, y * GRID_SIZE + GRID_SIZE - 4 + GAME_OFFSET_Y)
-                    eye2 = (x * GRID_SIZE + GRID_SIZE - 4, y * GRID_SIZE + GRID_SIZE - 4 + GAME_OFFSET_Y)
-                
-                pygame.draw.circle(self.screen, NEON_CYAN, eye1, 2)
-                pygame.draw.circle(self.screen, NEON_CYAN, eye2, 2)
+                    # Fallback to drawing head with eyes
+                    rect = pygame.Rect(int(pixel_x), int(pixel_y), GRID_SIZE - 2, GRID_SIZE - 2)
+                    pygame.draw.rect(self.screen, NEON_GREEN, rect, border_radius=2)
+                    
+                    dx, dy = self.snake.direction.value
+                    if dx == 1:
+                        eye1 = (int(pixel_x + GRID_SIZE - 5), int(pixel_y + 3))
+                        eye2 = (int(pixel_x + GRID_SIZE - 5), int(pixel_y + GRID_SIZE - 5))
+                    elif dx == -1:
+                        eye1 = (int(pixel_x + 3), int(pixel_y + 3))
+                        eye2 = (int(pixel_x + 3), int(pixel_y + GRID_SIZE - 5))
+                    elif dy == -1:
+                        eye1 = (int(pixel_x + 3), int(pixel_y + 3))
+                        eye2 = (int(pixel_x + GRID_SIZE - 5), int(pixel_y + 3))
+                    else:
+                        eye1 = (int(pixel_x + 3), int(pixel_y + GRID_SIZE - 5))
+                        eye2 = (int(pixel_x + GRID_SIZE - 5), int(pixel_y + GRID_SIZE - 5))
+                    
+                    pygame.draw.circle(self.screen, NEON_CYAN, eye1, 2)
+                    pygame.draw.circle(self.screen, NEON_CYAN, eye2, 2)
+            else:
+                # Draw body segments
+                if self.snake_body_img:
+                    self.screen.blit(self.snake_body_img, (int(pixel_x), int(pixel_y)))
+                else:
+                    # Fallback to gradient rendering
+                    ratio = i / max(len(self.snake.body) - 1, 1)
+                    color = (int(NEON_GREEN[0] + (NEON_LIME[0] - NEON_GREEN[0]) * ratio),
+                            int(NEON_GREEN[1] + (NEON_LIME[1] - NEON_GREEN[1]) * ratio),
+                            int(NEON_GREEN[2] + (NEON_LIME[2] - NEON_GREEN[2]) * ratio))
+                    
+                    rect = pygame.Rect(int(pixel_x), int(pixel_y), GRID_SIZE - 2, GRID_SIZE - 2)
+                    pygame.draw.rect(self.screen, color, rect, border_radius=2)
         
         # Draw particles
         for particle in self.particles:
             particle.draw(self.screen)
+        
+        # Draw HUD bar at the top (drawn last so it's always on top)
+        pygame.draw.rect(self.screen, HUD_BG, (0, 0, SCREEN_WIDTH, HUD_HEIGHT))
+        pygame.draw.line(self.screen, NEON_CYAN, (0, HUD_HEIGHT), (SCREEN_WIDTH, HUD_HEIGHT), 2)
+        
+        # Draw HUD text
+        score_text = self.font_small.render("{}".format(self.score), True, NEON_CYAN)
+        self.screen.blit(score_text, (5, 0))
+        
+        level_text = self.font_small.render("LVL:{}".format(self.level), True, NEON_PURPLE)
+        level_rect = level_text.get_rect(center=(SCREEN_WIDTH // 2 - 25, (HUD_HEIGHT // 2)+1))
+        self.screen.blit(level_text, level_rect)
+        
+        # Show fruit counter progress toward next level
+        fruits_text = self.font_small.render("{}/20".format(self.fruits_eaten_this_level), True, NEON_YELLOW)
+        fruits_rect = fruits_text.get_rect(center=(SCREEN_WIDTH // 2 + 25, (HUD_HEIGHT // 2)+1))
+        self.screen.blit(fruits_text, fruits_rect)
+        
+        lives_text = self.font_small.render("Lives: {}".format(self.lives), True, NEON_PINK)
+        lives_rect = lives_text.get_rect(right=SCREEN_WIDTH - 5, top=0)
+        self.screen.blit(lives_text, lives_rect)
     
     def draw_pause(self):
         overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
@@ -635,11 +974,11 @@ class SnakeGame:
             over_rect = over_text.get_rect(center=(SCREEN_WIDTH // 2, 60))
             self.screen.blit(over_text, over_rect)
             
-            score_text = self.font_medium.render(f"Score: {self.score}", True, NEON_CYAN)
+            score_text = self.font_medium.render("Score: {}".format(self.score), True, NEON_CYAN)
             score_rect = score_text.get_rect(center=(SCREEN_WIDTH // 2, 100))
             self.screen.blit(score_text, score_rect)
             
-            level_text = self.font_medium.render(f"Level: {self.level}", True, NEON_GREEN)
+            level_text = self.font_medium.render("Level: {}".format(self.level), True, NEON_GREEN)
             level_rect = level_text.get_rect(center=(SCREEN_WIDTH // 2, 130))
             self.screen.blit(level_text, level_rect)
             
@@ -672,7 +1011,7 @@ class SnakeGame:
         title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 20))
         self.screen.blit(title, title_rect)
         
-        score_text = self.font_medium.render(f"Score: {self.score}", True, NEON_CYAN)
+        score_text = self.font_medium.render("Score: {}".format(self.score), True, NEON_CYAN)
         score_rect = score_text.get_rect(center=(SCREEN_WIDTH // 2, 50))
         self.screen.blit(score_text, score_rect)
         
@@ -729,7 +1068,7 @@ class SnakeGame:
                 score = entry['score']
                 y = 50 + i * 18
                 
-                rank_text = self.font_small.render(f"{i+1}.", True, NEON_PURPLE)
+                rank_text = self.font_small.render("{}.".format(i+1), True, NEON_PURPLE)
                 self.screen.blit(rank_text, (20, y))
                 
                 name_text = self.font_small.render(name, True, NEON_GREEN)
@@ -740,7 +1079,7 @@ class SnakeGame:
                 self.screen.blit(score_text, score_rect)
         
         hint_text = self.font_small.render("Start to continue", True, NEON_PINK)
-        hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 240))
+        hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 480))
         self.screen.blit(hint_text, hint_rect)
 
 if __name__ == "__main__":

@@ -1,6 +1,6 @@
 # Snake Game
 
-A fun retro Snake game built with pygame-ce, designed for 240x240 displays with support for both keyboard and SNES-style gamepad controls.
+A fun retro Snake game built with pygame-ce, designed for 480x480 displays with support for both keyboard and SNES-style gamepad controls.
 
 ## Features
 
@@ -75,7 +75,7 @@ python main.py
 
 - The game will display warnings if music files are not found, but will continue to work
 - High scores are automatically saved to `highscores.json`
-- Screen resolution is fixed at 240x240 pixels (perfect for small displays)
+- Screen resolution is fixed at 480x480 pixels (perfect for small displays)
 - Game runs at 60 FPS
 
 ## Customization

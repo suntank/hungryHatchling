@@ -1,15 +1,24 @@
 import pygame
 import random
+import os
 from enum import Enum
 
+# Get the directory where this script is located
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
 # Constants
-SCREEN_WIDTH = 240
-SCREEN_HEIGHT = 256  # Increased to accommodate HUD bar (240 + 16)
-HUD_HEIGHT = 16  # One grid size for HUD
+SCREEN_WIDTH = 480
+SCREEN_HEIGHT = 512  # Increased to accommodate HUD bar (240 + 16)
+HUD_HEIGHT = 32  # One grid size for HUD
 GAME_OFFSET_Y = HUD_HEIGHT  # Game starts below HUD
-GRID_SIZE = 16  # Doubled from 8 to 16 for better visibility
+GRID_SIZE = 32  
 GRID_WIDTH = SCREEN_WIDTH // GRID_SIZE
 GRID_HEIGHT = (SCREEN_HEIGHT - HUD_HEIGHT) // GRID_SIZE  # Grid height excludes HUD
+
+# Debug: Print grid calculations
+print("DEBUG: SCREEN_HEIGHT={}, HUD_HEIGHT={}, GRID_SIZE={}".format(SCREEN_HEIGHT, HUD_HEIGHT, GRID_SIZE))
+print("DEBUG: GRID_WIDTH={}, GRID_HEIGHT={}".format(GRID_WIDTH, GRID_HEIGHT))
+print("DEBUG: Game area pixels: {} to {}".format(GAME_OFFSET_Y, SCREEN_HEIGHT))
 
 # Colors - Neon Rave Theme
 BLACK = (0, 0, 0)
@@ -29,7 +38,7 @@ HUD_BG = (20, 10, 40)  # Dark purple HUD background
 # Legacy color names for compatibility
 GREEN = NEON_GREEN
 DARK_GREEN = NEON_LIME
-RED = NEON_PINK
+RED = (255, 0, 0)
 YELLOW = NEON_YELLOW
 ORANGE = NEON_ORANGE
 GRAY = (128, 128, 128)
@@ -55,6 +64,13 @@ class GameState(Enum):
     HIGH_SCORE_ENTRY = 5
     HIGH_SCORES = 6
     LEVEL_COMPLETE = 7
+    DIFFICULTY_SELECT = 8
+
+# Difficulty modes
+class Difficulty(Enum):
+    EASY = 1    # Wrap-around walls, 0.5x score
+    MEDIUM = 2  # Current gameplay, 1x score
+    HARD = 3    # Moving enemies, 2x score
 
 # Direction enum
 class Direction(Enum):
@@ -70,18 +86,19 @@ class Particle:
         self.y = y
         self.color = color
         self.vx, self.vy = velocity
-        self.lifetime = 30
-        self.size = random.randint(4, 8)  # Doubled from 2-4 to 4-8
+        self.lifetime = 15  # Reduced from 30 to 15 for better performance
+        self.size = random.randint(2, 4)  # Reduced size for performance
     
     def update(self):
         self.x += self.vx
         self.y += self.vy
         self.lifetime -= 1
-        self.size = max(1, self.size - 0.1)
+        # Size shrinking removed for performance (less calculations)
     
     def draw(self, screen):
         if self.lifetime > 0:
-            pygame.draw.circle(screen, self.color, (int(self.x), int(self.y)), int(self.size))
+            # Use rect instead of circle - much faster on low-end hardware
+            pygame.draw.rect(screen, self.color, (int(self.x), int(self.y), self.size, self.size))
     
     def is_alive(self):
         return self.lifetime > 0
@@ -89,7 +106,11 @@ class Particle:
 class MusicManager:
     """Manages random music playback without immediate repeats"""
     def __init__(self):
-        self.tracks = ['sound/music1.mp3', 'sound/music2.mp3', 'sound/music3.mp3']
+        self.tracks = [
+            os.path.join(SCRIPT_DIR, 'sound', 'music1.mp3'),
+            os.path.join(SCRIPT_DIR, 'sound', 'music2.mp3'),
+            os.path.join(SCRIPT_DIR, 'sound', 'music3.mp3')
+        ]
         self.last_track = None
         self.current_track = None
         self.music_enabled = True
@@ -117,7 +138,8 @@ class MusicManager:
         """Play the game over music"""
         self.game_over_mode = True
         try:
-            pygame.mixer.music.load('sound/GameOver.mp3')
+            game_over_path = os.path.join(SCRIPT_DIR, 'sound', 'GameOver.mp3')
+            pygame.mixer.music.load(game_over_path)
             pygame.mixer.music.play(-1)  # Loop indefinitely
         except:
             print("Warning: Could not load GameOver.mp3")
@@ -143,14 +165,14 @@ class SoundManager:
         
         # Load all sound effects
         sound_files = {
-            'blip_select': 'sound/blipSelect.wav',
-            'die': 'sound/die.wav',
-            'eat_fruit': 'sound/EatFruit.wav',
-            'level_up': 'sound/LevelUp.wav',
-            'no_lives': 'sound/NoLives.wav',
-            'powerup': 'sound/powerup.wav',
-            'select_letter': 'sound/SelectLetter.wav',
-            'start_game': 'sound/StartGame.wav'
+            'blip_select': os.path.join(SCRIPT_DIR, 'sound', 'blipSelect.wav'),
+            'die': os.path.join(SCRIPT_DIR, 'sound', 'die.wav'),
+            'eat_fruit': os.path.join(SCRIPT_DIR, 'sound', 'EatFruit.wav'),
+            'level_up': os.path.join(SCRIPT_DIR, 'sound', 'LevelUp.wav'),
+            'no_lives': os.path.join(SCRIPT_DIR, 'sound', 'NoLives.wav'),
+            'powerup': os.path.join(SCRIPT_DIR, 'sound', 'powerup.wav'),
+            'select_letter': os.path.join(SCRIPT_DIR, 'sound', 'SelectLetter.wav'),
+            'start_game': os.path.join(SCRIPT_DIR, 'sound', 'StartGame.wav')
         }
         
         for name, path in sound_files.items():
@@ -174,17 +196,36 @@ class Snake:
         center_x = GRID_WIDTH // 2
         center_y = GRID_HEIGHT // 2
         self.body = [(center_x, center_y), (center_x - 1, center_y), (center_x - 2, center_y)]
+        self.previous_body = list(self.body)  # Track previous positions for interpolation
         self.direction = Direction.RIGHT
         self.next_direction = Direction.RIGHT
         self.grow_pending = 0
     
     def move(self):
         """Move snake one step"""
+        # Save previous body positions for smooth interpolation
+        self.previous_body = list(self.body)
+        
         self.direction = self.next_direction
         head_x, head_y = self.body[0]
         dx, dy = self.direction.value
-        new_head = (head_x + dx, head_y + dy)
+        new_head_x = head_x + dx
+        new_head_y = head_y + dy
         
+        # Wrap coordinates immediately to ensure they're always valid
+        if new_head_x < 0:
+            new_head_x = GRID_WIDTH - 1
+        elif new_head_x >= GRID_WIDTH:
+            new_head_x = 0
+        
+        if new_head_y < 0:
+            print("DEBUG: Auto-wrapping y from {} to {}".format(new_head_y, GRID_HEIGHT - 1))
+            new_head_y = GRID_HEIGHT - 1
+        elif new_head_y >= GRID_HEIGHT:
+            print("DEBUG: Auto-wrapping y from {} to 0".format(new_head_y))
+            new_head_y = 0
+        
+        new_head = (new_head_x, new_head_y)
         self.body.insert(0, new_head)
         
         if self.grow_pending > 0:
@@ -201,19 +242,45 @@ class Snake:
         if (dx + new_dx, dy + new_dy) != (0, 0):
             self.next_direction = new_direction
     
-    def check_collision(self):
+    def check_collision(self, wrap_around=False):
         """Check if snake hit walls or itself"""
         head_x, head_y = self.body[0]
         
-        # Wall collision
-        if head_x < 0 or head_x >= GRID_WIDTH or head_y < 0 or head_y >= GRID_HEIGHT:
-            return True
+        # Wall collision (skip if wrap_around is enabled)
+        if not wrap_around:
+            if head_x < 0 or head_x >= GRID_WIDTH or head_y < 0 or head_y >= GRID_HEIGHT:
+                return True
         
         # Self collision
         if self.body[0] in self.body[1:]:
             return True
         
         return False
+    
+    def wrap_position(self):
+        """Wrap the snake's head position around the grid edges."""
+        head_x, head_y = self.body[0]
+        original_y = head_y
+        
+        # Wrap horizontally
+        if head_x < 0:
+            head_x = GRID_WIDTH - 1
+        elif head_x >= GRID_WIDTH:
+            head_x = 0
+        
+        # Wrap vertically
+        if head_y < 0:
+            print("DEBUG: Wrapping from y={} to y={}".format(head_y, GRID_HEIGHT - 1))
+            head_y = GRID_HEIGHT - 1
+        elif head_y >= GRID_HEIGHT:
+            print("DEBUG: Wrapping from y={} to y=0".format(head_y))
+            head_y = 0
+        
+        self.body[0] = (head_x, head_y)
+        
+        # Debug: Print if we're in an invalid range
+        if head_y < 0 or head_y >= GRID_HEIGHT:
+            print("ERROR: Snake head at invalid y={} (valid range: 0-{})".format(head_y, GRID_HEIGHT-1))
     
     def grow(self, amount=1):
         """Grow snake by amount"""
