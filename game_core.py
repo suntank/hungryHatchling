@@ -2,6 +2,7 @@ import pygame
 import random
 import os
 from enum import Enum
+import colorsys
 
 # Get the directory where this script is located
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -66,6 +67,8 @@ class GameState(Enum):
     LEVEL_COMPLETE = 7
     DIFFICULTY_SELECT = 8
     EGG_HATCHING = 9
+    MULTIPLAYER_MENU = 10
+    MULTIPLAYER_LOBBY = 11
 
 # Difficulty modes
 class Difficulty(Enum):
@@ -79,6 +82,49 @@ class Direction(Enum):
     DOWN = (0, 1)
     LEFT = (-1, 0)
     RIGHT = (1, 0)
+
+# Utility function for hue shifting
+def hue_shift_surface(surface, hue_shift):
+    """Apply a hue shift to a pygame surface.
+    hue_shift: 0-360 degrees to shift the hue
+    """
+    if surface is None:
+        return None
+    
+    # Create a copy of the surface
+    shifted = surface.copy()
+    width, height = shifted.get_size()
+    
+    # Lock surface for pixel access
+    shifted.lock()
+    
+    for x in range(width):
+        for y in range(height):
+            # Get the color at this pixel
+            r, g, b, a = shifted.get_at((x, y))
+            
+            # Skip fully transparent pixels
+            if a == 0:
+                continue
+            
+            # Convert RGB to HSV
+            h, s, v = colorsys.rgb_to_hsv(r / 255.0, g / 255.0, b / 255.0)
+            
+            # Shift the hue
+            h = (h + hue_shift / 360.0) % 1.0
+            
+            # Convert back to RGB
+            r, g, b = colorsys.hsv_to_rgb(h, s, v)
+            
+            # Set the new color
+            shifted.set_at((x, y), (int(r * 255), int(g * 255), int(b * 255), a))
+    
+    shifted.unlock()
+    return shifted
+
+def hue_shift_frames(frames, hue_shift):
+    """Apply hue shift to a list of frames (for animations)"""
+    return [hue_shift_surface(frame, hue_shift) for frame in frames]
 
 class Particle:
     """Visual effect particle"""
@@ -256,18 +302,25 @@ class SoundManager:
 
 class Snake:
     """Snake game logic"""
-    def __init__(self):
+    def __init__(self, player_id=0):
+        self.player_id = player_id
+        self.alive = True
+        self.score = 0
         self.reset()
     
-    def reset(self):
-        center_x = GRID_WIDTH // 2
-        center_y = GRID_HEIGHT // 2
+    def reset(self, spawn_pos=None):
+        if spawn_pos:
+            center_x, center_y = spawn_pos
+        else:
+            center_x = GRID_WIDTH // 2
+            center_y = GRID_HEIGHT // 2
         # Start with just the head - body will grow as player moves
         self.body = [(center_x, center_y)]
         self.previous_body = list(self.body)  # Track previous positions for interpolation
         self.direction = Direction.RIGHT
         self.next_direction = Direction.RIGHT
         self.grow_pending = 2  # Add 2 segments immediately so we start with 3 total
+        self.alive = True
     
     def move(self):
         """Move snake one step"""
