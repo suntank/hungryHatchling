@@ -306,6 +306,7 @@ class SnakeGame:
         self.high_scores = self.load_high_scores()
         self.player_name = ['A', 'A', 'A']
         self.name_index = 0
+        self.current_hint = ""  # Will be set when entering high score entry
         self.keyboard_selection = [0, 0]
         self.keyboard_layout = [
             ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I', 'J'],
@@ -366,7 +367,7 @@ class SnakeGame:
             y = random.randint(1, GRID_HEIGHT - 2)
             if (x, y) not in self.snake.body and (x, y) != self.food_pos:
                 self.bonus_food_pos = (x, y)
-                self.bonus_food_timer = 300
+                self.bonus_food_timer = 600
                 break
     
     def get_next_level_score(self):
@@ -470,6 +471,13 @@ class SnakeGame:
                     self.state = GameState.HIGH_SCORE_ENTRY
                     self.player_name = ['A', 'A', 'A']
                     self.name_index = 0
+                    # Pick a random hint for this high score entry session
+                    hints = [
+                        "Snake Length increases score multiplier!", 
+                        "Fill entire screen for massive bonus!", 
+                        "Your level increases score multiplier!", 
+                        "Snake length grows faster on harder difficulties!"]
+                    self.current_hint = random.choice(hints)
                 # Otherwise stay in GAME_OVER state for player to press button
         
         self.particles = [p for p in self.particles if p.is_alive()]
@@ -505,7 +513,7 @@ class SnakeGame:
                                         segment_y * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y, 
                                         None, None, particle_type='white')
                 
-                if self.lives <= 0:
+                if self.lives < 0:
                     self.sound_manager.play('no_lives')
                     self.music_manager.play_game_over_music()
                     self.state = GameState.GAME_OVER
@@ -528,30 +536,37 @@ class SnakeGame:
                 # Check if snake filled the entire grid (GRID_WIDTH * GRID_HEIGHT = 225 cells)
                 max_snake_length = GRID_WIDTH * GRID_HEIGHT
                 if len(self.snake.body) >= max_snake_length:
-                    self.sound_manager.play('powerup')
+                    self.sound_manager.play('fullSnake')
+                    # Spawn rainbow particles on all body segments including head
+                    for segment_x, segment_y in self.snake.body:
+                        self.create_particles(segment_x * GRID_SIZE + GRID_SIZE // 2,
+                                            segment_y * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y, 
+                                            None, None, particle_type='rainbow')
                     self.score += int(1000 * self.level * self.get_score_multiplier())
                     self.lives = min(99, self.lives + 10)  # Award 10 extra lives
-                    # Create massive particle explosion
-                    center_x = SCREEN_WIDTH // 2
-                    center_y = (SCREEN_HEIGHT + GAME_OFFSET_Y) // 2
-                    self.create_particles(center_x, center_y, NEON_YELLOW, 20)
-                    self.create_particles(center_x, center_y, NEON_CYAN, 20)
                     # Reset snake after this incredible achievement
                     self.snake.reset()
                     self.spawn_food()
+                    self.spawn_bonus_food()
+                    self.spawn_bonus_food()
+                    self.spawn_bonus_food()
                 
                 # Increment fruit counter and check if player leveled up (20 fruits per level)
                 self.fruits_eaten_this_level += 1
-                if self.fruits_eaten_this_level >= 20:
+                if self.fruits_eaten_this_level >= 12:
                     self.sound_manager.play('level_up')
                     self.state = GameState.LEVEL_COMPLETE
-                
-                if random.random() < 0.3:
+                ran = random.random()
+                if ran < 0.3:
+                    self.spawn_bonus_food()
+                if ran < 0.2:
+                    self.spawn_bonus_food()
+                if ran < 0.1:
                     self.spawn_bonus_food()
             
             if self.bonus_food_pos and self.snake.body[0] == self.bonus_food_pos:
                 self.sound_manager.play('powerup')
-                self.snake.grow(1)
+                self.snake.grow(self.get_difficulty_length_modifier())
                 base_points = (47 + len(self.snake.body)) * self.level
                 self.score += int(base_points * self.get_score_multiplier())
                 bx, by = self.bonus_food_pos
@@ -560,21 +575,6 @@ class SnakeGame:
                                     None, None, particle_type='rainbow')
                 self.bonus_food_pos = None
                 self.bonus_food_timer = 0
-                
-                # Check if snake filled the entire grid (GRID_WIDTH * GRID_HEIGHT = 225 cells)
-                max_snake_length = GRID_WIDTH * GRID_HEIGHT
-                if len(self.snake.body) >= max_snake_length:
-                    self.sound_manager.play('powerup')
-                    self.score += int(1000 * self.level * self.get_score_multiplier())
-                    self.lives = min(99, self.lives + 10)  # Award 10 extra lives
-                    # Create massive particle explosion
-                    center_x = SCREEN_WIDTH // 2
-                    center_y = (SCREEN_HEIGHT + GAME_OFFSET_Y) // 2
-                    self.create_particles(center_x, center_y, NEON_YELLOW, 20)
-                    self.create_particles(center_x, center_y, NEON_CYAN, 20)
-                    # Reset snake after this incredible achievement
-                    self.snake.reset()
-                    self.spawn_food()
                 
                 # Note: Bonus food gives extra points but doesn't count toward level progression
     
@@ -772,7 +772,7 @@ class SnakeGame:
         if event.type == pygame.JOYBUTTONDOWN and self.joystick:
             button = event.button
             if self.state == GameState.MENU:
-                if button == GamepadButton.BTN_START:
+                if button == GamepadButton.BTN_START or button == GamepadButton.BTN_A:
                     self.select_menu_option()
             elif self.state == GameState.PLAYING:
                 if button == GamepadButton.BTN_START:
@@ -1056,14 +1056,13 @@ class SnakeGame:
         # Render menu options
         for i, option in enumerate(self.menu_options):
             color = NEON_YELLOW if i == self.menu_selection else NEON_CYAN
+            text = self.font_medium.render(option, True, BLACK)
+            text_rect = text.get_rect(center=((SCREEN_WIDTH // 2)+3, 323 + i * 60))
+            
+            # Draw text
+            self.screen.blit(text, text_rect)
             text = self.font_medium.render(option, True, color)
             text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, 320 + i * 60))
-            
-            # Draw selection box
-            # if i == self.menu_selection:
-            #     glow_rect = pygame.Rect(text_rect.left - 20, text_rect.top, 
-            #                            text_rect.width + 40, text_rect.height)
-            #     pygame.draw.rect(self.screen, NEON_PINK, glow_rect, 2)
             
             # Draw text
             self.screen.blit(text, text_rect)
@@ -1126,13 +1125,7 @@ class SnakeGame:
         desc_rect = desc_text.get_rect(center=(SCREEN_WIDTH // 2, 450))
         self.screen.blit(desc_text, desc_rect)
 
-        # Draw hint at bottom with more space
-        hint_text = self.font_small.render("Start to confirm", True, BLACK)
-        hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+2, 402))
-        self.screen.blit(hint_text, hint_rect)
-        hint_text = self.font_small.render("Start to confirm", True, NEON_CYAN)
-        hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 400))
-        self.screen.blit(hint_text, hint_rect)
+
     
     def draw_egg_hatching(self):
         # Draw background
@@ -1168,33 +1161,73 @@ class SnakeGame:
             self.screen.blit(self.egg_img, (center_x, center_y))
         
         # Draw HUD
-        score_label = self.font_small.render("SCORE", True, NEON_CYAN)
-        score_value = self.font_small.render("{}".format(self.score), True, WHITE)
+        # Draw HUD text (background now part of bg.png)
+        # Left side: Score with label
+        score_label = self.font_small.render("SCORE:", True, BLACK)
+        self.screen.blit(score_label, (10, 4))
+        score_label = self.font_small.render("SCORE:", True, NEON_YELLOW)
         self.screen.blit(score_label, (8, 2))
-        self.screen.blit(score_value, (8, 16))
+        score_value = self.font_small.render("{}".format(self.score), True, BLACK)
+        self.screen.blit(score_value, (100, 4))
+        score_value = self.font_small.render("{}".format(self.score), True, WHITE)
+        self.screen.blit(score_value, (98, 2))
         
-        level_label = self.font_small.render("LVL", True, NEON_PURPLE)
+        level_label = self.font_small.render("LEVEL:", True, BLACK)
+        level_value = self.font_small.render("{}".format(self.level), True, BLACK)
+        level_label_rect = level_label.get_rect(center=(SCREEN_WIDTH // 2 + 62, SCREEN_HEIGHT - 7))
+        level_value_rect = level_value.get_rect(center=(SCREEN_WIDTH // 2 + 125, SCREEN_HEIGHT - 6))
+        self.screen.blit(level_label, level_label_rect)
+        self.screen.blit(level_value, level_value_rect)
+        level_label = self.font_small.render("LEVEL:", True, NEON_YELLOW)
         level_value = self.font_small.render("{}".format(self.level), True, WHITE)
-        level_label_rect = level_label.get_rect(center=(SCREEN_WIDTH // 2 - 60, 8))
-        level_value_rect = level_value.get_rect(center=(SCREEN_WIDTH // 2 - 60, 22))
+        level_label_rect = level_label.get_rect(center=(SCREEN_WIDTH // 2 + 60, SCREEN_HEIGHT - 9))
+        level_value_rect = level_value.get_rect(center=(SCREEN_WIDTH // 2 + 123, SCREEN_HEIGHT - 8))
         self.screen.blit(level_label, level_label_rect)
         self.screen.blit(level_value, level_value_rect)
         
-        fruits_label = self.font_small.render("FRUITS", True, NEON_YELLOW)
-        fruits_value = self.font_small.render("{}/20".format(self.fruits_eaten_this_level), True, WHITE)
-        fruits_label_rect = fruits_label.get_rect(center=(SCREEN_WIDTH // 2 + 60, 8))
-        fruits_value_rect = fruits_value.get_rect(center=(SCREEN_WIDTH // 2 + 60, 22))
+        fruits_label = self.font_small.render("WORMS:", True, BLACK)
+        fruits_label_rect = fruits_label.get_rect(center=(SCREEN_WIDTH // 2 + 62, 16))
         self.screen.blit(fruits_label, fruits_label_rect)
+        fruits_label = self.font_small.render("WORMS:", True, NEON_YELLOW)
+        fruits_label_rect = fruits_label.get_rect(center=(SCREEN_WIDTH // 2 + 60, 14))
+        self.screen.blit(fruits_label, fruits_label_rect)
+
+        fruits_value = self.font_small.render("{}/12".format(self.fruits_eaten_this_level), True, BLACK)
+        fruits_value_rect = fruits_value.get_rect(center=(SCREEN_WIDTH // 2 + 135, 16))
+        self.screen.blit(fruits_value, fruits_value_rect)
+        fruits_value = self.font_small.render("{}/12".format(self.fruits_eaten_this_level), True, WHITE)
+        fruits_value_rect = fruits_value.get_rect(center=(SCREEN_WIDTH // 2 + 133, 14))
         self.screen.blit(fruits_value, fruits_value_rect)
         
-        lives_label = self.font_small.render("LIVES", True, NEON_PINK)
-        lives_value = self.font_small.render("{}".format(self.lives), True, WHITE)
-        lives_label_rect = lives_label.get_rect(right=SCREEN_WIDTH - 8, top=2)
-        lives_value_rect = lives_value.get_rect(right=SCREEN_WIDTH - 8, top=16)
+        
+        # Lives with label
+        lives_label = self.font_medium.render("LIVES", True, BLACK)
+        lives_label_rect = lives_label.get_rect(center=((SCREEN_WIDTH // 2)+3, 63))
         self.screen.blit(lives_label, lives_label_rect)
+        lives_label = self.font_medium.render("LIVES", True, NEON_YELLOW)
+        lives_label_rect = lives_label.get_rect(center=(SCREEN_WIDTH // 2, 60))
+        self.screen.blit(lives_label, lives_label_rect)
+        lives_value = self.font_medium.render("{}".format(self.lives), True, BLACK)
+        lives_value_rect = lives_value.get_rect(center=((SCREEN_WIDTH // 2)+3, 99))
+        self.screen.blit(lives_value, lives_value_rect)
+        lives_value = self.font_medium.render("{}".format(self.lives), True, WHITE)
+        lives_value_rect = lives_value.get_rect(center=(SCREEN_WIDTH // 2, 96))
         self.screen.blit(lives_value, lives_value_rect)
         
+        # Lives with label
+        lives_label = self.font_small.render("LIVES:", True, BLACK)
+        self.screen.blit(lives_label, (10, SCREEN_HEIGHT - 19))
+        lives_label = self.font_small.render("LIVES:", True, NEON_YELLOW)
+        self.screen.blit(lives_label, (8, SCREEN_HEIGHT - 21))
+        lives_value = self.font_small.render("{}".format(self.lives), True, BLACK)
+        self.screen.blit(lives_value, (85, SCREEN_HEIGHT - 19))
+        lives_value = self.font_small.render("{}".format(self.lives), True, WHITE)
+        self.screen.blit(lives_value, (83, SCREEN_HEIGHT - 21))
+
         # Draw instruction text
+        instruction = self.font_medium.render("Press a direction to hatch!", True, BLACK)
+        instruction_rect = instruction.get_rect(center=((SCREEN_WIDTH // 2)+3, SCREEN_HEIGHT - 37))
+        self.screen.blit(instruction, instruction_rect)
         instruction = self.font_medium.render("Press a direction to hatch!", True, NEON_YELLOW)
         instruction_rect = instruction.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT - 40))
         self.screen.blit(instruction, instruction_rect)
@@ -1321,35 +1354,53 @@ class SnakeGame:
         
         # Draw HUD text (background now part of bg.png)
         # Left side: Score with label
-        score_label = self.font_small.render("SCORE", True, NEON_CYAN)
-        score_value = self.font_small.render("{}".format(self.score), True, WHITE)
+        score_label = self.font_small.render("SCORE:", True, BLACK)
+        self.screen.blit(score_label, (10, 4))
+        score_label = self.font_small.render("SCORE:", True, NEON_YELLOW)
         self.screen.blit(score_label, (8, 2))
-        self.screen.blit(score_value, (8, 16))
+        score_value = self.font_small.render("{}".format(self.score), True, BLACK)
+        self.screen.blit(score_value, (100, 4))
+        score_value = self.font_small.render("{}".format(self.score), True, WHITE)
+        self.screen.blit(score_value, (98, 2))
         
         # Center-left: Level
-        level_label = self.font_small.render("LVL", True, NEON_PURPLE)
+        level_label = self.font_small.render("LEVEL:", True, BLACK)
+        level_value = self.font_small.render("{}".format(self.level), True, BLACK)
+        level_label_rect = level_label.get_rect(center=(SCREEN_WIDTH // 2 + 62, SCREEN_HEIGHT - 7))
+        level_value_rect = level_value.get_rect(center=(SCREEN_WIDTH // 2 + 125, SCREEN_HEIGHT - 6))
+        self.screen.blit(level_label, level_label_rect)
+        self.screen.blit(level_value, level_value_rect)
+        level_label = self.font_small.render("LEVEL:", True, NEON_YELLOW)
         level_value = self.font_small.render("{}".format(self.level), True, WHITE)
-        level_label_rect = level_label.get_rect(center=(SCREEN_WIDTH // 2 - 60, 8))
-        level_value_rect = level_value.get_rect(center=(SCREEN_WIDTH // 2 - 60, 22))
+        level_label_rect = level_label.get_rect(center=(SCREEN_WIDTH // 2 + 60, SCREEN_HEIGHT - 9))
+        level_value_rect = level_value.get_rect(center=(SCREEN_WIDTH // 2 + 123, SCREEN_HEIGHT - 8))
         self.screen.blit(level_label, level_label_rect)
         self.screen.blit(level_value, level_value_rect)
         
-        # Center-right: Fruit counter progress toward next level
-        fruits_label = self.font_small.render("FRUITS", True, NEON_YELLOW)
-        fruits_value = self.font_small.render("{}/20".format(self.fruits_eaten_this_level), True, WHITE)
-        fruits_label_rect = fruits_label.get_rect(center=(SCREEN_WIDTH // 2 + 60, 8))
-        fruits_value_rect = fruits_value.get_rect(center=(SCREEN_WIDTH // 2 + 60, 22))
+        fruits_label = self.font_small.render("WORMS:", True, BLACK)
+        fruits_label_rect = fruits_label.get_rect(center=(SCREEN_WIDTH // 2 + 62, 16))
         self.screen.blit(fruits_label, fruits_label_rect)
+        fruits_label = self.font_small.render("WORMS:", True, NEON_YELLOW)
+        fruits_label_rect = fruits_label.get_rect(center=(SCREEN_WIDTH // 2 + 60, 14))
+        self.screen.blit(fruits_label, fruits_label_rect)
+
+        fruits_value = self.font_small.render("{}/12".format(self.fruits_eaten_this_level), True, BLACK)
+        fruits_value_rect = fruits_value.get_rect(center=(SCREEN_WIDTH // 2 + 135, 16))
+        self.screen.blit(fruits_value, fruits_value_rect)
+        fruits_value = self.font_small.render("{}/12".format(self.fruits_eaten_this_level), True, WHITE)
+        fruits_value_rect = fruits_value.get_rect(center=(SCREEN_WIDTH // 2 + 133, 14))
         self.screen.blit(fruits_value, fruits_value_rect)
         
-        # Right side: Lives with label
-        lives_label = self.font_small.render("LIVES", True, NEON_PINK)
+        # Lives with label
+        lives_label = self.font_small.render("LIVES:", True, BLACK)
+        self.screen.blit(lives_label, (10, SCREEN_HEIGHT - 19))
+        lives_label = self.font_small.render("LIVES:", True, NEON_YELLOW)
+        self.screen.blit(lives_label, (8, SCREEN_HEIGHT - 21))
+        lives_value = self.font_small.render("{}".format(self.lives), True, BLACK)
+        self.screen.blit(lives_value, (85, SCREEN_HEIGHT - 19))
         lives_value = self.font_small.render("{}".format(self.lives), True, WHITE)
-        lives_label_rect = lives_label.get_rect(right=SCREEN_WIDTH - 8, top=2)
-        lives_value_rect = lives_value.get_rect(right=SCREEN_WIDTH - 8, top=16)
-        self.screen.blit(lives_label, lives_label_rect)
-        self.screen.blit(lives_value, lives_value_rect)
-    
+        self.screen.blit(lives_value, (83, SCREEN_HEIGHT - 21))
+
     def draw_pause(self):
         overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
         overlay.set_alpha(180)
@@ -1438,52 +1489,75 @@ class SnakeGame:
             self.screen.fill(DARK_BG)
         
         # Title at top with more space
+        title = self.font_large.render("NEW HIGH SCORE!", True, BLACK)
+        title_rect = title.get_rect(center=((SCREEN_WIDTH // 2)+3, 48))
+        self.screen.blit(title, title_rect)
         title = self.font_large.render("NEW HIGH SCORE!", True, NEON_YELLOW)
         title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 45))
         self.screen.blit(title, title_rect)
         
+
+        # Score below title with proper spacing
+        score_text = self.font_medium.render("Score: {}".format(self.score), True, BLACK)
+        score_rect = score_text.get_rect(center=((SCREEN_WIDTH // 2)+3, 93))
+        self.screen.blit(score_text, score_rect)
         # Score below title with proper spacing
         score_text = self.font_medium.render("Score: {}".format(self.score), True, NEON_CYAN)
         score_rect = score_text.get_rect(center=(SCREEN_WIDTH // 2, 90))
         self.screen.blit(score_text, score_rect)
+
         
         # Name entry with better spacing
-        name_y = 130
+        name_y = 135
         for i, char in enumerate(self.player_name):
             x = SCREEN_WIDTH // 2 - 40 + i * 30
-            color = NEON_PINK if i == self.name_index else NEON_CYAN
+            color = WHITE if i == self.name_index else NEON_YELLOW
+            char_text = self.font_large.render(char, True, BLACK)
+            char_rect = char_text.get_rect(center=((x+3, name_y+3)))
+            self.screen.blit(char_text, char_rect)
             char_text = self.font_large.render(char, True, color)
             char_rect = char_text.get_rect(center=(x, name_y))
             self.screen.blit(char_text, char_rect)
             
-            if i == self.name_index:
-                pygame.draw.rect(self.screen, YELLOW,
-                               (char_rect.left - 5, char_rect.top - 2,
-                                char_rect.width + 10, char_rect.height + 4), 2)
         
-        # Keyboard layout with better spacing
+        # Keyboard layout with better spacing - centered
         key_y_start = 190
+        key_spacing_x = 45  # Horizontal spacing between keys
+        key_spacing_y = 40  # Vertical spacing between rows
+        keyboard_width = len(self.keyboard_layout[0]) * key_spacing_x
+        start_x = (SCREEN_WIDTH - keyboard_width) // 2 + key_spacing_x // 2
+        
         for row_idx, row in enumerate(self.keyboard_layout):
             for col_idx, char in enumerate(row):
-                x = 20 + col_idx * 26
-                y = key_y_start + row_idx * 28
+                x = start_x + col_idx * key_spacing_x
+                y = key_y_start + row_idx * key_spacing_y
                 
                 is_selected = (row_idx == self.keyboard_selection[0] and 
                              col_idx == self.keyboard_selection[1])
-                color = NEON_YELLOW if is_selected else NEON_PURPLE
                 
-                key_text = self.font_small.render(char, True, color)
+                # Draw shadow first
+                key_text = self.font_medium.render(char, True, BLACK)
+                key_rect = key_text.get_rect(center=(x+2, y+2))
+                self.screen.blit(key_text, key_rect)
+                
+                # Draw main text in white (or yellow if selected)
+                color = NEON_YELLOW if is_selected else WHITE
+                key_text = self.font_medium.render(char, True, color)
                 key_rect = key_text.get_rect(center=(x, y))
                 self.screen.blit(key_text, key_rect)
                 
                 if is_selected:
                     pygame.draw.rect(self.screen, NEON_PINK,
-                                   (key_rect.left - 3, key_rect.top - 2,
-                                    key_rect.width + 6, key_rect.height + 4), 1)
-        
+                                   (key_rect.left - 5, key_rect.top - 3,
+                                    key_rect.width + 10, key_rect.height + 6), 2)
+        # Use the pre-selected hint for this session
         # Legend at bottom
-        legend_text = self.font_small.render("Better luck next time!", True, NEON_GREEN)
-        legend_rect = legend_text.get_rect(center=(SCREEN_WIDTH // 2, 320))
+        hint_text = self.current_hint
+        legend_text = self.font_small.render(hint_text, True, BLACK)
+        legend_rect = legend_text.get_rect(center=((SCREEN_WIDTH // 2)+3, 360+3))
+        self.screen.blit(legend_text, legend_rect)
+        legend_text = self.font_small.render(hint_text, True, NEON_CYAN)
+        legend_rect = legend_text.get_rect(center=(SCREEN_WIDTH // 2, 360))
         self.screen.blit(legend_text, legend_rect)
     
     def draw_high_scores(self):
@@ -1492,13 +1566,20 @@ class SnakeGame:
             self.screen.blit(self.highscore_screen, (0, 0))
         else:
             self.screen.fill(DARK_BG)
-        
+        # Title shifted down
+        title = self.font_large.render("HIGH SCORES", True, BLACK)
+        title_rect = title.get_rect(center=((SCREEN_WIDTH // 2)+3, 43))
+        self.screen.blit(title, title_rect)
+
         # Title shifted down
         title = self.font_large.render("HIGH SCORES", True, NEON_YELLOW)
         title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 40))
         self.screen.blit(title, title_rect)
         
         if not self.high_scores:
+            no_scores = self.font_medium.render("No scores yet!", True, BLACK)
+            no_scores_rect = no_scores.get_rect(center=((SCREEN_WIDTH // 2)+3, 153))
+            self.screen.blit(no_scores, no_scores_rect)
             no_scores = self.font_medium.render("No scores yet!", True, NEON_CYAN)
             no_scores_rect = no_scores.get_rect(center=(SCREEN_WIDTH // 2, 150))
             self.screen.blit(no_scores, no_scores_rect)
@@ -1511,18 +1592,28 @@ class SnakeGame:
                 score = entry['score']
                 y = start_y + i * spacing
                 
+                rank_text = self.font_small.render("{}".format(i+1), True, BLACK)
+                self.screen.blit(rank_text, (22, y+2))
                 rank_text = self.font_small.render("{}".format(i+1), True, NEON_PURPLE)
                 self.screen.blit(rank_text, (20, y))
                 
+                name_text = self.font_small.render(name, True, BLACK)
+                self.screen.blit(name_text, (62, y+2))
                 name_text = self.font_small.render(name, True, NEON_GREEN)
                 self.screen.blit(name_text, (60, y))
                 
+                score_text = self.font_small.render(str(score), True, BLACK)
+                score_rect = score_text.get_rect(right=(SCREEN_WIDTH - 22), top=y +2)
+                self.screen.blit(score_text, score_rect)
                 score_text = self.font_small.render(str(score), True, NEON_CYAN)
                 score_rect = score_text.get_rect(right=SCREEN_WIDTH - 20, top=y)
                 self.screen.blit(score_text, score_rect)
         
         # Hint text at bottom
-        hint_text = self.font_small.render("Start to continue", True, NEON_PINK)
+        hint_text = self.font_small.render("Start to continue", True, BLACK)
+        hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+3, 452))
+        self.screen.blit(hint_text, hint_rect)
+        hint_text = self.font_small.render("Start to continue", True, NEON_CYAN)
         hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 450))
         self.screen.blit(hint_text, hint_rect)
 

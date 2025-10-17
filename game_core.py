@@ -193,6 +193,7 @@ class MusicManager:
         
         try:
             pygame.mixer.music.load(self.current_track)
+            pygame.mixer.music.set_volume(0.9)
             pygame.mixer.music.play()
         except:
             print(f"Warning: Could not load {self.current_track}")
@@ -203,6 +204,7 @@ class MusicManager:
         try:
             game_over_path = os.path.join(SCRIPT_DIR, 'sound', 'GameOver.mp3')
             pygame.mixer.music.load(game_over_path)
+            pygame.mixer.music.set_volume(0.9)
             pygame.mixer.music.play(-1)  # Loop indefinitely
         except:
             print("Warning: Could not load GameOver.mp3")
@@ -234,6 +236,7 @@ class SoundManager:
             'level_up': os.path.join(SCRIPT_DIR, 'sound', 'LevelUp.wav'),
             'no_lives': os.path.join(SCRIPT_DIR, 'sound', 'NoLives.wav'),
             'powerup': os.path.join(SCRIPT_DIR, 'sound', 'powerup.wav'),
+            'fullSnake': os.path.join(SCRIPT_DIR, 'sound', 'fullSnake.wav'),
             'select_letter': os.path.join(SCRIPT_DIR, 'sound', 'SelectLetter.wav'),
             'start_game': os.path.join(SCRIPT_DIR, 'sound', 'StartGame.wav'),
             'crack': os.path.join(SCRIPT_DIR, 'sound', 'crack.wav')
@@ -303,7 +306,7 @@ class Snake:
         # Top is handled by HUD area (y < 0 would be in HUD)
         # The border occupies: x=0, x=GRID_WIDTH-1, y=GRID_HEIGHT-1
         if not wrap_around:
-            if head_x <= 0 or head_x >= GRID_WIDTH - 1 or head_y < 0 or head_y >= GRID_HEIGHT - 1:
+            if head_x <= 0 or head_x >= GRID_WIDTH - 1 or head_y < 1 or head_y >= GRID_HEIGHT - 1:
                 return True
         
         # Self collision
