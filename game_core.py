@@ -8,12 +8,12 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Constants
 SCREEN_WIDTH = 480
-SCREEN_HEIGHT = 512  # Increased to accommodate HUD bar (240 + 16)
-HUD_HEIGHT = 32  # One grid size for HUD
-GAME_OFFSET_Y = HUD_HEIGHT  # Game starts below HUD
+SCREEN_HEIGHT = 480  # Square screen for Raspberry Pi
+HUD_HEIGHT = 32  # HUD overlay height (top portion of screen)
+GAME_OFFSET_Y = 0  # Game uses full screen, HUD is overlaid
 GRID_SIZE = 32  
 GRID_WIDTH = SCREEN_WIDTH // GRID_SIZE
-GRID_HEIGHT = (SCREEN_HEIGHT - HUD_HEIGHT) // GRID_SIZE  # Grid height excludes HUD
+GRID_HEIGHT = SCREEN_HEIGHT // GRID_SIZE  # Grid uses full height
 
 # Debug: Print grid calculations
 print("DEBUG: SCREEN_HEIGHT={}, HUD_HEIGHT={}, GRID_SIZE={}".format(SCREEN_HEIGHT, HUD_HEIGHT, GRID_SIZE))
@@ -65,6 +65,7 @@ class GameState(Enum):
     HIGH_SCORES = 6
     LEVEL_COMPLETE = 7
     DIFFICULTY_SELECT = 8
+    EGG_HATCHING = 9
 
 # Difficulty modes
 class Difficulty(Enum):
@@ -129,6 +130,41 @@ class GifParticle:
     
     def is_alive(self):
         return self.alive
+
+class EggPiece:
+    """Flying egg shell piece with rotation"""
+    def __init__(self, x, y, image, velocity):
+        self.x = x
+        self.y = y
+        self.image = image
+        self.vx, self.vy = velocity
+        self.rotation = 0
+        self.rotation_speed = random.uniform(-15, 15)  # Random rotation speed
+        self.lifetime = 60  # About 1 second at 60 FPS
+        self.alpha = 255
+    
+    def update(self):
+        self.x += self.vx
+        self.y += self.vy
+        self.vy += 0.3  # Gravity
+        self.rotation += self.rotation_speed
+        self.lifetime -= 1
+        # Fade out in the last 20 frames
+        if self.lifetime < 20:
+            self.alpha = int(255 * (self.lifetime / 20))
+    
+    def draw(self, screen):
+        if self.lifetime > 0:
+            # Rotate the image
+            rotated = pygame.transform.rotate(self.image, self.rotation)
+            # Apply alpha
+            rotated.set_alpha(self.alpha)
+            # Center the rotated image
+            rect = rotated.get_rect(center=(int(self.x), int(self.y)))
+            screen.blit(rotated, rect)
+    
+    def is_alive(self):
+        return self.lifetime > 0
 
 class MusicManager:
     """Manages random music playback without immediate repeats"""
@@ -199,7 +235,8 @@ class SoundManager:
             'no_lives': os.path.join(SCRIPT_DIR, 'sound', 'NoLives.wav'),
             'powerup': os.path.join(SCRIPT_DIR, 'sound', 'powerup.wav'),
             'select_letter': os.path.join(SCRIPT_DIR, 'sound', 'SelectLetter.wav'),
-            'start_game': os.path.join(SCRIPT_DIR, 'sound', 'StartGame.wav')
+            'start_game': os.path.join(SCRIPT_DIR, 'sound', 'StartGame.wav'),
+            'crack': os.path.join(SCRIPT_DIR, 'sound', 'crack.wav')
         }
         
         for name, path in sound_files.items():
@@ -222,11 +259,12 @@ class Snake:
     def reset(self):
         center_x = GRID_WIDTH // 2
         center_y = GRID_HEIGHT // 2
-        self.body = [(center_x, center_y), (center_x - 1, center_y), (center_x - 2, center_y)]
+        # Start with just the head - body will grow as player moves
+        self.body = [(center_x, center_y)]
         self.previous_body = list(self.body)  # Track previous positions for interpolation
         self.direction = Direction.RIGHT
         self.next_direction = Direction.RIGHT
-        self.grow_pending = 0
+        self.grow_pending = 2  # Add 2 segments immediately so we start with 3 total
     
     def move(self):
         """Move snake one step"""

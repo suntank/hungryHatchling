@@ -85,6 +85,26 @@ class SnakeGame:
             self.difficulty_screen = None
             print("Warning: difficulty.png not found, using default difficulty screen")
         
+        # Load egg images
+        try:
+            egg_path = os.path.join(SCRIPT_DIR, 'egg.png')
+            self.egg_img = pygame.image.load(egg_path).convert_alpha()
+            self.egg_img = pygame.transform.scale(self.egg_img, (GRID_SIZE * 2, GRID_SIZE * 2))
+        except:
+            self.egg_img = None
+            print("Warning: egg.png not found")
+        
+        # Load egg piece images
+        self.egg_piece_imgs = []
+        for i in range(1, 5):
+            try:
+                piece_path = os.path.join(SCRIPT_DIR, 'eggPiece{}.png'.format(i))
+                piece_img = pygame.image.load(piece_path).convert_alpha()
+                piece_img = pygame.transform.scale(piece_img, (GRID_SIZE, GRID_SIZE))
+                self.egg_piece_imgs.append(piece_img)
+            except:
+                print("Warning: eggPiece{}.png not found".format(i))
+        
         # Load snake graphics (scaled larger than grid for visual overlap)
         self.snake_scale_factor = 1.25  # Scale up by 25% for overlap effect
         self.snake_sprite_size = int(GRID_SIZE * self.snake_scale_factor)
@@ -259,6 +279,7 @@ class SnakeGame:
         self.fruits_eaten_this_level = 0  # Track fruits eaten for leveling up
         self.move_timer = 0
         self.particles = []
+        self.egg_pieces = []  # Track flying egg shell pieces
         self.game_over_timer = 0
         self.game_over_delay = 180  # 3 seconds at 60 FPS
         
@@ -455,6 +476,11 @@ class SnakeGame:
         for particle in self.particles:
             particle.update()
         
+        # Update egg pieces
+        self.egg_pieces = [p for p in self.egg_pieces if p.is_alive()]
+        for piece in self.egg_pieces:
+            piece.update()
+        
         if self.bonus_food_timer > 0:
             self.bonus_food_timer -= 1
             if self.bonus_food_timer == 0:
@@ -485,7 +511,8 @@ class SnakeGame:
                     self.state = GameState.GAME_OVER
                     self.game_over_timer = self.game_over_delay  # Start 3-second timer
                 else:
-                    self.snake.reset()
+                    # Go to egg hatching state instead of immediate reset
+                    self.state = GameState.EGG_HATCHING
                 return
             
             if self.snake.body[0] == self.food_pos:
@@ -562,7 +589,17 @@ class SnakeGame:
         
         keys = pygame.key.get_pressed()
         
-        if self.state == GameState.PLAYING:
+        if self.state == GameState.EGG_HATCHING:
+            # Wait for player to choose a direction to hatch
+            if keys[pygame.K_UP]:
+                self.hatch_egg(Direction.UP)
+            elif keys[pygame.K_DOWN]:
+                self.hatch_egg(Direction.DOWN)
+            elif keys[pygame.K_LEFT]:
+                self.hatch_egg(Direction.LEFT)
+            elif keys[pygame.K_RIGHT]:
+                self.hatch_egg(Direction.RIGHT)
+        elif self.state == GameState.PLAYING:
             if keys[pygame.K_UP]:
                 self.snake.change_direction(Direction.UP)
             elif keys[pygame.K_DOWN]:
@@ -575,7 +612,16 @@ class SnakeGame:
         # Only poll hat if joystick has one (otherwise rely on JOYHATMOTION events or axes)
         if self.joystick and self.joystick_has_hat:
             hat = self.joystick.get_hat(0)
-            if self.state == GameState.PLAYING:
+            if self.state == GameState.EGG_HATCHING:
+                if hat[1] == 1:
+                    self.hatch_egg(Direction.UP)
+                elif hat[1] == -1:
+                    self.hatch_egg(Direction.DOWN)
+                elif hat[0] == -1:
+                    self.hatch_egg(Direction.LEFT)
+                elif hat[0] == 1:
+                    self.hatch_egg(Direction.RIGHT)
+            elif self.state == GameState.PLAYING:
                 if hat[1] == 1:
                     self.snake.change_direction(Direction.UP)
                 elif hat[1] == -1:
@@ -597,7 +643,19 @@ class SnakeGame:
                 # Check if axis is in neutral position
                 is_neutral = abs(axis_x) < threshold and abs(axis_y) < threshold
                 
-                if self.state == GameState.PLAYING:
+                if self.state == GameState.EGG_HATCHING:
+                    # Prioritize the axis with larger absolute value
+                    if abs(axis_y) > abs(axis_x) and abs(axis_y) > threshold:
+                        if axis_y < -threshold:
+                            self.hatch_egg(Direction.UP)
+                        elif axis_y > threshold:
+                            self.hatch_egg(Direction.DOWN)
+                    elif abs(axis_x) > threshold:
+                        if axis_x < -threshold:
+                            self.hatch_egg(Direction.LEFT)
+                        elif axis_x > threshold:
+                            self.hatch_egg(Direction.RIGHT)
+                elif self.state == GameState.PLAYING:
                     # Prioritize the axis with larger absolute value
                     if abs(axis_y) > abs(axis_x) and abs(axis_y) > threshold:
                         if axis_y < -threshold:
@@ -709,7 +767,7 @@ class SnakeGame:
                     self.sound_manager.play('start_game')
                     self.music_manager.stop_game_over_music()
                     self.reset_game()
-                    self.state = GameState.PLAYING
+                    # reset_game() already sets state to EGG_HATCHING, don't override it
         
         if event.type == pygame.JOYBUTTONDOWN and self.joystick:
             button = event.button
@@ -755,7 +813,7 @@ class SnakeGame:
                     self.sound_manager.play('start_game')
                     self.music_manager.stop_game_over_music()
                     self.reset_game()
-                    self.state = GameState.PLAYING
+                    # reset_game() already sets state to EGG_HATCHING, don't override it
         
         if event.type == pygame.JOYHATMOTION and self.joystick:
             hat = event.value
@@ -856,7 +914,6 @@ class SnakeGame:
     
 
     def reset_game(self):
-        self.snake.reset()
         self.score = 0
         self.level = 1
         self.lives = 3
@@ -865,6 +922,38 @@ class SnakeGame:
         self.bonus_food_pos = None
         self.bonus_food_timer = 0
         self.particles = []
+        self.egg_pieces = []
+        # Don't reset snake yet - wait for egg hatching
+        self.state = GameState.EGG_HATCHING
+    
+    def hatch_egg(self, direction):
+        """Hatch the egg and spawn the snake in the chosen direction"""
+        self.sound_manager.play('crack')
+        
+        # Reset snake with chosen direction
+        self.snake.reset()
+        self.snake.direction = direction
+        self.snake.next_direction = direction
+        
+        # Create flying egg pieces
+        center_x = SCREEN_WIDTH // 2
+        center_y = SCREEN_HEIGHT // 2
+        
+        if len(self.egg_piece_imgs) == 4:
+            # Create 4 egg pieces flying in different directions
+            velocities = [
+                (-4, -6),  # Top-left
+                (4, -6),   # Top-right
+                (-5, -3),  # Left
+                (5, -3)    # Right
+            ]
+            
+            for i, (vx, vy) in enumerate(velocities):
+                piece = EggPiece(center_x, center_y, self.egg_piece_imgs[i], (vx, vy))
+                self.egg_pieces.append(piece)
+        
+        # Transition to playing
+        self.state = GameState.PLAYING
     
     def next_level(self):
         self.level += 1
@@ -885,7 +974,26 @@ class SnakeGame:
             
             self.handle_input()
             
-            if self.state == GameState.PLAYING:
+            if self.state == GameState.EGG_HATCHING:
+                # Update particles (death particles from previous life)
+                self.particles = [p for p in self.particles if p.is_alive()]
+                for particle in self.particles:
+                    particle.update()
+                
+                # Update egg pieces and animations while waiting for player input
+                self.egg_pieces = [p for p in self.egg_pieces if p.is_alive()]
+                for piece in self.egg_pieces:
+                    piece.update()
+                
+                # Update worm animation
+                if self.worm_frames:
+                    self.worm_animation_counter += 1
+                    if self.worm_animation_counter >= self.worm_animation_speed:
+                        self.worm_animation_counter = 0
+                        self.worm_frame_index = (self.worm_frame_index + 1) % len(self.worm_frames)
+                
+                self.music_manager.update()
+            elif self.state == GameState.PLAYING:
                 self.update_game()
             elif self.state == GameState.GAME_OVER:
                 # Update game over timer and music even when not playing
@@ -909,6 +1017,8 @@ class SnakeGame:
         
         if self.state == GameState.MENU:
             self.draw_menu()
+        elif self.state == GameState.EGG_HATCHING:
+            self.draw_egg_hatching()
         elif self.state == GameState.PLAYING:
             self.draw_game()
         elif self.state == GameState.PAUSED:
@@ -1009,6 +1119,71 @@ class SnakeGame:
         hint_text = self.font_small.render("Start to confirm", True, NEON_CYAN)
         hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 340))
         self.screen.blit(hint_text, hint_rect)
+    
+    def draw_egg_hatching(self):
+        # Draw background
+        if self.background:
+            self.screen.blit(self.background, (0, 0))
+        else:
+            self.screen.fill(DARK_BG)
+        
+        # Draw food
+        fx, fy = self.food_pos
+        if self.worm_frames:
+            worm_img = self.worm_frames[self.worm_frame_index]
+            self.screen.blit(worm_img, (fx * GRID_SIZE, fy * GRID_SIZE + GAME_OFFSET_Y))
+        
+        # Draw bonus food if present
+        if self.bonus_food_pos:
+            bx, by = self.bonus_food_pos
+            if self.bonus_img:
+                self.screen.blit(self.bonus_img, (bx * GRID_SIZE, by * GRID_SIZE + GAME_OFFSET_Y))
+        
+        # Draw death particles (from previous life)
+        for particle in self.particles:
+            particle.draw(self.screen)
+        
+        # Draw flying egg pieces
+        for piece in self.egg_pieces:
+            piece.draw(self.screen)
+        
+        # Draw egg in center
+        if self.egg_img:
+            center_x = SCREEN_WIDTH // 2 - GRID_SIZE
+            center_y = SCREEN_HEIGHT // 2 - GRID_SIZE
+            self.screen.blit(self.egg_img, (center_x, center_y))
+        
+        # Draw HUD
+        score_label = self.font_small.render("SCORE", True, NEON_CYAN)
+        score_value = self.font_small.render("{}".format(self.score), True, WHITE)
+        self.screen.blit(score_label, (8, 2))
+        self.screen.blit(score_value, (8, 16))
+        
+        level_label = self.font_small.render("LVL", True, NEON_PURPLE)
+        level_value = self.font_small.render("{}".format(self.level), True, WHITE)
+        level_label_rect = level_label.get_rect(center=(SCREEN_WIDTH // 2 - 60, 8))
+        level_value_rect = level_value.get_rect(center=(SCREEN_WIDTH // 2 - 60, 22))
+        self.screen.blit(level_label, level_label_rect)
+        self.screen.blit(level_value, level_value_rect)
+        
+        fruits_label = self.font_small.render("FRUITS", True, NEON_YELLOW)
+        fruits_value = self.font_small.render("{}/20".format(self.fruits_eaten_this_level), True, WHITE)
+        fruits_label_rect = fruits_label.get_rect(center=(SCREEN_WIDTH // 2 + 60, 8))
+        fruits_value_rect = fruits_value.get_rect(center=(SCREEN_WIDTH // 2 + 60, 22))
+        self.screen.blit(fruits_label, fruits_label_rect)
+        self.screen.blit(fruits_value, fruits_value_rect)
+        
+        lives_label = self.font_small.render("LIVES", True, NEON_PINK)
+        lives_value = self.font_small.render("{}".format(self.lives), True, WHITE)
+        lives_label_rect = lives_label.get_rect(right=SCREEN_WIDTH - 8, top=2)
+        lives_value_rect = lives_value.get_rect(right=SCREEN_WIDTH - 8, top=16)
+        self.screen.blit(lives_label, lives_label_rect)
+        self.screen.blit(lives_value, lives_value_rect)
+        
+        # Draw instruction text
+        instruction = self.font_medium.render("Press a direction to hatch!", True, NEON_YELLOW)
+        instruction_rect = instruction.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT - 40))
+        self.screen.blit(instruction, instruction_rect)
     
     def draw_game(self):
         # Draw background
@@ -1125,6 +1300,10 @@ class SnakeGame:
         # Draw particles
         for particle in self.particles:
             particle.draw(self.screen)
+        
+        # Draw egg pieces (if any are still flying)
+        for piece in self.egg_pieces:
+            piece.draw(self.screen)
         
         # Draw HUD text (background now part of bg.png)
         # Left side: Score with label
