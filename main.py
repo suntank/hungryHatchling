@@ -1127,21 +1127,35 @@ class SnakeGame:
             particle.draw(self.screen)
         
         # Draw HUD text (background now part of bg.png)
-        score_text = self.font_small.render("{}".format(self.score), True, NEON_CYAN)
-        self.screen.blit(score_text, (5, 0))
+        # Left side: Score with label
+        score_label = self.font_small.render("SCORE", True, NEON_CYAN)
+        score_value = self.font_small.render("{}".format(self.score), True, WHITE)
+        self.screen.blit(score_label, (8, 2))
+        self.screen.blit(score_value, (8, 16))
         
-        level_text = self.font_small.render("LVL:{}".format(self.level), True, NEON_PURPLE)
-        level_rect = level_text.get_rect(center=(SCREEN_WIDTH // 2 - 25, (HUD_HEIGHT // 2)+1))
-        self.screen.blit(level_text, level_rect)
+        # Center-left: Level
+        level_label = self.font_small.render("LVL", True, NEON_PURPLE)
+        level_value = self.font_small.render("{}".format(self.level), True, WHITE)
+        level_label_rect = level_label.get_rect(center=(SCREEN_WIDTH // 2 - 60, 8))
+        level_value_rect = level_value.get_rect(center=(SCREEN_WIDTH // 2 - 60, 22))
+        self.screen.blit(level_label, level_label_rect)
+        self.screen.blit(level_value, level_value_rect)
         
-        # Show fruit counter progress toward next level
-        fruits_text = self.font_small.render("{}/20".format(self.fruits_eaten_this_level), True, NEON_YELLOW)
-        fruits_rect = fruits_text.get_rect(center=(SCREEN_WIDTH // 2 + 25, (HUD_HEIGHT // 2)+1))
-        self.screen.blit(fruits_text, fruits_rect)
+        # Center-right: Fruit counter progress toward next level
+        fruits_label = self.font_small.render("FRUITS", True, NEON_YELLOW)
+        fruits_value = self.font_small.render("{}/20".format(self.fruits_eaten_this_level), True, WHITE)
+        fruits_label_rect = fruits_label.get_rect(center=(SCREEN_WIDTH // 2 + 60, 8))
+        fruits_value_rect = fruits_value.get_rect(center=(SCREEN_WIDTH // 2 + 60, 22))
+        self.screen.blit(fruits_label, fruits_label_rect)
+        self.screen.blit(fruits_value, fruits_value_rect)
         
-        lives_text = self.font_small.render("Lives: {}".format(self.lives), True, NEON_PINK)
-        lives_rect = lives_text.get_rect(right=SCREEN_WIDTH - 5, top=0)
-        self.screen.blit(lives_text, lives_rect)
+        # Right side: Lives with label
+        lives_label = self.font_small.render("LIVES", True, NEON_PINK)
+        lives_value = self.font_small.render("{}".format(self.lives), True, WHITE)
+        lives_label_rect = lives_label.get_rect(right=SCREEN_WIDTH - 8, top=2)
+        lives_value_rect = lives_value.get_rect(right=SCREEN_WIDTH - 8, top=16)
+        self.screen.blit(lives_label, lives_label_rect)
+        self.screen.blit(lives_value, lives_value_rect)
     
     def draw_pause(self):
         overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
@@ -1222,7 +1236,7 @@ class SnakeGame:
         
         # Title at top with more space
         title = self.font_large.render("NEW HIGH SCORE!", True, NEON_YELLOW)
-        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 50))
+        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 45))
         self.screen.blit(title, title_rect)
         
         # Score below title with proper spacing
