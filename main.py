@@ -29,7 +29,7 @@ class SnakeGame:
         self.clock = pygame.time.Clock()
         self.font_small = pygame.font.Font(None, 32)  # 2x larger (was 16)
         self.font_medium = pygame.font.Font(None, 48)  # 2x larger (was 24)
-        self.font_large = pygame.font.Font(None, 72)  # 2x larger (was 36)
+        self.font_large = pygame.font.Font(None, 66)  # 2x larger (was 36)
         
         # Load background image
         try:
@@ -40,11 +40,60 @@ class SnakeGame:
             self.background = None
             print("Warning: bg.png not found, using default background")
         
-        # Load snake graphics
+        # Load title screen image
+        try:
+            title_path = os.path.join(SCRIPT_DIR, 'title.png')
+            self.title_screen = pygame.image.load(title_path).convert()
+            self.title_screen = pygame.transform.scale(self.title_screen, (SCREEN_WIDTH, SCREEN_HEIGHT))
+        except:
+            self.title_screen = None
+            print("Warning: title.png not found, using default title screen")
+        
+        # Load bonus food image
+        try:
+            bonus_path = os.path.join(SCRIPT_DIR, 'bonus.png')
+            self.bonus_img = pygame.image.load(bonus_path).convert_alpha()
+            self.bonus_img = pygame.transform.scale(self.bonus_img, (GRID_SIZE, GRID_SIZE))
+        except:
+            self.bonus_img = None
+            print("Warning: bonus.png not found, using default bonus graphic")
+        
+        # Load game over screen image
+        try:
+            gameover_path = os.path.join(SCRIPT_DIR, 'gameOver.png')
+            self.gameover_screen = pygame.image.load(gameover_path).convert()
+            self.gameover_screen = pygame.transform.scale(self.gameover_screen, (SCREEN_WIDTH, SCREEN_HEIGHT))
+        except:
+            self.gameover_screen = None
+            print("Warning: gameOver.png not found, using default game over screen")
+        
+        # Load high score screen image
+        try:
+            highscore_path = os.path.join(SCRIPT_DIR, 'highScore.png')
+            self.highscore_screen = pygame.image.load(highscore_path).convert()
+            self.highscore_screen = pygame.transform.scale(self.highscore_screen, (SCREEN_WIDTH, SCREEN_HEIGHT))
+        except:
+            self.highscore_screen = None
+            print("Warning: highScore.png not found, using default high score screen")
+        
+        # Load difficulty selection screen image
+        try:
+            difficulty_path = os.path.join(SCRIPT_DIR, 'difficulty.png')
+            self.difficulty_screen = pygame.image.load(difficulty_path).convert()
+            self.difficulty_screen = pygame.transform.scale(self.difficulty_screen, (SCREEN_WIDTH, SCREEN_HEIGHT))
+        except:
+            self.difficulty_screen = None
+            print("Warning: difficulty.png not found, using default difficulty screen")
+        
+        # Load snake graphics (scaled larger than grid for visual overlap)
+        self.snake_scale_factor = 1.25  # Scale up by 25% for overlap effect
+        self.snake_sprite_size = int(GRID_SIZE * self.snake_scale_factor)
+        self.snake_offset = (GRID_SIZE - self.snake_sprite_size) // 2  # Center the sprite
+        
         try:
             body_path = os.path.join(SCRIPT_DIR, 'HatchlingBody.png')
             self.snake_body_img = pygame.image.load(body_path).convert_alpha()
-            self.snake_body_img = pygame.transform.scale(self.snake_body_img, (GRID_SIZE - 2, GRID_SIZE - 2))
+            self.snake_body_img = pygame.transform.scale(self.snake_body_img, (self.snake_sprite_size, self.snake_sprite_size))
         except Exception as e:
             self.snake_body_img = None
             print("Warning: HatchlingBody.png not found, using default body graphic: {}".format(e))
@@ -65,7 +114,7 @@ class SnakeGame:
                     pygame_frame = pygame.image.frombytes(
                         frame.tobytes(), frame.size, frame.mode
                     ).convert_alpha()
-                    pygame_frame = pygame.transform.scale(pygame_frame, (GRID_SIZE - 2, GRID_SIZE - 2))
+                    pygame_frame = pygame.transform.scale(pygame_frame, (self.snake_sprite_size, self.snake_sprite_size))
                     self.snake_head_frames.append(pygame_frame)
                     frame_count += 1
                     gif.seek(frame_count)
@@ -79,6 +128,125 @@ class SnakeGame:
         except Exception as e:
             self.snake_head_frames = []
             print("Warning: HatchlingHead1.gif not found or could not be loaded: {}".format(e))
+        
+        # Load particle effect animation (GIF)
+        try:
+            from PIL import Image
+            particle_path = os.path.join(SCRIPT_DIR, 'particlesRed.gif')
+            self.particle_frames = []
+            
+            # Load GIF frames using PIL
+            gif = Image.open(particle_path)
+            frame_count = 0
+            try:
+                while True:
+                    # Get the current frame and convert to RGBA
+                    frame = gif.copy().convert('RGBA')
+                    
+                    # Convert PIL image to pygame surface
+                    pygame_frame = pygame.image.frombytes(
+                        frame.tobytes(), frame.size, frame.mode
+                    ).convert_alpha()
+                    self.particle_frames.append(pygame_frame)
+                    frame_count += 1
+                    gif.seek(frame_count)
+            except EOFError:
+                pass  # End of frames
+            
+            print("Loaded {} frames for particle animation".format(len(self.particle_frames)))
+        except Exception as e:
+            self.particle_frames = []
+            print("Warning: particlesRed.gif not found or could not be loaded: {}".format(e))
+        
+        # Load white particle effect animation (GIF) - for snake death
+        try:
+            from PIL import Image
+            particle_white_path = os.path.join(SCRIPT_DIR, 'particlesWhite.gif')
+            self.particle_white_frames = []
+            
+            # Load GIF frames using PIL
+            gif = Image.open(particle_white_path)
+            frame_count = 0
+            try:
+                while True:
+                    # Get the current frame and convert to RGBA
+                    frame = gif.copy().convert('RGBA')
+                    
+                    # Convert PIL image to pygame surface
+                    pygame_frame = pygame.image.frombytes(
+                        frame.tobytes(), frame.size, frame.mode
+                    ).convert_alpha()
+                    self.particle_white_frames.append(pygame_frame)
+                    frame_count += 1
+                    gif.seek(frame_count)
+            except EOFError:
+                pass
+            
+            print("Loaded {} frames for white particle animation".format(len(self.particle_white_frames)))
+        except Exception as e:
+            self.particle_white_frames = []
+            print("Warning: particlesWhite.gif not found or could not be loaded: {}".format(e))
+        
+        # Load rainbow particle effect animation (GIF) - for bonus collection
+        try:
+            from PIL import Image
+            particle_rainbow_path = os.path.join(SCRIPT_DIR, 'particlesRainbow.gif')
+            self.particle_rainbow_frames = []
+            
+            # Load GIF frames using PIL
+            gif = Image.open(particle_rainbow_path)
+            frame_count = 0
+            try:
+                while True:
+                    # Get the current frame and convert to RGBA
+                    frame = gif.copy().convert('RGBA')
+                    
+                    # Convert PIL image to pygame surface
+                    pygame_frame = pygame.image.frombytes(
+                        frame.tobytes(), frame.size, frame.mode
+                    ).convert_alpha()
+                    self.particle_rainbow_frames.append(pygame_frame)
+                    frame_count += 1
+                    gif.seek(frame_count)
+            except EOFError:
+                pass
+            
+            print("Loaded {} frames for rainbow particle animation".format(len(self.particle_rainbow_frames)))
+        except Exception as e:
+            self.particle_rainbow_frames = []
+            print("Warning: particlesRainbow.gif not found or could not be loaded: {}".format(e))
+        
+        # Load worm (food) animation (GIF)
+        try:
+            from PIL import Image
+            worm_path = os.path.join(SCRIPT_DIR, 'worm.gif')
+            self.worm_frames = []
+            
+            # Load GIF frames using PIL
+            gif = Image.open(worm_path)
+            frame_count = 0
+            try:
+                while True:
+                    # Convert PIL image to pygame surface
+                    frame = gif.copy().convert('RGBA')
+                    pygame_frame = pygame.image.frombytes(
+                        frame.tobytes(), frame.size, frame.mode
+                    ).convert_alpha()
+                    # Scale to fit grid size
+                    pygame_frame = pygame.transform.scale(pygame_frame, (GRID_SIZE, GRID_SIZE))
+                    self.worm_frames.append(pygame_frame)
+                    frame_count += 1
+                    gif.seek(frame_count)
+            except EOFError:
+                pass  # End of frames
+            
+            self.worm_frame_index = 0
+            self.worm_animation_speed = 5  # Change frame every N game frames
+            self.worm_animation_counter = 0
+            print("Loaded {} frames for worm animation".format(len(self.worm_frames)))
+        except Exception as e:
+            self.worm_frames = []
+            print("Warning: worm.gif not found or could not be loaded: {}".format(e))
         
         self.state = GameState.MENU
         self.snake = Snake()
@@ -163,16 +331,18 @@ class SnakeGame:
     
     def spawn_food(self):
         while True:
-            x = random.randint(0, GRID_WIDTH - 1)
-            y = random.randint(0, GRID_HEIGHT - 1)
+            # Spawn food within playable area (avoid 1-grid-cell border)
+            x = random.randint(1, GRID_WIDTH - 2)
+            y = random.randint(1, GRID_HEIGHT - 2)
             if (x, y) not in self.snake.body:
                 self.food_pos = (x, y)
                 break
     
     def spawn_bonus_food(self):
         while True:
-            x = random.randint(0, GRID_WIDTH - 1)
-            y = random.randint(0, GRID_HEIGHT - 1)
+            # Spawn bonus food within playable area (avoid 1-grid-cell border)
+            x = random.randint(1, GRID_WIDTH - 2)
+            y = random.randint(1, GRID_HEIGHT - 2)
             if (x, y) not in self.snake.body and (x, y) != self.food_pos:
                 self.bonus_food_pos = (x, y)
                 self.bonus_food_timer = 300
@@ -202,17 +372,16 @@ class SnakeGame:
         elif self.difficulty == Difficulty.HARD:
             return 3
         return 1
-    def create_particles(self, x, y, color, count=10):
-        # Limit total particles for performance on low-end hardware
-        max_particles = 50
-        for _ in range(count):
-            if len(self.particles) >= max_particles:
-                break
-            angle = random.uniform(0, 2 * 3.14159)
-            speed = random.uniform(1, 3)
-            velocity = (speed * pygame.math.Vector2(1, 0).rotate_rad(angle).x,
-                       speed * pygame.math.Vector2(1, 0).rotate_rad(angle).y)
-            self.particles.append(Particle(x, y, color, velocity))
+    def create_particles(self, x, y, color=None, count=None, particle_type='red'):
+        # Spawn a single GIF particle effect based on type
+        # particle_type can be 'red', 'white', or 'rainbow'
+        if particle_type == 'white' and self.particle_white_frames:
+            self.particles.append(GifParticle(x, y, self.particle_white_frames))
+        elif particle_type == 'rainbow' and self.particle_rainbow_frames:
+            self.particles.append(GifParticle(x, y, self.particle_rainbow_frames))
+        elif self.particle_frames:  # Default to red particles
+            self.particles.append(GifParticle(x, y, self.particle_frames))
+        # If particle frames not loaded, do nothing (silent fail for better performance)
     
     def get_interpolated_snake_positions(self):
         """Calculate smooth interpolated positions for snake segments"""
@@ -264,6 +433,13 @@ class SnakeGame:
                 self.head_animation_counter = 0
                 self.head_frame_index = (self.head_frame_index + 1) % len(self.snake_head_frames)
         
+        # Update worm (food) animation
+        if self.worm_frames:
+            self.worm_animation_counter += 1
+            if self.worm_animation_counter >= self.worm_animation_speed:
+                self.worm_animation_counter = 0
+                self.worm_frame_index = (self.worm_frame_index + 1) % len(self.worm_frames)
+        
         # Handle game over timer countdown
         if self.state == GameState.GAME_OVER and self.game_over_timer > 0:
             self.game_over_timer -= 1
@@ -290,15 +466,18 @@ class SnakeGame:
         
         if self.move_timer >= move_interval:
             self.move_timer = 0
-            self.snake.move()  # Wrapping now happens automatically inside move()
+            self.snake.move()
             
-            # Check collision (only self-collision, no wall collision)
-            if self.snake.check_collision(wrap_around=True):
+            # Check collision (wall collision and self-collision)
+            if self.snake.check_collision(wrap_around=False):
                 self.sound_manager.play('die')
                 self.lives -= 1
-                head_x, head_y = self.snake.body[0]
-                self.create_particles(head_x * GRID_SIZE + GRID_SIZE // 2,
-                                    head_y * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y, RED, 10)
+                
+                # Spawn white particles on all body segments including head
+                for segment_x, segment_y in self.snake.body:
+                    self.create_particles(segment_x * GRID_SIZE + GRID_SIZE // 2,
+                                        segment_y * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y, 
+                                        None, None, particle_type='white')
                 
                 if self.lives <= 0:
                     self.sound_manager.play('no_lives')
@@ -350,7 +529,8 @@ class SnakeGame:
                 self.score += int(base_points * self.get_score_multiplier())
                 bx, by = self.bonus_food_pos
                 self.create_particles(bx * GRID_SIZE + GRID_SIZE // 2,
-                                    by * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y, YELLOW, 10)
+                                    by * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y, 
+                                    None, None, particle_type='rainbow')
                 self.bonus_food_pos = None
                 self.bonus_food_timer = 0
                 
@@ -751,16 +931,17 @@ class SnakeGame:
         pygame.display.flip()
     
     def draw_menu(self):
-        # Draw background
-        if self.background:
+        # Draw title screen image (includes game name)
+        if self.title_screen:
+            self.screen.blit(self.title_screen, (0, 0))
+        elif self.background:
             self.screen.blit(self.background, (0, 0))
         else:
             self.screen.fill(DARK_BG)
-        
-        # Render title
-        title = self.font_large.render("SNAKE", True, NEON_GREEN)
-        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 80))
-        self.screen.blit(title, title_rect)
+            # Fallback: Render title text if no images available
+            title = self.font_large.render("SNAKE", True, NEON_GREEN)
+            title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 80))
+            self.screen.blit(title, title_rect)
         
         # Render menu options
         for i, option in enumerate(self.menu_options):
@@ -778,15 +959,19 @@ class SnakeGame:
             self.screen.blit(text, text_rect)
     
     def draw_difficulty_select(self):
-        # Draw background
-        if self.background:
+        # Draw difficulty screen image as background
+        if self.difficulty_screen:
+            self.screen.blit(self.difficulty_screen, (0, 0))
+        elif self.title_screen:
+            self.screen.blit(self.title_screen, (0, 0))
+        elif self.background:
             self.screen.blit(self.background, (0, 0))
         else:
             self.screen.fill(DARK_BG)
         
-        # Render title
+        # Render title with more space from top
         title = self.font_large.render("SELECT DIFFICULTY", True, NEON_CYAN)
-        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 40))
+        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 60))
         self.screen.blit(title, title_rect)
         
         # Difficulty descriptions
@@ -796,30 +981,33 @@ class SnakeGame:
             "Enemies, 2x score"
         ]
         
-        # Render difficulty options
+        # Render difficulty options with better spacing
+        start_y = 120
+        spacing = 70  # Increased spacing between options
+        
         for i, option in enumerate(self.difficulty_options):
             color = NEON_YELLOW if i == self.difficulty_selection else NEON_GREEN
             
             # Draw option text
             text = self.font_medium.render(option, True, color)
-            text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, 90 + i * 40))
+            text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, start_y + i * spacing))
             
             # Draw selection box
             if i == self.difficulty_selection:
-                glow_rect = pygame.Rect(text_rect.left - 10, text_rect.top, 
-                                       text_rect.width + 20, text_rect.height)
+                glow_rect = pygame.Rect(text_rect.left - 10, text_rect.top - 2, 
+                                       text_rect.width + 20, text_rect.height + 4)
                 pygame.draw.rect(self.screen, NEON_PINK, glow_rect, 2)
             
             self.screen.blit(text, text_rect)
             
-            # Draw description below
+            # Draw description below with proper spacing
             desc_text = self.font_small.render(descriptions[i], True, NEON_PURPLE)
-            desc_rect = desc_text.get_rect(center=(SCREEN_WIDTH // 2, 90 + i * 40 + 15))
+            desc_rect = desc_text.get_rect(center=(SCREEN_WIDTH // 2, start_y + i * spacing + 25))
             self.screen.blit(desc_text, desc_rect)
         
-        # Draw hint
+        # Draw hint at bottom with more space
         hint_text = self.font_small.render("Start to confirm", True, NEON_CYAN)
-        hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 220))
+        hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 340))
         self.screen.blit(hint_text, hint_rect)
     
     def draw_game(self):
@@ -835,36 +1023,53 @@ class SnakeGame:
         # for y in range(GAME_OFFSET_Y, SCREEN_HEIGHT, GRID_SIZE):
         #     pygame.draw.line(self.screen, GRID_COLOR, (0, y), (SCREEN_WIDTH, y), 1)
         
-        # Draw food with pulsing effect
+        # Draw food with animated worm
         if self.food_pos:
             fx, fy = self.food_pos
-            # Create a pulsing effect using frame count
-            pulse = abs((pygame.time.get_ticks() % 1000) - 500) / 500  # 0 to 1 and back
-            size_offset = int(pulse * 2)  # Pulse between 0 and 2 pixels
-            
-            food_rect = pygame.Rect(fx * GRID_SIZE + 2 - size_offset, 
-                                   fy * GRID_SIZE + 2 - size_offset + GAME_OFFSET_Y,
-                                   GRID_SIZE - 4 + size_offset * 2, 
-                                   GRID_SIZE - 4 + size_offset * 2)
-            # Use pure red color (255, 0, 0) instead of NEON_PINK
-            pygame.draw.rect(self.screen, (255, 0, 0), food_rect, border_radius=GRID_SIZE // 4)
+            if self.worm_frames:
+                # Draw animated worm
+                worm_img = self.worm_frames[self.worm_frame_index]
+                self.screen.blit(worm_img, (fx * GRID_SIZE, fy * GRID_SIZE + GAME_OFFSET_Y))
+            else:
+                # Fallback to pulsing red rectangle
+                pulse = abs((pygame.time.get_ticks() % 1000) - 500) / 500  # 0 to 1 and back
+                size_offset = int(pulse * 2)  # Pulse between 0 and 2 pixels
+                
+                food_rect = pygame.Rect(fx * GRID_SIZE + 2 - size_offset, 
+                                       fy * GRID_SIZE + 2 - size_offset + GAME_OFFSET_Y,
+                                       GRID_SIZE - 4 + size_offset * 2, 
+                                       GRID_SIZE - 4 + size_offset * 2)
+                # Use pure red color (255, 0, 0) instead of NEON_PINK
+                pygame.draw.rect(self.screen, (255, 0, 0), food_rect, border_radius=GRID_SIZE // 4)
         
-        # Draw bonus food with pulsing effect
+        # Draw bonus food
         if self.bonus_food_pos:
             bx, by = self.bonus_food_pos
-            pulse = abs((self.bonus_food_timer % 60) - 30) / 30
-            size = int(GRID_SIZE // 2 + pulse * 2)
-            center_x = bx * GRID_SIZE + GRID_SIZE // 2
-            center_y = by * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y
-            pygame.draw.circle(self.screen, NEON_YELLOW, (center_x, center_y), size)
+            if self.bonus_img:
+                # Draw bonus image
+                self.screen.blit(self.bonus_img, (bx * GRID_SIZE, by * GRID_SIZE + GAME_OFFSET_Y))
+            else:
+                # Fallback to pulsing yellow circle
+                pulse = abs((self.bonus_food_timer % 60) - 30) / 30
+                size = int(GRID_SIZE // 2 + pulse * 2)
+                center_x = bx * GRID_SIZE + GRID_SIZE // 2
+                center_y = by * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y
+                pygame.draw.circle(self.screen, NEON_YELLOW, (center_x, center_y), size)
         
         # Draw snake with graphics or gradient fallback - using interpolated positions for smooth movement
         interpolated_positions = self.get_interpolated_snake_positions()
         
-        for i, (x, y) in enumerate(interpolated_positions):
+        # Create a list of (index, x, y) tuples and sort by y-coordinate for proper z-ordering
+        # Segments with lower y values (higher on screen) are drawn first
+        # Segments with higher y values (lower on screen, closer to viewer) are drawn last
+        segments_with_indices = [(i, x, y) for i, (x, y) in enumerate(interpolated_positions)]
+        segments_with_indices.sort(key=lambda seg: seg[2])  # Sort by y coordinate
+        
+        for i, x, y in segments_with_indices:
             # Convert interpolated grid coordinates to pixel coordinates
-            pixel_x = x * GRID_SIZE + 1
-            pixel_y = y * GRID_SIZE + 1 + GAME_OFFSET_Y
+            # Apply offset to center the larger sprites on their grid positions
+            pixel_x = x * GRID_SIZE + self.snake_offset
+            pixel_y = y * GRID_SIZE + self.snake_offset + GAME_OFFSET_Y
             
             if i == 0:
                 # Draw head with animation
@@ -921,11 +1126,7 @@ class SnakeGame:
         for particle in self.particles:
             particle.draw(self.screen)
         
-        # Draw HUD bar at the top (drawn last so it's always on top)
-        pygame.draw.rect(self.screen, HUD_BG, (0, 0, SCREEN_WIDTH, HUD_HEIGHT))
-        pygame.draw.line(self.screen, NEON_CYAN, (0, HUD_HEIGHT), (SCREEN_WIDTH, HUD_HEIGHT), 2)
-        
-        # Draw HUD text
+        # Draw HUD text (background now part of bg.png)
         score_text = self.font_small.render("{}".format(self.score), True, NEON_CYAN)
         self.screen.blit(score_text, (5, 0))
         
@@ -957,33 +1158,41 @@ class SnakeGame:
         self.screen.blit(hint_text, hint_rect)
     
     def draw_game_over(self):
-        # Draw background
-        if self.background:
+        # Draw game over screen image (includes "GAME OVER" text)
+        if self.gameover_screen:
+            self.screen.blit(self.gameover_screen, (0, 0))
+        elif self.background:
             self.screen.blit(self.background, (0, 0))
         else:
             self.screen.fill(DARK_BG)
         
-        # During the 3-second timer, only show "GAME OVER" centered
+        # During the 3-second timer, only show the game over image
         if self.game_over_timer > 0:
-            over_text = self.font_large.render("GAME OVER", True, NEON_PINK)
-            over_rect = over_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2))
-            self.screen.blit(over_text, over_rect)
+            # Just show the image, no additional text needed during timer
+            if not self.gameover_screen:
+                # Fallback if image not loaded
+                over_text = self.font_large.render("GAME OVER", True, NEON_PINK)
+                over_rect = over_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2))
+                self.screen.blit(over_text, over_rect)
         else:
-            # After timer expires, show full game over screen
-            over_text = self.font_large.render("GAME OVER", True, NEON_PINK)
-            over_rect = over_text.get_rect(center=(SCREEN_WIDTH // 2, 60))
-            self.screen.blit(over_text, over_rect)
+            # After timer expires, show score and level info
+            # No "GAME OVER" text needed - it's in the background image
+            if not self.gameover_screen:
+                # Fallback if image not loaded
+                over_text = self.font_large.render("GAME OVER", True, NEON_PINK)
+                over_rect = over_text.get_rect(center=(SCREEN_WIDTH // 2, 60))
+                self.screen.blit(over_text, over_rect)
             
             score_text = self.font_medium.render("Score: {}".format(self.score), True, NEON_CYAN)
-            score_rect = score_text.get_rect(center=(SCREEN_WIDTH // 2, 100))
+            score_rect = score_text.get_rect(center=(SCREEN_WIDTH // 2, 200))
             self.screen.blit(score_text, score_rect)
             
             level_text = self.font_medium.render("Level: {}".format(self.level), True, NEON_GREEN)
-            level_rect = level_text.get_rect(center=(SCREEN_WIDTH // 2, 130))
+            level_rect = level_text.get_rect(center=(SCREEN_WIDTH // 2, 240))
             self.screen.blit(level_text, level_rect)
             
             hint_text = self.font_small.render("Start to continue", True, NEON_YELLOW)
-            hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 180))
+            hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 290))
             self.screen.blit(hint_text, hint_rect)
     
     def draw_level_complete(self):
@@ -1005,19 +1214,26 @@ class SnakeGame:
         self.screen.blit(hint_text, hint_rect)
     
     def draw_high_score_entry(self):
-        self.screen.fill(DARK_BG)
+        # Draw high score screen image as background
+        if self.highscore_screen:
+            self.screen.blit(self.highscore_screen, (0, 0))
+        else:
+            self.screen.fill(DARK_BG)
         
+        # Title at top with more space
         title = self.font_large.render("NEW HIGH SCORE!", True, NEON_YELLOW)
-        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 20))
+        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 50))
         self.screen.blit(title, title_rect)
         
+        # Score below title with proper spacing
         score_text = self.font_medium.render("Score: {}".format(self.score), True, NEON_CYAN)
-        score_rect = score_text.get_rect(center=(SCREEN_WIDTH // 2, 50))
+        score_rect = score_text.get_rect(center=(SCREEN_WIDTH // 2, 90))
         self.screen.blit(score_text, score_rect)
         
-        name_y = 75
+        # Name entry with better spacing
+        name_y = 130
         for i, char in enumerate(self.player_name):
-            x = SCREEN_WIDTH // 2 - 30 + i * 20
+            x = SCREEN_WIDTH // 2 - 40 + i * 30
             color = NEON_PINK if i == self.name_index else NEON_CYAN
             char_text = self.font_large.render(char, True, color)
             char_rect = char_text.get_rect(center=(x, name_y))
@@ -1028,11 +1244,12 @@ class SnakeGame:
                                (char_rect.left - 5, char_rect.top - 2,
                                 char_rect.width + 10, char_rect.height + 4), 2)
         
-        key_y_start = 110
+        # Keyboard layout with better spacing
+        key_y_start = 190
         for row_idx, row in enumerate(self.keyboard_layout):
             for col_idx, char in enumerate(row):
-                x = 10 + col_idx * 22
-                y = key_y_start + row_idx * 20
+                x = 20 + col_idx * 26
+                y = key_y_start + row_idx * 28
                 
                 is_selected = (row_idx == self.keyboard_selection[0] and 
                              col_idx == self.keyboard_selection[1])
@@ -1047,39 +1264,49 @@ class SnakeGame:
                                    (key_rect.left - 3, key_rect.top - 2,
                                     key_rect.width + 6, key_rect.height + 4), 1)
         
+        # Legend at bottom
         legend_text = self.font_small.render("Better luck next time!", True, NEON_GREEN)
-        legend_rect = legend_text.get_rect(center=(SCREEN_WIDTH // 2, 220))
+        legend_rect = legend_text.get_rect(center=(SCREEN_WIDTH // 2, 320))
         self.screen.blit(legend_text, legend_rect)
     
     def draw_high_scores(self):
-        self.screen.fill(DARK_BG)
+        # Draw high score screen image as background
+        if self.highscore_screen:
+            self.screen.blit(self.highscore_screen, (0, 0))
+        else:
+            self.screen.fill(DARK_BG)
         
+        # Title shifted down
         title = self.font_large.render("HIGH SCORES", True, NEON_YELLOW)
-        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 20))
+        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 50))
         self.screen.blit(title, title_rect)
         
         if not self.high_scores:
             no_scores = self.font_medium.render("No scores yet!", True, NEON_CYAN)
-            no_scores_rect = no_scores.get_rect(center=(SCREEN_WIDTH // 2, 100))
+            no_scores_rect = no_scores.get_rect(center=(SCREEN_WIDTH // 2, 150))
             self.screen.blit(no_scores, no_scores_rect)
         else:
+            # Score list shifted down with better spacing
+            start_y = 100
+            spacing = 22
             for i, entry in enumerate(self.high_scores[:10]):
                 name = entry['name']
                 score = entry['score']
-                y = 50 + i * 18
+                y = start_y + i * spacing
                 
-                rank_text = self.font_small.render("{}.".format(i+1), True, NEON_PURPLE)
+                rank_text = self.font_small.render("{}".format(i+1), True, NEON_PURPLE)
                 self.screen.blit(rank_text, (20, y))
                 
                 name_text = self.font_small.render(name, True, NEON_GREEN)
-                self.screen.blit(name_text, (45, y))
+                self.screen.blit(name_text, (60, y))
                 
                 score_text = self.font_small.render(str(score), True, NEON_CYAN)
                 score_rect = score_text.get_rect(right=SCREEN_WIDTH - 20, top=y)
                 self.screen.blit(score_text, score_rect)
         
+        # Hint text at bottom
         hint_text = self.font_small.render("Start to continue", True, NEON_PINK)
-        hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 480))
+        hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 450))
         self.screen.blit(hint_text, hint_rect)
 
 if __name__ == "__main__":

@@ -20,25 +20,25 @@ print("DEBUG: SCREEN_HEIGHT={}, HUD_HEIGHT={}, GRID_SIZE={}".format(SCREEN_HEIGH
 print("DEBUG: GRID_WIDTH={}, GRID_HEIGHT={}".format(GRID_WIDTH, GRID_HEIGHT))
 print("DEBUG: Game area pixels: {} to {}".format(GAME_OFFSET_Y, SCREEN_HEIGHT))
 
-# Colors - Neon Rave Theme
+# Colors - Backyard Theme
 BLACK = (0, 0, 0)
-DARK_BG = (10, 5, 20)  # Deep purple-black background
+DARK_BG = (40, 30, 20)  # Dark brown background
 WHITE = (255, 255, 255)
-NEON_GREEN = (57, 255, 20)  # Bright neon green
-NEON_LIME = (191, 255, 0)  # Electric lime
-NEON_PINK = (255, 16, 240)  # Hot pink
-NEON_CYAN = (0, 255, 255)  # Electric cyan
-NEON_ORANGE = (255, 95, 31)  # Neon orange
-NEON_PURPLE = (191, 0, 255)  # Electric purple
-NEON_YELLOW = (255, 255, 0)  # Bright yellow
-NEON_BLUE = (0, 168, 255)  # Electric blue
-GRID_COLOR = (40, 20, 60)  # Dark purple grid
-HUD_BG = (20, 10, 40)  # Dark purple HUD background
+NEON_GREEN = (80, 140, 60)  # Natural grass green
+NEON_LIME = (120, 180, 80)  # Light grass green
+NEON_PINK = (220, 100, 140)  # Soft pink/rose
+NEON_CYAN = (100, 180, 200)  # Sky blue
+NEON_ORANGE = (230, 120, 60)  # Warm orange
+NEON_PURPLE = (140, 100, 160)  # Soft purple
+NEON_YELLOW = (240, 200, 80)  # Warm yellow/gold
+NEON_BLUE = (80, 120, 180)  # Natural blue
+GRID_COLOR = (60, 50, 40)  # Dark earth brown
+HUD_BG = (50, 40, 30)  # Medium brown
 
 # Legacy color names for compatibility
 GREEN = NEON_GREEN
 DARK_GREEN = NEON_LIME
-RED = (255, 0, 0)
+RED = (200, 60, 60)  # Softer red
 YELLOW = NEON_YELLOW
 ORANGE = NEON_ORANGE
 GRAY = (128, 128, 128)
@@ -102,6 +102,33 @@ class Particle:
     
     def is_alive(self):
         return self.lifetime > 0
+
+class GifParticle:
+    """Animated GIF particle effect"""
+    def __init__(self, x, y, frames):
+        self.x = x
+        self.y = y
+        self.frames = frames
+        self.frame_index = 0
+        self.alive = True if frames else False
+    
+    def update(self):
+        if self.alive:
+            self.frame_index += 1
+            if self.frame_index >= len(self.frames):
+                self.alive = False
+    
+    def draw(self, screen):
+        if self.alive and self.frame_index < len(self.frames):
+            frame = self.frames[self.frame_index]
+            # Center the particle effect on the position
+            offset_x = frame.get_width() // 2
+            offset_y = frame.get_height() // 2
+            # Normal blitting (transparency handled by the GIF itself)
+            screen.blit(frame, (int(self.x - offset_x), int(self.y - offset_y)))
+    
+    def is_alive(self):
+        return self.alive
 
 class MusicManager:
     """Manages random music playback without immediate repeats"""
@@ -212,19 +239,7 @@ class Snake:
         new_head_x = head_x + dx
         new_head_y = head_y + dy
         
-        # Wrap coordinates immediately to ensure they're always valid
-        if new_head_x < 0:
-            new_head_x = GRID_WIDTH - 1
-        elif new_head_x >= GRID_WIDTH:
-            new_head_x = 0
-        
-        if new_head_y < 0:
-            print("DEBUG: Auto-wrapping y from {} to {}".format(new_head_y, GRID_HEIGHT - 1))
-            new_head_y = GRID_HEIGHT - 1
-        elif new_head_y >= GRID_HEIGHT:
-            print("DEBUG: Auto-wrapping y from {} to 0".format(new_head_y))
-            new_head_y = 0
-        
+        # No wrapping - let collision detection handle walls
         new_head = (new_head_x, new_head_y)
         self.body.insert(0, new_head)
         
@@ -246,9 +261,11 @@ class Snake:
         """Check if snake hit walls or itself"""
         head_x, head_y = self.body[0]
         
-        # Wall collision (skip if wrap_around is enabled)
+        # Wall collision - 1 grid cell border (32 pixels) on left, right, and bottom
+        # Top is handled by HUD area (y < 0 would be in HUD)
+        # The border occupies: x=0, x=GRID_WIDTH-1, y=GRID_HEIGHT-1
         if not wrap_around:
-            if head_x < 0 or head_x >= GRID_WIDTH or head_y < 0 or head_y >= GRID_HEIGHT:
+            if head_x <= 0 or head_x >= GRID_WIDTH - 1 or head_y < 0 or head_y >= GRID_HEIGHT - 1:
                 return True
         
         # Self collision
