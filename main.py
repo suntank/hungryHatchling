@@ -1057,13 +1057,13 @@ class SnakeGame:
         for i, option in enumerate(self.menu_options):
             color = NEON_YELLOW if i == self.menu_selection else NEON_CYAN
             text = self.font_medium.render(option, True, color)
-            text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, 200 + i * 60))
+            text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, 320 + i * 60))
             
             # Draw selection box
-            if i == self.menu_selection:
-                glow_rect = pygame.Rect(text_rect.left - 20, text_rect.top, 
-                                       text_rect.width + 40, text_rect.height)
-                pygame.draw.rect(self.screen, NEON_PINK, glow_rect, 2)
+            # if i == self.menu_selection:
+            #     glow_rect = pygame.Rect(text_rect.left - 20, text_rect.top, 
+            #                            text_rect.width + 40, text_rect.height)
+            #     pygame.draw.rect(self.screen, NEON_PINK, glow_rect, 2)
             
             # Draw text
             self.screen.blit(text, text_rect)
@@ -1080,44 +1080,58 @@ class SnakeGame:
             self.screen.fill(DARK_BG)
         
         # Render title with more space from top
-        title = self.font_large.render("SELECT DIFFICULTY", True, NEON_CYAN)
-        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 60))
+        title = self.font_large.render("SELECT DIFFICULTY", True, BLACK)
+        title_rect = title.get_rect(center=((SCREEN_WIDTH // 2)+3, 78))
+        self.screen.blit(title, title_rect)
+        title = self.font_large.render("SELECT DIFFICULTY", True, NEON_YELLOW)
+        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 75))
         self.screen.blit(title, title_rect)
         
         # Difficulty descriptions
         descriptions = [
-            "Chill mode, 0.5x score",
-            "Normal mode, 1x score",
-            "Enemies, 2x score"
+            "Score multiplier: X 1/2",
+            "Score multiplier: X 1",
+            "Score multiplier: X 2"
         ]
         
         # Render difficulty options with better spacing
-        start_y = 120
-        spacing = 70  # Increased spacing between options
+        start_y = 280
+        spacing = 40  # Increased spacing between options
         
         for i, option in enumerate(self.difficulty_options):
             color = NEON_YELLOW if i == self.difficulty_selection else NEON_GREEN
             
+            # draw shadow
+            text = self.font_medium.render(option, True, BLACK)
+            text_rect = text.get_rect(center=((SCREEN_WIDTH // 2)+3, start_y + i * spacing+3))
+            self.screen.blit(text, text_rect)
             # Draw option text
             text = self.font_medium.render(option, True, color)
             text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, start_y + i * spacing))
             
             # Draw selection box
-            if i == self.difficulty_selection:
-                glow_rect = pygame.Rect(text_rect.left - 10, text_rect.top - 2, 
-                                       text_rect.width + 20, text_rect.height + 4)
-                pygame.draw.rect(self.screen, NEON_PINK, glow_rect, 2)
+            # if i == self.difficulty_selection:
+            #     glow_rect = pygame.Rect(text_rect.left - 10, text_rect.top - 2, 
+            #                            text_rect.width + 20, text_rect.height + 4)
+            #     pygame.draw.rect(self.screen, NEON_PINK, glow_rect, 2)
             
             self.screen.blit(text, text_rect)
-            
-            # Draw description below with proper spacing
-            desc_text = self.font_small.render(descriptions[i], True, NEON_PURPLE)
-            desc_rect = desc_text.get_rect(center=(SCREEN_WIDTH // 2, start_y + i * spacing + 25))
-            self.screen.blit(desc_text, desc_rect)
-        
+
+        # Draw description text based on difficulty selected
+        desc_text = self.font_small.render(descriptions[self.difficulty_selection], True, BLACK)
+        desc_rect = desc_text.get_rect(center=((SCREEN_WIDTH // 2)+2, 452))
+        self.screen.blit(desc_text, desc_rect)
+        # Draw description text based on difficulty selected
+        desc_text = self.font_small.render(descriptions[self.difficulty_selection], True, NEON_PURPLE)
+        desc_rect = desc_text.get_rect(center=(SCREEN_WIDTH // 2, 450))
+        self.screen.blit(desc_text, desc_rect)
+
         # Draw hint at bottom with more space
+        hint_text = self.font_small.render("Start to confirm", True, BLACK)
+        hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+2, 402))
+        self.screen.blit(hint_text, hint_rect)
         hint_text = self.font_small.render("Start to confirm", True, NEON_CYAN)
-        hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 340))
+        hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 400))
         self.screen.blit(hint_text, hint_rect)
     
     def draw_egg_hatching(self):
@@ -1394,16 +1408,26 @@ class SnakeGame:
         overlay.fill(DARK_BG)
         self.screen.blit(overlay, (0, 0))
         
-        complete_text = self.font_large.render("LEVEL UP!", True, NEON_GREEN)
+        complete_text = self.font_large.render("LEVEL UP!", True, BLACK)
+        complete_rect = complete_text.get_rect(center=((SCREEN_WIDTH // 2)+3, SCREEN_HEIGHT // 2 - 20+3))
+        self.screen.blit(complete_text, complete_rect)
+
+        complete_text = self.font_large.render("LEVEL UP!", True, NEON_YELLOW)
         complete_rect = complete_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 20))
         self.screen.blit(complete_text, complete_rect)
         
-        bonus_text = self.font_medium.render("Bonus Life!", True, NEON_PINK)
-        bonus_rect = bonus_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 10))
+        bonus_text = self.font_medium.render("Bonus Life!", True, BLACK)
+        bonus_rect = bonus_text.get_rect(center=((SCREEN_WIDTH // 2)+2, SCREEN_HEIGHT // 2 + 15+2))
+        self.screen.blit(bonus_text, bonus_rect)
+        bonus_text = self.font_medium.render("Bonus Life!", True, NEON_YELLOW)
+        bonus_rect = bonus_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 15))
         self.screen.blit(bonus_text, bonus_rect)
         
+        hint_text = self.font_small.render("Start to continue", True, BLACK)
+        hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+3, SCREEN_HEIGHT // 2 + 53))
+        self.screen.blit(hint_text, hint_rect)
         hint_text = self.font_small.render("Start to continue", True, NEON_YELLOW)
-        hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 40))
+        hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 50))
         self.screen.blit(hint_text, hint_rect)
     
     def draw_high_score_entry(self):
@@ -1471,7 +1495,7 @@ class SnakeGame:
         
         # Title shifted down
         title = self.font_large.render("HIGH SCORES", True, NEON_YELLOW)
-        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 50))
+        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 40))
         self.screen.blit(title, title_rect)
         
         if not self.high_scores:
