@@ -473,10 +473,11 @@ class SnakeGame:
                     self.name_index = 0
                     # Pick a random hint for this high score entry session
                     hints = [
-                        "Snake Length increases score multiplier!", 
+                        "Length increases score multiplier!", 
                         "Fill entire screen for massive bonus!", 
                         "Your level increases score multiplier!", 
-                        "Snake length grows faster on harder difficulties!"]
+                        "Your level increases snakebird speed!", 
+                        "Snakebird grows faster on hard!"]
                     self.current_hint = random.choice(hints)
                 # Otherwise stay in GAME_OVER state for player to press button
         
@@ -1006,6 +1007,14 @@ class SnakeGame:
                             self.state = GameState.HIGH_SCORE_ENTRY
                             self.player_name = ['A', 'A', 'A']
                             self.name_index = 0
+                            # Pick a random hint for this high score entry session
+                            hints = [
+                                "Length increases score multiplier!", 
+                                "Fill entire screen for massive bonus!", 
+                                "Your level increases score multiplier!", 
+                                "Your level increases snakebird speed!", 
+                                "Snakebird grows faster on hard!"]
+                            self.current_hint = random.choice(hints)
             
             self.draw()
             self.clock.tick(FPS)
@@ -1559,6 +1568,12 @@ class SnakeGame:
         legend_text = self.font_small.render(hint_text, True, NEON_CYAN)
         legend_rect = legend_text.get_rect(center=(SCREEN_WIDTH // 2, 360))
         self.screen.blit(legend_text, legend_rect)
+        hint_text = self.font_small.render("Start to continue", True, BLACK)
+        hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+3, 452+3))
+        self.screen.blit(hint_text, hint_rect)
+        hint_text = self.font_small.render("Start to continue", True, NEON_CYAN)
+        hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 452))
+        self.screen.blit(hint_text, hint_rect)
     
     def draw_high_scores(self):
         # Draw high score screen image as background
@@ -1584,29 +1599,32 @@ class SnakeGame:
             no_scores_rect = no_scores.get_rect(center=(SCREEN_WIDTH // 2, 150))
             self.screen.blit(no_scores, no_scores_rect)
         else:
-            # Score list shifted down with better spacing
-            start_y = 100
-            spacing = 22
+            # Score list with better spacing to fill the screen
+            start_y = 60
+            spacing = 38  # Increased spacing for medium font
             for i, entry in enumerate(self.high_scores[:10]):
                 name = entry['name']
                 score = entry['score']
                 y = start_y + i * spacing
                 
-                rank_text = self.font_small.render("{}".format(i+1), True, BLACK)
-                self.screen.blit(rank_text, (22, y+2))
-                rank_text = self.font_small.render("{}".format(i+1), True, NEON_PURPLE)
-                self.screen.blit(rank_text, (20, y))
+                # Rank number with shadow
+                rank_text = self.font_medium.render("{}".format(i+1), True, BLACK)
+                self.screen.blit(rank_text, (32, y+2))
+                rank_text = self.font_medium.render("{}".format(i+1), True, WHITE)
+                self.screen.blit(rank_text, (30, y))
                 
-                name_text = self.font_small.render(name, True, BLACK)
-                self.screen.blit(name_text, (62, y+2))
-                name_text = self.font_small.render(name, True, NEON_GREEN)
-                self.screen.blit(name_text, (60, y))
+                # Name with shadow
+                name_text = self.font_medium.render(name, True, BLACK)
+                self.screen.blit(name_text, (82, y+2))
+                name_text = self.font_medium.render(name, True, NEON_GREEN)
+                self.screen.blit(name_text, (80, y))
                 
-                score_text = self.font_small.render(str(score), True, BLACK)
-                score_rect = score_text.get_rect(right=(SCREEN_WIDTH - 22), top=y +2)
+                # Score with shadow
+                score_text = self.font_medium.render(str(score), True, BLACK)
+                score_rect = score_text.get_rect(right=(SCREEN_WIDTH - 28), top=y + 2)
                 self.screen.blit(score_text, score_rect)
-                score_text = self.font_small.render(str(score), True, NEON_CYAN)
-                score_rect = score_text.get_rect(right=SCREEN_WIDTH - 20, top=y)
+                score_text = self.font_medium.render(str(score), True, NEON_CYAN)
+                score_rect = score_text.get_rect(right=SCREEN_WIDTH - 30, top=y)
                 self.screen.blit(score_text, score_rect)
         
         # Hint text at bottom
