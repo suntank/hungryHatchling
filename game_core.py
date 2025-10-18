@@ -306,9 +306,12 @@ class Snake:
         self.player_id = player_id
         self.alive = True
         self.score = 0
+        self.speed_modifier = 0  # For multiplayer: apples increase, black apples decrease
+        self.move_timer = 0  # Track movement progress for interpolation
+        self.last_move_interval = 16  # Track the interval used for last move
         self.reset()
     
-    def reset(self, spawn_pos=None):
+    def reset(self, spawn_pos=None, direction=None):
         if spawn_pos:
             center_x, center_y = spawn_pos
         else:
@@ -317,10 +320,20 @@ class Snake:
         # Start with just the head - body will grow as player moves
         self.body = [(center_x, center_y)]
         self.previous_body = list(self.body)  # Track previous positions for interpolation
-        self.direction = Direction.RIGHT
-        self.next_direction = Direction.RIGHT
+        
+        # Set direction (default to RIGHT if not specified)
+        if direction:
+            self.direction = direction
+            self.next_direction = direction
+        else:
+            self.direction = Direction.RIGHT
+            self.next_direction = Direction.RIGHT
+        
         self.grow_pending = 2  # Add 2 segments immediately so we start with 3 total
         self.alive = True
+        self.move_timer = 0  # Reset move timer
+        self.last_move_interval = 16
+        # Don't reset speed_modifier - it persists across deaths in multiplayer
     
     def move(self):
         """Move snake one step"""

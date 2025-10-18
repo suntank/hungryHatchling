@@ -276,6 +276,11 @@ class SnakeGame:
         self.snakes = [Snake(player_id=0)]  # List of snakes for multiplayer
         self.snake = self.snakes[0]  # For backwards compatibility
         
+        # Multiplayer rounds
+        self.total_rounds = 3
+        self.current_round = 1
+        self.round_wins = [0, 0, 0, 0]  # Track wins for each player
+        
         # Player colors (hue shifts in degrees): Blue (default), Red, Green, Yellow
         self.player_hue_shifts = [0, 120, 240, 60]  # Player 1, 2, 3, 4
         self.player_names = ["Player 1", "Player 2", "Player 3", "Player 4"]
@@ -289,7 +294,10 @@ class SnakeGame:
         self.multiplayer_menu_selection = 0
         self.multiplayer_menu_options = ["Same Screen", "Local Network (Coming Soon)", "Back"]
         
-        self.food_pos = None
+        # Food system - list of (position, type) tuples
+        # Types: 'worm' (regular), 'apple' (speed up), 'black_apple' (slow down)
+        self.food_items = []  # List of (pos, type)
+        self.food_pos = None  # Legacy for single player
         self.bonus_food_pos = None
         self.bonus_food_timer = 0
         self.score = 0
@@ -433,13 +441,35 @@ class SnakeGame:
         print("Created graphics for {} players".format(len(self.player_graphics)))
     
     def spawn_food(self):
-        while True:
-            # Spawn food within playable area (avoid 1-grid-cell border)
+        if self.is_multiplayer:
+            # In multiplayer, spawn worms
+            self.spawn_food_item('worm')
+        else:
+            # Single player - use legacy system
+            while True:
+                # Spawn food within playable area (avoid 1-grid-cell border)
+                x = random.randint(1, GRID_WIDTH - 2)
+                y = random.randint(1, GRID_HEIGHT - 2)
+                if (x, y) not in self.snake.body:
+                    self.food_pos = (x, y)
+                    break
+    
+    def spawn_food_item(self, food_type):
+        """Spawn a specific food item for multiplayer."""
+        occupied_positions = set()
+        for snake in self.snakes:
+            occupied_positions.update(snake.body)
+        occupied_positions.update([pos for pos, _ in self.food_items])
+        
+        max_attempts = 100
+        for _ in range(max_attempts):
             x = random.randint(1, GRID_WIDTH - 2)
             y = random.randint(1, GRID_HEIGHT - 2)
-            if (x, y) not in self.snake.body:
-                self.food_pos = (x, y)
-                break
+            if (x, y) not in occupied_positions:
+                self.food_items.append(((x, y), food_type))
+                print("Spawned {} at {}".format(food_type, (x, y)))
+                return
+        print("Warning: Could not spawn {}".format(food_type))
     
     def spawn_bonus_food(self):
         while True:
@@ -491,15 +521,69 @@ class SnakeGame:
         # Check if all players are dead
         alive_count = sum(1 for s in self.snakes if s.alive)
         if alive_count == 0:
-            # Game over for all players
-            self.sound_manager.play('no_lives')
-            self.music_manager.play_game_over_music()
-            self.state = GameState.GAME_OVER
-            self.game_over_timer = self.game_over_delay
+            # Draw - no winner this round
+            self.sound_manager.play('die')
+            self.end_round(winner_id=None)
         elif alive_count == 1:
             # One winner remains!
             winner = next(s for s in self.snakes if s.alive)
-            print("Player {} wins!".format(winner.player_id + 1))
+            print("Player {} wins round {}!".format(winner.player_id + 1, self.current_round))
+            self.sound_manager.play('level_up')
+            self.end_round(winner_id=winner.player_id)
+    
+    def end_round(self, winner_id=None):
+        """End the current round and check if match is over."""
+        # Award round win
+        if winner_id is not None:
+            self.round_wins[winner_id] += 1
+        
+        # Check if we've completed all rounds
+        if self.current_round >= self.total_rounds:
+            # Determine overall winner
+            max_wins = max(self.round_wins[:self.num_players])
+            winners = [i for i in range(self.num_players) if self.round_wins[i] == max_wins]
+            
+            if len(winners) == 1:
+                print("Player {} wins the match! ({}-{}-{})".format(
+                    winners[0] + 1, 
+                    self.round_wins[0], 
+                    self.round_wins[1], 
+                    self.round_wins[2] if len(self.round_wins) > 2 else 0
+                ))
+            else:
+                print("It's a tie!")
+            
+            # Go to game over
+            self.music_manager.play_game_over_music()
+            self.state = GameState.GAME_OVER
+            self.game_over_timer = self.game_over_delay
+        else:
+            # Start next round
+            self.game_over_timer = 180  # 3 second delay before next round
+            self.state = GameState.LEVEL_COMPLETE  # Reuse level complete for round transition
+    
+    def start_next_round(self):
+        """Start the next round."""
+        self.current_round += 1
+        print("Starting round {}/{}".format(self.current_round, self.total_rounds))
+        
+        # Reset all snakes
+        spawn_positions = self.get_spawn_positions(self.num_players)
+        spawn_directions = self.get_spawn_directions(self.num_players)
+        for i, snake in enumerate(self.snakes):
+            snake.alive = True
+            snake.reset(spawn_pos=spawn_positions[i], direction=spawn_directions[i])
+        
+        # Reset food and particles
+        self.food_items = []  # Clear multiplayer food
+        for _ in range(3):  # Start with 3 worms
+            self.spawn_food_item('worm')
+        # Spawn 1 apple and 1 black apple
+        self.spawn_food_item('apple')
+        self.spawn_food_item('black_apple')
+        self.particles = []
+        
+        self.state = GameState.PLAYING
     
     def create_particles(self, x, y, color=None, count=None, particle_type='red'):
         # Spawn a single GIF particle effect based on type
@@ -603,22 +687,27 @@ class SnakeGame:
                 self.bonus_food_pos = None
         
         self.move_timer += 1
-        # Speed formula: starts at 15 frames (good pace), max speed at level 25
-        move_interval = max(1, 16 - self.level // 2)
         
-        if self.move_timer >= move_interval:
-            self.move_timer = 0
-            
-            if self.is_multiplayer:
-                # Move all alive snakes
-                for snake in self.snakes:
-                    if snake.alive:
-                        snake.move()
+        if self.is_multiplayer:
+            # In multiplayer, each snake moves at its own pace based on speed_modifier
+            for snake in self.snakes:
+                if not snake.alive:
+                    continue
                 
-                # Check collisions for all players
-                for snake in self.snakes:
-                    if not snake.alive:
-                        continue
+                # Calculate individual snake speed
+                # Base speed: 16 frames, modified by speed_modifier
+                # Each apple: -2 frames (faster), each black apple: +3 frames (slower)
+                base_interval = 16
+                move_interval = max(2, base_interval + snake.speed_modifier)
+                
+                # Update snake's individual timer
+                snake.move_timer += 1
+                
+                # Check if this snake should move
+                if snake.move_timer >= move_interval:
+                    snake.move_timer = 0
+                    snake.last_move_interval = move_interval  # Track for interpolation
+                    snake.move()
                     
                     # Check wall and self-collision
                     if snake.check_collision(wrap_around=False):
@@ -631,54 +720,86 @@ class SnakeGame:
                             if snake.body[0] in other_snake.body:
                                 self.handle_player_death(snake)
                                 break
-            else:
-                # Single player mode
+        else:
+            # Single player mode - speed based on level
+            move_interval = max(1, 16 - self.level // 2)
+            
+            if self.move_timer >= move_interval:
+                self.move_timer = 0
                 self.snake.move()
-            
-            # Check collision (wall collision and self-collision) - single player
-            if not self.is_multiplayer and self.snake.check_collision(wrap_around=False):
-                self.sound_manager.play('die')
-                self.lives -= 1
                 
-                # Spawn white particles on all body segments including head
-                for segment_x, segment_y in self.snake.body:
-                    self.create_particles(segment_x * GRID_SIZE + GRID_SIZE // 2,
-                                        segment_y * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y, 
-                                        None, None, particle_type='white')
-                
-                if self.lives < 0:
-                    self.sound_manager.play('no_lives')
-                    self.music_manager.play_game_over_music()
-                    self.state = GameState.GAME_OVER
-                    self.game_over_timer = self.game_over_delay  # Start 3-second timer
-                else:
-                    # Go to egg hatching state instead of immediate reset
-                    self.state = GameState.EGG_HATCHING
-                return
-            
-            # Food collection
-            if self.is_multiplayer:
-                # Check if any player ate food
-                for snake in self.snakes:
-                    if not snake.alive:
-                        continue
+                # Check collision (wall collision and self-collision) - single player
+                if self.snake.check_collision(wrap_around=False):
+                    self.sound_manager.play('die')
+                    self.lives -= 1
                     
-                    if snake.body[0] == self.food_pos:
-                        self.sound_manager.play('eat_fruit')
-                        snake.grow(self.get_difficulty_length_modifier())
-                        base_points = (7 + len(snake.body)) * self.level
-                        snake.score += int(base_points * self.get_score_multiplier())
-                        fx, fy = self.food_pos
-                        self.create_particles(fx * GRID_SIZE + GRID_SIZE // 2,
-                                            fy * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y, RED, 10)
-                        self.spawn_food()
+                    # Spawn white particles on all body segments including head
+                    for segment_x, segment_y in self.snake.body:
+                        self.create_particles(segment_x * GRID_SIZE + GRID_SIZE // 2,
+                                            segment_y * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y, 
+                                            None, None, particle_type='white')
+                    
+                    if self.lives < 0:
+                        self.sound_manager.play('no_lives')
+                        self.music_manager.play_game_over_music()
+                        self.state = GameState.GAME_OVER
+                        self.game_over_timer = self.game_over_delay  # Start 3-second timer
+                    else:
+                        # Go to egg hatching state instead of immediate reset
+                        self.state = GameState.EGG_HATCHING
+                    return
+        
+        # Food collection (outside movement block)
+        if self.is_multiplayer:
+            # Check if any player ate food from food_items list
+            for snake in self.snakes:
+                if not snake.alive:
+                    continue
+                
+                # Check all food items
+                for i, (food_pos, food_type) in enumerate(self.food_items):
+                    if snake.body[0] == food_pos:
+                        fx, fy = food_pos
                         
-                        # Random bonus food spawn
+                        if food_type == 'worm':
+                            # Regular worm - grow normally
+                            self.sound_manager.play('eat_fruit')
+                            snake.grow(1)
+                            self.create_particles(fx * GRID_SIZE + GRID_SIZE // 2,
+                                                fy * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y, RED, 10)
+                        elif food_type == 'apple':
+                            # Apple - speed up
+                            self.sound_manager.play('powerup')
+                            snake.speed_modifier -= 2  # Faster (lower interval)
+                            print("Player {} ate apple, speed_modifier: {}".format(snake.player_id + 1, snake.speed_modifier))
+                            self.create_particles(fx * GRID_SIZE + GRID_SIZE // 2,
+                                                fy * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y, 
+                                                None, None, particle_type='rainbow')
+                        elif food_type == 'black_apple':
+                            # Black apple - slow down
+                            self.sound_manager.play('die')
+                            snake.speed_modifier += 3  # Slower (higher interval)
+                            print("Player {} ate black apple, speed_modifier: {}".format(snake.player_id + 1, snake.speed_modifier))
+                            self.create_particles(fx * GRID_SIZE + GRID_SIZE // 2,
+                                                fy * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y, 
+                                                None, None, particle_type='white')
+                        
+                        # Remove eaten food
+                        self.food_items.pop(i)
+                        
+                        # Spawn replacement food randomly
                         ran = random.random()
-                        if ran < 0.3:
-                            self.spawn_bonus_food()
-                        break
-            else:
+                        if ran < 0.6:
+                            self.spawn_food_item('worm')
+                        elif ran < 0.85:
+                            self.spawn_food_item('apple')
+                        else:
+                            self.spawn_food_item('black_apple')
+                        
+                        break  # Only eat one food per frame
+        else:
+            # Single player food collection
+            if self.move_timer == 0:  # Only check after movement
                 # Single player food collection
                 if self.snake.body[0] == self.food_pos:
                     self.sound_manager.play('eat_fruit')
@@ -839,7 +960,8 @@ class SnakeGame:
                     self.snake.change_direction(Direction.RIGHT)
         
         # Only poll hat if joystick has one (otherwise rely on JOYHATMOTION events or axes)
-        if self.joystick and self.joystick_has_hat:
+        # But skip this in multiplayer mode - controller mapping is handled above
+        if not self.is_multiplayer and self.joystick and self.joystick_has_hat:
             hat = self.joystick.get_hat(0)
             if self.state == GameState.EGG_HATCHING:
                 if hat[1] == 1:
@@ -861,7 +983,8 @@ class SnakeGame:
                     self.snake.change_direction(Direction.RIGHT)
         
         # For joysticks without hats, use axes (analog stick)
-        elif self.joystick and not self.joystick_has_hat:
+        # But skip this in multiplayer mode - controller mapping is handled above
+        elif not self.is_multiplayer and self.joystick and not self.joystick_has_hat:
             if self.joystick.get_numaxes() >= 2:
                 axis_x = self.joystick.get_axis(0)
                 axis_y = self.joystick.get_axis(1)
@@ -968,11 +1091,19 @@ class SnakeGame:
             elif self.state == GameState.GAME_OVER:
                 # Only allow input after the 3-second timer expires
                 if self.game_over_timer == 0 and event.key == pygame.K_RETURN:
-                    self.reset_game()
-                    self.state = GameState.MENU
+                    if self.is_multiplayer:
+                        # Go back to multiplayer lobby
+                        self.sound_manager.play('blip_select')
+                        self.state = GameState.MULTIPLAYER_LOBBY
+                    else:
+                        self.reset_game()
+                        self.state = GameState.MENU
             elif self.state == GameState.LEVEL_COMPLETE:
                 if event.key == pygame.K_RETURN:
-                    self.next_level()
+                    if self.is_multiplayer:
+                        self.start_next_round()
+                    else:
+                        self.next_level()
             elif self.state == GameState.HIGH_SCORE_ENTRY:
                 self.handle_high_score_keyboard(event)
             elif self.state == GameState.HIGH_SCORES:
@@ -1044,11 +1175,19 @@ class SnakeGame:
             elif self.state == GameState.GAME_OVER:
                 # Only allow input after the 3-second timer expires
                 if self.game_over_timer == 0 and button == GamepadButton.BTN_START:
-                    self.reset_game()
-                    self.state = GameState.MENU
+                    if self.is_multiplayer:
+                        # Go back to multiplayer lobby
+                        self.sound_manager.play('blip_select')
+                        self.state = GameState.MULTIPLAYER_LOBBY
+                    else:
+                        self.reset_game()
+                        self.state = GameState.MENU
             elif self.state == GameState.LEVEL_COMPLETE:
                 if button == GamepadButton.BTN_START:
-                    self.next_level()
+                    if self.is_multiplayer:
+                        self.start_next_round()
+                    else:
+                        self.next_level()
             elif self.state == GameState.HIGH_SCORE_ENTRY:
                 if button == GamepadButton.BTN_A:
                     self.use_onscreen_keyboard()
@@ -1225,71 +1364,99 @@ class SnakeGame:
         
         print("Setting up multiplayer game for {} players".format(self.num_players))
         
+        # Initialize rounds
+        self.current_round = 1
+        self.round_wins = [0] * self.num_players
+        
         # Create snakes for each player
         self.snakes = []
         spawn_positions = self.get_spawn_positions(self.num_players)
+        spawn_directions = self.get_spawn_directions(self.num_players)
         
         for i in range(self.num_players):
             snake = Snake(player_id=i)
-            snake.reset(spawn_pos=spawn_positions[i])
+            snake.speed_modifier = 0  # Initialize speed
+            snake.reset(spawn_pos=spawn_positions[i], direction=spawn_directions[i])
             self.snakes.append(snake)
+        
+        # Initialize food
+        self.food_items = []
         
         # Set first snake for backwards compatibility
         self.snake = self.snakes[0]
     
     def get_spawn_positions(self, num_players):
-        """Get spawn positions for multiple players to avoid collisions."""
-        positions = []
+        """Get spawn positions for multiple players in corners."""
+        # Players spawn in corners:
+        # Player 1: top left
+        # Player 2: top right
+        # Player 3: bottom right
+        # Player 4: bottom left
+        positions = [
+            (3, 3),  # Top left
+            (GRID_WIDTH - 4, 3),  # Top right
+            (GRID_WIDTH - 4, GRID_HEIGHT - 4),  # Bottom right
+            (3, GRID_HEIGHT - 4)  # Bottom left
+        ]
         
-        if num_players == 2:
-            # Left and right sides
-            positions = [
-                (GRID_WIDTH // 4, GRID_HEIGHT // 2),
-                (3 * GRID_WIDTH // 4, GRID_HEIGHT // 2)
-            ]
-        elif num_players == 3:
-            # Triangle formation
-            positions = [
-                (GRID_WIDTH // 4, GRID_HEIGHT // 3),
-                (3 * GRID_WIDTH // 4, GRID_HEIGHT // 3),
-                (GRID_WIDTH // 2, 2 * GRID_HEIGHT // 3)
-            ]
-        elif num_players >= 4:
-            # Four corners (with some offset from walls)
-            positions = [
-                (GRID_WIDTH // 4, GRID_HEIGHT // 4),
-                (3 * GRID_WIDTH // 4, GRID_HEIGHT // 4),
-                (GRID_WIDTH // 4, 3 * GRID_HEIGHT // 4),
-                (3 * GRID_WIDTH // 4, 3 * GRID_HEIGHT // 4)
-            ]
+        return positions[:num_players]
+    
+    def get_spawn_directions(self, num_players):
+        """Get predetermined spawn directions for each player."""
+        # Player 1: face right
+        # Player 2: face down
+        # Player 3: face left
+        # Player 4: face up
+        directions = [
+            Direction.RIGHT,  # Player 1
+            Direction.DOWN,   # Player 2
+            Direction.LEFT,   # Player 3
+            Direction.UP      # Player 4
+        ]
         
-        return positions
+        return directions[:num_players]
 
     def reset_game(self):
         if self.is_multiplayer:
-            # Multiplayer reset
+            # Multiplayer reset - reset round and scores
+            self.current_round = 1
+            self.round_wins = [0] * self.num_players
             for snake in self.snakes:
                 snake.score = 0
                 snake.alive = True
+                snake.speed_modifier = 0  # Reset speed
             spawn_positions = self.get_spawn_positions(self.num_players)
+            spawn_directions = self.get_spawn_directions(self.num_players)
             for i, snake in enumerate(self.snakes):
-                snake.reset(spawn_pos=spawn_positions[i])
+                snake.reset(spawn_pos=spawn_positions[i], direction=spawn_directions[i])
+            
+            # Initialize multiplayer food
+            self.food_items = []
+            for _ in range(3):  # Start with 3 worms
+                self.spawn_food_item('worm')
+            self.spawn_food_item('apple')
+            self.spawn_food_item('black_apple')
         else:
             # Single player reset
             self.snakes = [Snake(player_id=0)]
             self.snake = self.snakes[0]
             self.score = 0
+            self.spawn_food()
         
         self.level = 1
         self.lives = 3
         self.fruits_eaten_this_level = 0
-        self.spawn_food()
         self.bonus_food_pos = None
         self.bonus_food_timer = 0
         self.particles = []
         self.egg_pieces = []
-        # Don't reset snake yet - wait for egg hatching
-        self.state = GameState.EGG_HATCHING
+        
+        # In multiplayer, skip egg hatching and go straight to playing
+        if self.is_multiplayer:
+            self.state = GameState.PLAYING
+        else:
+            # Don't reset snake yet - wait for egg hatching
+            self.state = GameState.EGG_HATCHING
     
     def hatch_egg(self, direction):
         """Hatch the egg and spawn the snake in the chosen direction"""
@@ -1721,8 +1888,14 @@ class SnakeGame:
         """Draw a single snake with its color-shifted graphics."""
         # Get interpolated positions for smooth movement
         # Calculate progress between frames for interpolation
-        max_move_interval = max(1, 16 - self.level // 2)
-        progress = min(1.0, self.move_timer / max_move_interval)
+        if self.is_multiplayer:
+            # Use snake's individual timer and interval
+            move_interval = max(1, snake.last_move_interval)
+            progress = min(1.0, snake.move_timer / move_interval)
+        else:
+            # Single player - use global timer and level-based speed
+            move_interval = max(1, 16 - self.level // 2)
+            progress = min(1.0, self.move_timer / move_interval)
         
         interpolated_positions = []
         for i, current_pos in enumerate(snake.body):
@@ -1820,24 +1993,59 @@ class SnakeGame:
         # for y in range(GAME_OFFSET_Y, SCREEN_HEIGHT, GRID_SIZE):
         #     pygame.draw.line(self.screen, GRID_COLOR, (0, y), (SCREEN_WIDTH, y), 1)
         
-        # Draw food with animated worm
-        if self.food_pos:
-            fx, fy = self.food_pos
-            if self.worm_frames:
-                # Draw animated worm
-                worm_img = self.worm_frames[self.worm_frame_index]
-                self.screen.blit(worm_img, (fx * GRID_SIZE, fy * GRID_SIZE + GAME_OFFSET_Y))
-            else:
-                # Fallback to pulsing red rectangle
-                pulse = abs((pygame.time.get_ticks() % 1000) - 500) / 500  # 0 to 1 and back
-                size_offset = int(pulse * 2)  # Pulse between 0 and 2 pixels
+        # Draw food
+        if self.is_multiplayer:
+            # Draw all food items in multiplayer
+            for food_pos, food_type in self.food_items:
+                fx, fy = food_pos
                 
-                food_rect = pygame.Rect(fx * GRID_SIZE + 2 - size_offset, 
-                                       fy * GRID_SIZE + 2 - size_offset + GAME_OFFSET_Y,
-                                       GRID_SIZE - 4 + size_offset * 2, 
-                                       GRID_SIZE - 4 + size_offset * 2)
-                # Use pure red color (255, 0, 0) instead of NEON_PINK
-                pygame.draw.rect(self.screen, (255, 0, 0), food_rect, border_radius=GRID_SIZE // 4)
+                if food_type == 'worm':
+                    # Draw worm (animated if available)
+                    if self.worm_frames:
+                        worm_img = self.worm_frames[self.worm_frame_index]
+                        self.screen.blit(worm_img, (fx * GRID_SIZE, fy * GRID_SIZE + GAME_OFFSET_Y))
+                    else:
+                        # Fallback to red rectangle
+                        food_rect = pygame.Rect(fx * GRID_SIZE + 2, fy * GRID_SIZE + 2 + GAME_OFFSET_Y,
+                                               GRID_SIZE - 4, GRID_SIZE - 4)
+                        pygame.draw.rect(self.screen, (255, 0, 0), food_rect, border_radius=GRID_SIZE // 4)
+                
+                elif food_type == 'apple':
+                    # Draw red apple (larger circle with highlight)
+                    center_x = fx * GRID_SIZE + GRID_SIZE // 2
+                    center_y = fy * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y
+                    # Main apple body
+                    pygame.draw.circle(self.screen, (200, 30, 30), (center_x, center_y), GRID_SIZE // 3)
+                    # Highlight
+                    pygame.draw.circle(self.screen, (255, 100, 100), (center_x - 2, center_y - 2), GRID_SIZE // 6)
+                
+                elif food_type == 'black_apple':
+                    # Draw black/dark purple apple
+                    center_x = fx * GRID_SIZE + GRID_SIZE // 2
+                    center_y = fy * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y
+                    # Main apple body
+                    pygame.draw.circle(self.screen, (40, 20, 50), (center_x, center_y), GRID_SIZE // 3)
+                    # Highlight
+                    pygame.draw.circle(self.screen, (80, 50, 90), (center_x - 2, center_y - 2), GRID_SIZE // 6)
+        else:
+            # Single player - draw regular food with animated worm
+            if self.food_pos:
+                fx, fy = self.food_pos
+                if self.worm_frames:
+                    # Draw animated worm
+                    worm_img = self.worm_frames[self.worm_frame_index]
+                    self.screen.blit(worm_img, (fx * GRID_SIZE, fy * GRID_SIZE + GAME_OFFSET_Y))
+                else:
+                    # Fallback to pulsing red rectangle
+                    pulse = abs((pygame.time.get_ticks() % 1000) - 500) / 500  # 0 to 1 and back
+                    size_offset = int(pulse * 2)  # Pulse between 0 and 2 pixels
+                    
+                    food_rect = pygame.Rect(fx * GRID_SIZE + 2 - size_offset, 
+                                           fy * GRID_SIZE + 2 - size_offset + GAME_OFFSET_Y,
+                                           GRID_SIZE - 4 + size_offset * 2, 
+                                           GRID_SIZE - 4 + size_offset * 2)
+                    # Use pure red color (255, 0, 0) instead of NEON_PINK
+                    pygame.draw.rect(self.screen, (255, 0, 0), food_rect, border_radius=GRID_SIZE // 4)
         
         # Draw bonus food
         if self.bonus_food_pos:
@@ -1875,14 +2083,21 @@ class SnakeGame:
         
         # Draw HUD text (background now part of bg.png)
         if self.is_multiplayer:
-            # Draw multiplayer scores - show each player's score
+            # Draw round information
+            round_text = "Round {}/{}".format(self.current_round, self.total_rounds)
+            text = self.font_small.render(round_text, True, BLACK)
+            self.screen.blit(text, (SCREEN_WIDTH - 102, 4))
+            text = self.font_small.render(round_text, True, NEON_YELLOW)
+            self.screen.blit(text, (SCREEN_WIDTH - 104, 2))
+            
+            # Draw multiplayer scores - show each player's wins
             y_start = 2
             for i, snake in enumerate(self.snakes):
                 player_color = self.player_colors[i] if i < len(self.player_colors) else WHITE
                 status = "" if snake.alive else " (OUT)"
                 
-                # Player name and score
-                player_text = "P{}: {}{}".format(i + 1, snake.score, status)
+                # Player name and wins
+                player_text = "P{}: {} wins{}".format(i + 1, self.round_wins[i], status)
                 
                 # Shadow
                 text = self.font_small.render(player_text, True, BLACK)
@@ -1903,33 +2118,35 @@ class SnakeGame:
             score_value = self.font_small.render("{}".format(self.score), True, WHITE)
             self.screen.blit(score_value, (98, 2))
         
-        # Center-left: Level
-        level_label = self.font_small.render("LEVEL:", True, BLACK)
-        level_value = self.font_small.render("{}".format(self.level), True, BLACK)
-        level_label_rect = level_label.get_rect(center=(SCREEN_WIDTH // 2 + 62, SCREEN_HEIGHT - 7))
-        level_value_rect = level_value.get_rect(center=(SCREEN_WIDTH // 2 + 125, SCREEN_HEIGHT - 6))
-        self.screen.blit(level_label, level_label_rect)
-        self.screen.blit(level_value, level_value_rect)
-        level_label = self.font_small.render("LEVEL:", True, NEON_YELLOW)
-        level_value = self.font_small.render("{}".format(self.level), True, WHITE)
-        level_label_rect = level_label.get_rect(center=(SCREEN_WIDTH // 2 + 60, SCREEN_HEIGHT - 9))
-        level_value_rect = level_value.get_rect(center=(SCREEN_WIDTH // 2 + 123, SCREEN_HEIGHT - 8))
-        self.screen.blit(level_label, level_label_rect)
-        self.screen.blit(level_value, level_value_rect)
-        
-        fruits_label = self.font_small.render("WORMS:", True, BLACK)
-        fruits_label_rect = fruits_label.get_rect(center=(SCREEN_WIDTH // 2 + 62, 16))
-        self.screen.blit(fruits_label, fruits_label_rect)
-        fruits_label = self.font_small.render("WORMS:", True, NEON_YELLOW)
-        fruits_label_rect = fruits_label.get_rect(center=(SCREEN_WIDTH // 2 + 60, 14))
-        self.screen.blit(fruits_label, fruits_label_rect)
+        # Single player HUD elements (level, worms counter)
+        if not self.is_multiplayer:
+            # Center-left: Level
+            level_label = self.font_small.render("LEVEL:", True, BLACK)
+            level_value = self.font_small.render("{}".format(self.level), True, BLACK)
+            level_label_rect = level_label.get_rect(center=(SCREEN_WIDTH // 2 + 62, SCREEN_HEIGHT - 7))
+            level_value_rect = level_value.get_rect(center=(SCREEN_WIDTH // 2 + 125, SCREEN_HEIGHT - 6))
+            self.screen.blit(level_label, level_label_rect)
+            self.screen.blit(level_value, level_value_rect)
+            level_label = self.font_small.render("LEVEL:", True, NEON_YELLOW)
+            level_value = self.font_small.render("{}".format(self.level), True, WHITE)
+            level_label_rect = level_label.get_rect(center=(SCREEN_WIDTH // 2 + 60, SCREEN_HEIGHT - 9))
+            level_value_rect = level_value.get_rect(center=(SCREEN_WIDTH // 2 + 123, SCREEN_HEIGHT - 8))
+            self.screen.blit(level_label, level_label_rect)
+            self.screen.blit(level_value, level_value_rect)
+            
+            fruits_label = self.font_small.render("WORMS:", True, BLACK)
+            fruits_label_rect = fruits_label.get_rect(center=(SCREEN_WIDTH // 2 + 62, 16))
+            self.screen.blit(fruits_label, fruits_label_rect)
+            fruits_label = self.font_small.render("WORMS:", True, NEON_YELLOW)
+            fruits_label_rect = fruits_label.get_rect(center=(SCREEN_WIDTH // 2 + 60, 14))
+            self.screen.blit(fruits_label, fruits_label_rect)
 
-        fruits_value = self.font_small.render("{}/12".format(self.fruits_eaten_this_level), True, BLACK)
-        fruits_value_rect = fruits_value.get_rect(center=(SCREEN_WIDTH // 2 + 135, 16))
-        self.screen.blit(fruits_value, fruits_value_rect)
-        fruits_value = self.font_small.render("{}/12".format(self.fruits_eaten_this_level), True, WHITE)
-        fruits_value_rect = fruits_value.get_rect(center=(SCREEN_WIDTH // 2 + 133, 14))
-        self.screen.blit(fruits_value, fruits_value_rect)
+            fruits_value = self.font_small.render("{}/12".format(self.fruits_eaten_this_level), True, BLACK)
+            fruits_value_rect = fruits_value.get_rect(center=(SCREEN_WIDTH // 2 + 135, 16))
+            self.screen.blit(fruits_value, fruits_value_rect)
+            fruits_value = self.font_small.render("{}/12".format(self.fruits_eaten_this_level), True, WHITE)
+            fruits_value_rect = fruits_value.get_rect(center=(SCREEN_WIDTH // 2 + 133, 14))
+            self.screen.blit(fruits_value, fruits_value_rect)
         
         # Lives with label (only in single player)
         if not self.is_multiplayer:
@@ -1982,13 +2199,45 @@ class SnakeGame:
                 over_rect = over_text.get_rect(center=(SCREEN_WIDTH // 2, 60))
                 self.screen.blit(over_text, over_rect)
             
-            score_text = self.font_medium.render("Score: {}".format(self.score), True, NEON_CYAN)
-            score_rect = score_text.get_rect(center=(SCREEN_WIDTH // 2, 200))
-            self.screen.blit(score_text, score_rect)
-            
-            level_text = self.font_medium.render("Level: {}".format(self.level), True, NEON_GREEN)
-            level_rect = level_text.get_rect(center=(SCREEN_WIDTH // 2, 240))
-            self.screen.blit(level_text, level_rect)
+            if self.is_multiplayer:
+                # Show final match results
+                max_wins = max(self.round_wins[:self.num_players])
+                winners = [i for i in range(self.num_players) if self.round_wins[i] == max_wins]
+                
+                if len(winners) == 1:
+                    winner_text = "Player {} Wins!".format(winners[0] + 1)
+                    color = self.player_colors[winners[0]]
+                else:
+                    winner_text = "It's a Tie!"
+                    color = NEON_YELLOW
+                
+                text = self.font_large.render(winner_text, True, BLACK)
+                rect = text.get_rect(center=((SCREEN_WIDTH // 2) + 3, 180 + 3))
+                self.screen.blit(text, rect)
+                text = self.font_large.render(winner_text, True, color)
+                rect = text.get_rect(center=(SCREEN_WIDTH // 2, 180))
+                self.screen.blit(text, rect)
+                
+                # Show final standings
+                y_offset = 230
+                for i in range(self.num_players):
+                    score_text = "{}: {} wins".format(self.player_names[i], self.round_wins[i])
+                    text = self.font_medium.render(score_text, True, BLACK)
+                    rect = text.get_rect(center=((SCREEN_WIDTH // 2) + 2, y_offset + 2))
+                    self.screen.blit(text, rect)
+                    text = self.font_medium.render(score_text, True, self.player_colors[i])
+                    rect = text.get_rect(center=(SCREEN_WIDTH // 2, y_offset))
+                    self.screen.blit(text, rect)
+                    y_offset += 30
+            else:
+                # Single player results
+                score_text = self.font_medium.render("Score: {}".format(self.score), True, NEON_CYAN)
+                score_rect = score_text.get_rect(center=(SCREEN_WIDTH // 2, 200))
+                self.screen.blit(score_text, score_rect)
+                
+                level_text = self.font_medium.render("Level: {}".format(self.level), True, NEON_GREEN)
+                level_rect = level_text.get_rect(center=(SCREEN_WIDTH // 2, 240))
+                self.screen.blit(level_text, level_rect)
             
             hint_text = self.font_small.render("Start to continue", True, NEON_YELLOW)
             hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 290))
@@ -2000,27 +2249,70 @@ class SnakeGame:
         overlay.fill(DARK_BG)
         self.screen.blit(overlay, (0, 0))
         
-        complete_text = self.font_large.render("LEVEL UP!", True, BLACK)
-        complete_rect = complete_text.get_rect(center=((SCREEN_WIDTH // 2)+3, SCREEN_HEIGHT // 2 - 20+3))
-        self.screen.blit(complete_text, complete_rect)
+        if self.is_multiplayer:
+            # Show round results
+            # Find winner of this round
+            winner_id = None
+            for i in range(self.num_players):
+                if self.snakes[i].alive:
+                    winner_id = i
+                    break
+            
+            if winner_id is not None:
+                winner_text = "Player {} wins round {}!".format(winner_id + 1, self.current_round)
+                color = self.player_colors[winner_id]
+            else:
+                winner_text = "Round {} - Draw!".format(self.current_round)
+                color = WHITE
+            
+            complete_text = self.font_large.render(winner_text, True, BLACK)
+            complete_rect = complete_text.get_rect(center=((SCREEN_WIDTH // 2)+3, SCREEN_HEIGHT // 2 - 40+3))
+            self.screen.blit(complete_text, complete_rect)
+            complete_text = self.font_large.render(winner_text, True, color)
+            complete_rect = complete_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 40))
+            self.screen.blit(complete_text, complete_rect)
+            
+            # Show round scores
+            y_offset = SCREEN_HEIGHT // 2
+            for i in range(self.num_players):
+                score_text = "{}: {} wins".format(self.player_names[i], self.round_wins[i])
+                text = self.font_small.render(score_text, True, BLACK)
+                rect = text.get_rect(center=((SCREEN_WIDTH // 2)+2, y_offset+2))
+                self.screen.blit(text, rect)
+                text = self.font_small.render(score_text, True, self.player_colors[i])
+                rect = text.get_rect(center=(SCREEN_WIDTH // 2, y_offset))
+                self.screen.blit(text, rect)
+                y_offset += 25
+            
+            hint_text = self.font_small.render("Start to continue", True, BLACK)
+            hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+3, SCREEN_HEIGHT - 60+3))
+            self.screen.blit(hint_text, hint_rect)
+            hint_text = self.font_small.render("Start to continue", True, NEON_YELLOW)
+            hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT - 60))
+            self.screen.blit(hint_text, hint_rect)
+        else:
+            # Single player level complete
+            complete_text = self.font_large.render("LEVEL UP!", True, BLACK)
+            complete_rect = complete_text.get_rect(center=((SCREEN_WIDTH // 2)+3, SCREEN_HEIGHT // 2 - 20+3))
+            self.screen.blit(complete_text, complete_rect)
 
-        complete_text = self.font_large.render("LEVEL UP!", True, NEON_YELLOW)
-        complete_rect = complete_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 20))
-        self.screen.blit(complete_text, complete_rect)
-        
-        bonus_text = self.font_medium.render("Bonus Life!", True, BLACK)
-        bonus_rect = bonus_text.get_rect(center=((SCREEN_WIDTH // 2)+2, SCREEN_HEIGHT // 2 + 15+2))
-        self.screen.blit(bonus_text, bonus_rect)
-        bonus_text = self.font_medium.render("Bonus Life!", True, NEON_YELLOW)
-        bonus_rect = bonus_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 15))
-        self.screen.blit(bonus_text, bonus_rect)
-        
-        hint_text = self.font_small.render("Start to continue", True, BLACK)
-        hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+3, SCREEN_HEIGHT // 2 + 53))
-        self.screen.blit(hint_text, hint_rect)
-        hint_text = self.font_small.render("Start to continue", True, NEON_YELLOW)
-        hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 50))
-        self.screen.blit(hint_text, hint_rect)
+            complete_text = self.font_large.render("LEVEL UP!", True, NEON_YELLOW)
+            complete_rect = complete_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 20))
+            self.screen.blit(complete_text, complete_rect)
+            
+            bonus_text = self.font_medium.render("Bonus Life!", True, BLACK)
+            bonus_rect = bonus_text.get_rect(center=((SCREEN_WIDTH // 2)+2, SCREEN_HEIGHT // 2 + 15+2))
+            self.screen.blit(bonus_text, bonus_rect)
+            bonus_text = self.font_medium.render("Bonus Life!", True, NEON_YELLOW)
+            bonus_rect = bonus_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 15))
+            self.screen.blit(bonus_text, bonus_rect)
+            
+            hint_text = self.font_small.render("Start to continue", True, BLACK)
+            hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+3, SCREEN_HEIGHT // 2 + 53))
+            self.screen.blit(hint_text, hint_rect)
+            hint_text = self.font_small.render("Start to continue", True, NEON_YELLOW)
+            hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 50))
+            self.screen.blit(hint_text, hint_rect)
     
     def draw_high_score_entry(self):
         # Draw high score screen image as background
