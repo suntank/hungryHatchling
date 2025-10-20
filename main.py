@@ -2010,8 +2010,10 @@ class SnakeGame:
     
     def draw_multiplayer_menu(self):
         """Draw the multiplayer mode selection menu."""
-        # Use title screen or background
-        if self.title_screen:
+        # Use difficulty screen as background (no text conflicts)
+        if self.difficulty_screen:
+            self.screen.blit(self.difficulty_screen, (0, 0))
+        elif self.title_screen:
             self.screen.blit(self.title_screen, (0, 0))
         elif self.background:
             self.screen.blit(self.background, (0, 0))
