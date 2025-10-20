@@ -94,6 +94,28 @@ class SnakeGame:
             self.difficulty_screen = None
             print("Warning: difficulty.png not found, using default difficulty screen")
         
+        # Load splash screen image
+        try:
+            splash_path = os.path.join(SCRIPT_DIR, 'splashAMS.png')
+            self.splash_screen = pygame.image.load(splash_path).convert()
+            self.splash_screen = pygame.transform.scale(self.splash_screen, (SCREEN_WIDTH, SCREEN_HEIGHT))
+        except:
+            self.splash_screen = None
+            print("Warning: splashAMS.png not found, skipping splash screen")
+        
+        # Load Tweetrix logo
+        try:
+            tweetrix_path = os.path.join(SCRIPT_DIR, 'Tweetrix.png')
+            self.tweetrix_logo = pygame.image.load(tweetrix_path).convert_alpha()
+            # Scale logo to reasonable size (e.g., 100px wide, maintain aspect ratio)
+            logo_width = 50
+            aspect_ratio = self.tweetrix_logo.get_height() / self.tweetrix_logo.get_width()
+            logo_height = int(logo_width * aspect_ratio)
+            self.tweetrix_logo = pygame.transform.scale(self.tweetrix_logo, (logo_width, logo_height))
+        except:
+            self.tweetrix_logo = None
+            print("Warning: Tweetrix.png not found")
+        
         # Load egg images
         try:
             egg_path = os.path.join(SCRIPT_DIR, 'egg.png')
@@ -350,7 +372,13 @@ class SnakeGame:
             self.robot_icon = None
             print("Warning: robot.png not found: {}".format(e))
         
-        self.state = GameState.MENU
+        # Set initial state to splash screen if available
+        if self.splash_screen:
+            self.state = GameState.SPLASH
+            self.splash_start_time = pygame.time.get_ticks()
+            self.splash_duration = 3000  # 3 seconds in milliseconds
+        else:
+            self.state = GameState.MENU
         
         # Multiplayer support
         self.is_multiplayer = False
@@ -1457,6 +1485,11 @@ class SnakeGame:
             return False
         
         if event.type == pygame.KEYDOWN:
+            # Skip splash screen on any key press
+            if self.state == GameState.SPLASH:
+                self.state = GameState.MENU
+                return True
+            
             if self.state == GameState.MENU:
                 if event.key == pygame.K_UP:
                     self.menu_selection = (self.menu_selection - 1) % len(self.menu_options)
@@ -1942,6 +1975,13 @@ class SnakeGame:
             
             self.handle_input()
             
+            # Handle splash screen timer
+            if self.state == GameState.SPLASH:
+                current_time = pygame.time.get_ticks()
+                if current_time - self.splash_start_time >= self.splash_duration:
+                    # Transition to menu after 3 seconds
+                    self.state = GameState.MENU
+            
             if self.state == GameState.EGG_HATCHING:
                 # Update particles (death particles from previous life)
                 self.particles = [p for p in self.particles if p.is_alive()]
@@ -1991,7 +2031,9 @@ class SnakeGame:
     def draw(self):
         self.screen.fill(BLACK)
         
-        if self.state == GameState.MENU:
+        if self.state == GameState.SPLASH:
+            self.draw_splash()
+        elif self.state == GameState.MENU:
             self.draw_menu()
         elif self.state == GameState.MULTIPLAYER_MENU:
             self.draw_multiplayer_menu()
@@ -2020,6 +2062,14 @@ class SnakeGame:
         self.display.blit(pygame.transform.scale(self.screen, (SCREEN_WIDTH * self.scale, SCREEN_HEIGHT * self.scale)), (0, 0))
         pygame.display.flip()
     
+    def draw_splash(self):
+        """Draw the splash screen."""
+        if self.splash_screen:
+            self.screen.blit(self.splash_screen, (0, 0))
+        else:
+            # Fallback if splash screen not loaded
+            self.screen.fill(BLACK)
+    
     def draw_menu(self):
         # Draw title screen image (includes game name)
         if self.title_screen:
@@ -2046,6 +2096,12 @@ class SnakeGame:
             
             # Draw text
             self.screen.blit(text, text_rect)
+        
+        # Draw Tweetrix logo at bottom left
+        if self.tweetrix_logo:
+            logo_x = 10  # 10 pixels from left edge
+            logo_y = SCREEN_HEIGHT - self.tweetrix_logo.get_height() - 10  # 10 pixels from bottom
+            self.screen.blit(self.tweetrix_logo, (logo_x, logo_y))
     
     def draw_multiplayer_menu(self):
         """Draw the multiplayer mode selection menu."""
@@ -2083,10 +2139,10 @@ class SnakeGame:
             self.screen.blit(text, text_rect)
         
         # Hint text
-        hint_text = self.font_small.render("Press B/ESC to go back", True, BLACK)
+        hint_text = self.font_small.render("Press B to go back", True, BLACK)
         hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+2, 452))
         self.screen.blit(hint_text, hint_rect)
-        hint_text = self.font_small.render("Press B/ESC to go back", True, NEON_PURPLE)
+        hint_text = self.font_small.render("Press B to go back", True, NEON_PURPLE)
         hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 450))
         self.screen.blit(hint_text, hint_rect)
     

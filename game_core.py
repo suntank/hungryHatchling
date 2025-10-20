@@ -58,6 +58,7 @@ class GamepadButton:
 
 # Game states
 class GameState(Enum):
+    SPLASH = 0
     MENU = 1
     PLAYING = 2
     PAUSED = 3
