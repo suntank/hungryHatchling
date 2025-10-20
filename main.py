@@ -116,6 +116,15 @@ class SnakeGame:
             self.tweetrix_logo = None
             print("Warning: Tweetrix.png not found")
         
+        # Load multiplayer setup background
+        try:
+            multi_bg_path = os.path.join(SCRIPT_DIR, 'multiBG.png')
+            self.multi_bg = pygame.image.load(multi_bg_path).convert()
+            self.multi_bg = pygame.transform.scale(self.multi_bg, (SCREEN_WIDTH, SCREEN_HEIGHT))
+        except:
+            self.multi_bg = None
+            print("Warning: multiBG.png not found, using default background")
+        
         # Load egg images
         try:
             egg_path = os.path.join(SCRIPT_DIR, 'egg.png')
@@ -427,6 +436,7 @@ class SnakeGame:
         self.egg_pieces = []  # Track flying egg shell pieces
         self.game_over_timer = 0
         self.game_over_delay = 180  # 3 seconds at 60 FPS
+        self.multiplayer_end_timer = 0  # Timer for delay after last player dies in multiplayer
         
         self.joystick = None
         self.joystick_has_hat = False
@@ -648,16 +658,14 @@ class SnakeGame:
             winner = players_with_lives[0]
             print("Player {} wins the match!".format(winner.player_id + 1))
             self.sound_manager.play('level_up')
-            self.music_manager.play_game_over_music()
-            self.state = GameState.GAME_OVER
-            self.game_over_timer = self.game_over_delay
+            # Set a delay before transitioning to game over screen
+            self.multiplayer_end_timer = 120  # 2 seconds at 60 FPS
         elif len(players_with_lives) == 0:
             # Everyone ran out of lives - draw
             print("Draw - all players eliminated!")
             self.sound_manager.play('no_lives')
-            self.music_manager.play_game_over_music()
-            self.state = GameState.GAME_OVER
-            self.game_over_timer = self.game_over_delay
+            # Set a delay before transitioning to game over screen
+            self.multiplayer_end_timer = 120  # 2 seconds at 60 FPS
     
     def respawn_player(self, player_id, pos, direction):
         """Respawn a player at the egg position."""
@@ -974,6 +982,15 @@ class SnakeGame:
     
     def update_game(self):
         self.music_manager.update()
+        
+        # Handle multiplayer end timer (delay after last player dies)
+        if hasattr(self, 'multiplayer_end_timer') and self.multiplayer_end_timer > 0:
+            self.multiplayer_end_timer -= 1
+            if self.multiplayer_end_timer == 0:
+                # Timer expired, transition to game over
+                self.music_manager.play_game_over_music()
+                self.state = GameState.GAME_OVER
+                self.game_over_timer = self.game_over_delay
         
         # Update snake head animation
         if self.snake_head_frames:
@@ -1783,7 +1800,7 @@ class SnakeGame:
         
         if selection == 0:
             # Lives
-            self.lobby_settings['lives'] = max(1, min(9, self.lobby_settings['lives'] + direction))
+            self.lobby_settings['lives'] = max(1, min(10, self.lobby_settings['lives'] + direction))
         elif selection == 1:
             # Item frequency
             self.lobby_settings['item_frequency'] = (self.lobby_settings['item_frequency'] + direction) % 3
@@ -2148,20 +2165,23 @@ class SnakeGame:
     
     def draw_multiplayer_lobby(self):
         """Draw the multiplayer lobby with settings and players."""
-        if self.background:
+        # Use multiplayer setup background
+        if self.multi_bg:
+            self.screen.blit(self.multi_bg, (0, 0))
+        elif self.background:
             self.screen.blit(self.background, (0, 0))
         else:
             self.screen.fill(DARK_BG)
         
         # Title
-        title = self.font_large.render("MULTIPLAYER SETUP", True, BLACK)
-        title_rect = title.get_rect(center=((SCREEN_WIDTH // 2)+3, 33))
+        title = self.font_large.render("SETUP", True, BLACK)
+        title_rect = title.get_rect(center=((SCREEN_WIDTH // 2)+3, 28))
         self.screen.blit(title, title_rect)
-        title = self.font_large.render("MULTIPLAYER SETUP", True, NEON_YELLOW)
-        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 30))
+        title = self.font_large.render("SETUP", True, NEON_YELLOW)
+        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 25))
         self.screen.blit(title, title_rect)
         
-        y = 70
+        y = 100  # Start higher to fit everything
         center_x = SCREEN_WIDTH // 2
         
         # Settings section with visual icons
@@ -2179,8 +2199,8 @@ class SnakeGame:
         
         # Draw egg icons for lives (show all eggs, not capped at 5)
         lives = self.lobby_settings['lives']
-        egg_size = 36  # 2x original size
-        egg_spacing = 40
+        egg_size = 28  # Slightly smaller to fit better
+        egg_spacing = 32
         start_x = center_x - 80
         max_eggs_per_row = 10  # Display up to 10 eggs
         
@@ -2197,7 +2217,7 @@ class SnakeGame:
                     egg.set_alpha(50)  # Dim the egg
                     self.screen.blit(egg, (start_x + i * egg_spacing, y - egg_size // 2))
         
-        y += 50
+        y += 40  # Reduced spacing
         
         # Item Spawn setting with apple icons (1-3 apples)
         is_selected = (self.lobby_selection == 1)
@@ -2214,8 +2234,8 @@ class SnakeGame:
         # Draw apple icons (1=Low, 2=Normal, 3=High) using bonus.png
         item_freq = self.lobby_settings['item_frequency']
         num_apples = item_freq + 1  # 0→1, 1→2, 2→3
-        apple_size = 36  # 2x size
-        apple_spacing = 40
+        apple_size = 28  # Smaller to match eggs
+        apple_spacing = 32
         start_x = center_x - 80
         
         for i in range(3):  # Max 3 apples
@@ -2230,23 +2250,23 @@ class SnakeGame:
                     apple.set_alpha(50)
                     self.screen.blit(apple, (start_x + i * apple_spacing, y - apple_size // 2))
         
-        y += 50
+        y += 40  # Reduced spacing
         
         # CPU Difficulty with star rating
         is_selected = (self.lobby_selection == 2)
         color = NEON_YELLOW if is_selected else NEON_GREEN
         
         # Draw "CPU Difficulty" label
-        label = self.font_small.render("CPU Difficulty:", True, BLACK)
+        label = self.font_small.render("CPU Level:", True, BLACK)
         label_rect = label.get_rect(midright=(center_x - 100 + 2, y + 2))
         self.screen.blit(label, label_rect)
-        label = self.font_small.render("CPU Difficulty:", True, color)
+        label = self.font_small.render("CPU Level:", True, color)
         label_rect = label.get_rect(midright=(center_x - 100, y))
         self.screen.blit(label, label_rect)
         
         # Draw star rating (4 stars total: easy, medium, hard, brutal)
         difficulty_level = self.lobby_settings['cpu_difficulty']
-        star_spacing = 52  # 2x spacing for larger stars
+        star_spacing = 38  # Adjusted for smaller icons
         start_x = center_x - 80
         star_names = ['easy', 'medium', 'hard', 'brutal']
         
@@ -2258,13 +2278,15 @@ class SnakeGame:
                 star_img = self.star_icons.get('starEmpty')
             
             if star_img:
-                self.screen.blit(star_img, (start_x + i * star_spacing, y - self.icon_size // 2))
+                # Scale star down slightly for better fit
+                star_scaled = pygame.transform.scale(star_img, (36, 36))
+                self.screen.blit(star_scaled, (start_x + i * star_spacing, y - 18))
         
-        y += 55
+        y += 45  # Reduced spacing
         
         # Player slots (starting at selection index 3)
-        # Use larger hatchling heads with input icons
-        head_size = 64  # 2x original size
+        # Use hatchling heads with input icons
+        head_size = 48  # Reduced from 64 to fit better
         for i in range(4):
             player_name = self.player_names[i]
             player_color = self.player_colors[i]
@@ -2323,13 +2345,15 @@ class SnakeGame:
             
             if icon and slot_type != 'off':
                 icon_x = center_x + 70
-                icon_y = y - self.icon_size // 2
-                self.screen.blit(icon, (icon_x, icon_y))
+                icon_y = y - 18  # Adjusted for smaller icons
+                # Scale icon down to match other elements
+                icon_scaled = pygame.transform.scale(icon, (36, 36))
+                self.screen.blit(icon_scaled, (icon_x, icon_y))
             
-            y += 48  # Increased spacing between players
+            y += 38  # Reduced spacing between players
         
-        # Instructions
-        y = 420
+        # Instructions - positioned at bottom
+        y = SCREEN_HEIGHT - 60  # Start from bottom up
         hints = [
             "UP/DOWN: Navigate | LEFT/RIGHT: Change",
             "START: Begin Game",
@@ -2342,7 +2366,7 @@ class SnakeGame:
             text = self.font_small.render(hint, True, NEON_CYAN)
             rect = text.get_rect(center=(SCREEN_WIDTH // 2, y))
             self.screen.blit(text, rect)
-            y += 20
+            y += 22  # Slightly tighter spacing for instructions
     
     def draw_difficulty_select(self):
         # Draw difficulty screen image as background
