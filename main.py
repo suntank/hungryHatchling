@@ -311,6 +311,45 @@ class SnakeGame:
             self.worm_frames = []
             print("Warning: worm.gif not found or could not be loaded: {}".format(e))
         
+        # Load UI icons for multiplayer lobby
+        # Star rating icons for difficulty
+        self.icon_size = 48  # Standard icon size (2x for better visibility)
+        self.star_icons = {}
+        star_names = ['starEmpty', 'easy', 'medium', 'hard', 'brutal']
+        for star_name in star_names:
+            try:
+                star_path = os.path.join(SCRIPT_DIR, '{}.png'.format(star_name))
+                star_img = pygame.image.load(star_path).convert_alpha()
+                self.star_icons[star_name] = pygame.transform.scale(star_img, (self.icon_size, self.icon_size))
+            except Exception as e:
+                self.star_icons[star_name] = None
+                print("Warning: {}.png not found: {}".format(star_name, e))
+        
+        # Input device icons
+        try:
+            keyboard_path = os.path.join(SCRIPT_DIR, 'keyboard.png')
+            self.keyboard_icon = pygame.image.load(keyboard_path).convert_alpha()
+            self.keyboard_icon = pygame.transform.scale(self.keyboard_icon, (self.icon_size, self.icon_size))
+        except Exception as e:
+            self.keyboard_icon = None
+            print("Warning: keyboard.png not found: {}".format(e))
+        
+        try:
+            gamepad_path = os.path.join(SCRIPT_DIR, 'gamepad.png')
+            self.gamepad_icon = pygame.image.load(gamepad_path).convert_alpha()
+            self.gamepad_icon = pygame.transform.scale(self.gamepad_icon, (self.icon_size, self.icon_size))
+        except Exception as e:
+            self.gamepad_icon = None
+            print("Warning: gamepad.png not found: {}".format(e))
+        
+        try:
+            robot_path = os.path.join(SCRIPT_DIR, 'robot.png')
+            self.robot_icon = pygame.image.load(robot_path).convert_alpha()
+            self.robot_icon = pygame.transform.scale(self.robot_icon, (self.icon_size, self.icon_size))
+        except Exception as e:
+            self.robot_icon = None
+            print("Warning: robot.png not found: {}".format(e))
+        
         self.state = GameState.MENU
         
         # Multiplayer support
@@ -2066,68 +2105,179 @@ class SnakeGame:
         title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 30))
         self.screen.blit(title, title_rect)
         
-        y = 80
+        y = 70
+        center_x = SCREEN_WIDTH // 2
         
-        # Settings section
-        settings_items = [
-            ("Lives", str(self.lobby_settings['lives'])),
-            ("Item Spawn", ["Low", "Normal", "High"][self.lobby_settings['item_frequency']]),
-            ("CPU Difficulty", ["Easy", "Medium", "Hard", "Brutal"][self.lobby_settings['cpu_difficulty']]),
-        ]
+        # Settings section with visual icons
+        # Lives setting with egg icons
+        is_selected = (self.lobby_selection == 0)
+        color = NEON_YELLOW if is_selected else NEON_GREEN
         
-        for idx, (label, value) in enumerate(settings_items):
-            is_selected = (self.lobby_selection == idx)
-            color = NEON_YELLOW if is_selected else NEON_GREEN
-            shadow_color = BLACK
+        # Draw "Lives" label
+        label = self.font_small.render("Lives:", True, BLACK)
+        label_rect = label.get_rect(midright=(center_x - 100 + 2, y + 2))
+        self.screen.blit(label, label_rect)
+        label = self.font_small.render("Lives:", True, color)
+        label_rect = label.get_rect(midright=(center_x - 100, y))
+        self.screen.blit(label, label_rect)
+        
+        # Draw egg icons for lives (show all eggs, not capped at 5)
+        lives = self.lobby_settings['lives']
+        egg_size = 36  # 2x original size
+        egg_spacing = 40
+        start_x = center_x - 80
+        max_eggs_per_row = 10  # Display up to 10 eggs
+        
+        for i in range(max_eggs_per_row):
+            if i < lives and self.player_egg_imgs and self.player_egg_imgs[0]:
+                # Show filled egg
+                egg = pygame.transform.scale(self.player_egg_imgs[0], (egg_size, egg_size))
+                self.screen.blit(egg, (start_x + i * egg_spacing, y - egg_size // 2))
+            elif i < max_eggs_per_row:
+                # Show dimmed egg for empty slots
+                if self.player_egg_imgs and self.player_egg_imgs[0]:
+                    egg = pygame.transform.scale(self.player_egg_imgs[0], (egg_size, egg_size))
+                    egg = egg.copy()  # Make a copy to avoid modifying original
+                    egg.set_alpha(50)  # Dim the egg
+                    self.screen.blit(egg, (start_x + i * egg_spacing, y - egg_size // 2))
+        
+        y += 50
+        
+        # Item Spawn setting with apple icons (1-3 apples)
+        is_selected = (self.lobby_selection == 1)
+        color = NEON_YELLOW if is_selected else NEON_GREEN
+        
+        # Draw "Item Spawn" label
+        label = self.font_small.render("Item Spawn:", True, BLACK)
+        label_rect = label.get_rect(midright=(center_x - 100 + 2, y + 2))
+        self.screen.blit(label, label_rect)
+        label = self.font_small.render("Item Spawn:", True, color)
+        label_rect = label.get_rect(midright=(center_x - 100, y))
+        self.screen.blit(label, label_rect)
+        
+        # Draw apple icons (1=Low, 2=Normal, 3=High) using bonus.png
+        item_freq = self.lobby_settings['item_frequency']
+        num_apples = item_freq + 1  # 0→1, 1→2, 2→3
+        apple_size = 36  # 2x size
+        apple_spacing = 40
+        start_x = center_x - 80
+        
+        for i in range(3):  # Max 3 apples
+            if self.bonus_img:
+                apple = pygame.transform.scale(self.bonus_img, (apple_size, apple_size))
+                if i < num_apples:
+                    # Show filled/active apple
+                    self.screen.blit(apple, (start_x + i * apple_spacing, y - apple_size // 2))
+                else:
+                    # Show dimmed apple for inactive slots
+                    apple = apple.copy()
+                    apple.set_alpha(50)
+                    self.screen.blit(apple, (start_x + i * apple_spacing, y - apple_size // 2))
+        
+        y += 50
+        
+        # CPU Difficulty with star rating
+        is_selected = (self.lobby_selection == 2)
+        color = NEON_YELLOW if is_selected else NEON_GREEN
+        
+        # Draw "CPU Difficulty" label
+        label = self.font_small.render("CPU Difficulty:", True, BLACK)
+        label_rect = label.get_rect(midright=(center_x - 100 + 2, y + 2))
+        self.screen.blit(label, label_rect)
+        label = self.font_small.render("CPU Difficulty:", True, color)
+        label_rect = label.get_rect(midright=(center_x - 100, y))
+        self.screen.blit(label, label_rect)
+        
+        # Draw star rating (4 stars total: easy, medium, hard, brutal)
+        difficulty_level = self.lobby_settings['cpu_difficulty']
+        star_spacing = 52  # 2x spacing for larger stars
+        start_x = center_x - 80
+        star_names = ['easy', 'medium', 'hard', 'brutal']
+        
+        for i, star_name in enumerate(star_names):
+            # Show filled star up to difficulty level, empty after
+            if i <= difficulty_level:
+                star_img = self.star_icons.get(star_name)
+            else:
+                star_img = self.star_icons.get('starEmpty')
             
-            text = self.font_small.render("{}: < {} >".format(label, value), True, shadow_color)
-            rect = text.get_rect(center=((SCREEN_WIDTH // 2)+2, y+2))
-            self.screen.blit(text, rect)
-            text = self.font_small.render("{}: < {} >".format(label, value), True, color)
-            rect = text.get_rect(center=(SCREEN_WIDTH // 2, y))
-            self.screen.blit(text, rect)
-            y += 28
+            if star_img:
+                self.screen.blit(star_img, (start_x + i * star_spacing, y - self.icon_size // 2))
         
-        y += 10
+        y += 55
         
         # Player slots (starting at selection index 3)
+        # Use larger hatchling heads with input icons
+        head_size = 64  # 2x original size
         for i in range(4):
             player_name = self.player_names[i]
             player_color = self.player_colors[i]
             slot_type = self.player_slots[i]
             
             is_selected = (self.lobby_selection == 3 + i)
-            color = player_color if not is_selected else NEON_YELLOW
             
-            # Slot status
+            # Draw player hatchling head
+            if self.snake_head_frames_all and len(self.snake_head_frames_all) > i:
+                if self.snake_head_frames_all[i]:
+                    head = self.snake_head_frames_all[i][0]  # First frame
+                    head_scaled = pygame.transform.scale(head, (head_size, head_size))
+                    
+                    # Dim if OFF
+                    if slot_type == 'off':
+                        head_scaled = head_scaled.copy()
+                        head_scaled.set_alpha(80)
+                    
+                    head_x = center_x - 130
+                    head_y = y - head_size // 2
+                    self.screen.blit(head_scaled, (head_x, head_y))
+                    
+                    # Draw selection indicator (thicker border)
+                    if is_selected:
+                        pygame.draw.rect(self.screen, NEON_YELLOW, 
+                                       (head_x - 3, head_y - 3, head_size + 6, head_size + 6), 3)
+            
+            # Draw player name
+            name_color = player_color if slot_type != 'off' else DARK_GRAY
+            if is_selected:
+                name_color = NEON_YELLOW
+            
+            text = self.font_small.render(player_name, True, BLACK)
+            rect = text.get_rect(left=center_x - 50 + 2, centery=y + 2)
+            self.screen.blit(text, rect)
+            text = self.font_small.render(player_name, True, name_color)
+            rect = text.get_rect(left=center_x - 50, centery=y)
+            self.screen.blit(text, rect)
+            
+            # Draw input icon (keyboard/gamepad/robot/off)
+            icon = None
             if slot_type == 'player':
                 if i < len(self.player_controllers):
                     ctrl_type, ctrl_idx = self.player_controllers[i]
-                    status = "Keyboard" if ctrl_type == 'keyboard' else "Gamepad"
+                    if ctrl_type == 'keyboard':
+                        icon = self.keyboard_icon
+                    else:
+                        icon = self.gamepad_icon
                 else:
                     # No controller available - auto-switch to CPU
                     self.player_slots[i] = 'cpu'
-                    status = "CPU"
+                    icon = self.robot_icon
             elif slot_type == 'cpu':
-                status = "CPU"
-            else:
-                status = "OFF"
+                icon = self.robot_icon
+            # else: slot_type == 'off', no icon
             
-            text_str = "{}: < {} >".format(player_name, status)
-            text = self.font_small.render(text_str, True, BLACK)
-            rect = text.get_rect(center=((SCREEN_WIDTH // 2)+2, y+2))
-            self.screen.blit(text, rect)
-            text = self.font_small.render(text_str, True, color)
-            rect = text.get_rect(center=(SCREEN_WIDTH // 2, y))
-            self.screen.blit(text, rect)
-            y += 28
+            if icon and slot_type != 'off':
+                icon_x = center_x + 70
+                icon_y = y - self.icon_size // 2
+                self.screen.blit(icon, (icon_x, icon_y))
+            
+            y += 48  # Increased spacing between players
         
         # Instructions
         y = 420
         hints = [
             "UP/DOWN: Navigate | LEFT/RIGHT: Change",
-            "START/ENTER: Begin Game",
-            "B/ESC: Back to Menu"
+            "START: Begin Game",
+            "B: Back to Menu"
         ]
         for hint in hints:
             text = self.font_small.render(hint, True, BLACK)
