@@ -110,44 +110,66 @@ class SnakeGame:
         self.snake_sprite_size = int(GRID_SIZE * self.snake_scale_factor)
         self.snake_offset = (GRID_SIZE - self.snake_sprite_size) // 2  # Center the sprite
         
-        try:
-            body_path = os.path.join(SCRIPT_DIR, 'HatchlingBody.png')
-            self.snake_body_img = pygame.image.load(body_path).convert_alpha()
-            self.snake_body_img = pygame.transform.scale(self.snake_body_img, (self.snake_sprite_size, self.snake_sprite_size))
-        except Exception as e:
-            self.snake_body_img = None
-            print("Warning: HatchlingBody.png not found, using default body graphic: {}".format(e))
+        # Load snake body images for all 4 players
+        self.snake_body_imgs = []  # List of body images for each player
         
-        # Load snake head animation (GIF)
-        try:
-            from PIL import Image
-            head_path = os.path.join(SCRIPT_DIR, 'HatchlingHead1.gif')
-            self.snake_head_frames = []
-            
-            # Load GIF frames using PIL
-            gif = Image.open(head_path)
-            frame_count = 0
+        for player_num in range(1, 5):  # Players 1-4
             try:
-                while True:
-                    # Convert PIL image to pygame surface
-                    frame = gif.copy().convert('RGBA')
-                    pygame_frame = pygame.image.frombytes(
-                        frame.tobytes(), frame.size, frame.mode
-                    ).convert_alpha()
-                    pygame_frame = pygame.transform.scale(pygame_frame, (self.snake_sprite_size, self.snake_sprite_size))
-                    self.snake_head_frames.append(pygame_frame)
-                    frame_count += 1
-                    gif.seek(frame_count)
-            except EOFError:
-                pass  # End of frames
-            
-            self.head_frame_index = 0
-            self.head_animation_speed = 5  # Change frame every N game frames
-            self.head_animation_counter = 0
-            print("Loaded {} frames for snake head animation".format(len(self.snake_head_frames)))
-        except Exception as e:
-            self.snake_head_frames = []
-            print("Warning: HatchlingHead1.gif not found or could not be loaded: {}".format(e))
+                if player_num == 1:
+                    body_path = os.path.join(SCRIPT_DIR, 'HatchlingBody.png')
+                else:
+                    # Try standard name first, then .png.png (in case of naming issue)
+                    body_path = os.path.join(SCRIPT_DIR, 'HatchlingBody{}.png'.format(player_num))
+                    if not os.path.exists(body_path):
+                        body_path = os.path.join(SCRIPT_DIR, 'HatchlingBody{}.png.png'.format(player_num))
+                
+                body_img = pygame.image.load(body_path).convert_alpha()
+                body_img = pygame.transform.scale(body_img, (self.snake_sprite_size, self.snake_sprite_size))
+                self.snake_body_imgs.append(body_img)
+            except Exception as e:
+                self.snake_body_imgs.append(None)
+                print("Warning: HatchlingBody{}.png not found: {}".format(player_num if player_num > 1 else '', e))
+        
+        # Keep original for backwards compatibility
+        self.snake_body_img = self.snake_body_imgs[0] if self.snake_body_imgs else None
+        
+        # Load snake head animations (GIF) for all 4 players
+        self.snake_head_frames_all = []  # List of frame lists for each player
+        
+        for player_num in range(1, 5):  # Players 1-4
+            try:
+                from PIL import Image
+                head_path = os.path.join(SCRIPT_DIR, 'HatchlingHead{}.gif'.format(player_num))
+                frames = []
+                
+                # Load GIF frames using PIL
+                gif = Image.open(head_path)
+                frame_count = 0
+                try:
+                    while True:
+                        # Convert PIL image to pygame surface
+                        frame = gif.copy().convert('RGBA')
+                        pygame_frame = pygame.image.frombytes(
+                            frame.tobytes(), frame.size, frame.mode
+                        ).convert_alpha()
+                        pygame_frame = pygame.transform.scale(pygame_frame, (self.snake_sprite_size, self.snake_sprite_size))
+                        frames.append(pygame_frame)
+                        frame_count += 1
+                        gif.seek(frame_count)
+                except EOFError:
+                    pass  # End of frames
+                
+                self.snake_head_frames_all.append(frames)
+                print("Loaded {} frames for player {} head animation".format(len(frames), player_num))
+            except Exception as e:
+                self.snake_head_frames_all.append([])
+                print("Warning: HatchlingHead{}.gif not found or could not be loaded: {}".format(player_num, e))
+        
+        # Keep original for backwards compatibility
+        self.snake_head_frames = self.snake_head_frames_all[0] if self.snake_head_frames_all else []
+        self.head_frame_index = 0
+        self.head_animation_speed = 5  # Change frame every N game frames
+        self.head_animation_counter = 0
         
         # Load particle effect animation (GIF)
         try:
@@ -425,26 +447,23 @@ class SnakeGame:
         print("Controller mapping: {}".format(self.player_controllers))
     
     def create_player_graphics(self):
-        """Create hue-shifted graphics for each player (up to 4 players)."""
+        """Load graphics for each player (up to 4 players)."""
         # Store graphics for each player: [body_img, head_frames]
         self.player_graphics = []
         
         for player_id in range(4):
-            hue_shift = self.player_hue_shifts[player_id]
-            
-            # Hue shift body
-            if self.snake_body_img:
-                shifted_body = hue_shift_surface(self.snake_body_img, hue_shift)
+            # Use pre-loaded player-specific graphics
+            if player_id < len(self.snake_body_imgs):
+                body_img = self.snake_body_imgs[player_id]
             else:
-                shifted_body = None
+                body_img = None
             
-            # Hue shift head frames
-            if self.snake_head_frames:
-                shifted_head_frames = hue_shift_frames(self.snake_head_frames, hue_shift)
+            if player_id < len(self.snake_head_frames_all):
+                head_frames = self.snake_head_frames_all[player_id]
             else:
-                shifted_head_frames = []
+                head_frames = []
             
-            self.player_graphics.append((shifted_body, shifted_head_frames))
+            self.player_graphics.append((body_img, head_frames))
         
         print("Created graphics for {} players".format(len(self.player_graphics)))
     
@@ -2428,9 +2447,8 @@ class SnakeGame:
                 pixel_x = ex * GRID_SIZE
                 pixel_y = ey * GRID_SIZE + GAME_OFFSET_Y
                 
-                # Get player color with hue shift
-                hue_shift = self.player_hue_shifts[player_id]
-                egg_color = hue_shift_color(NEON_CYAN, hue_shift)
+                # Get player color directly
+                egg_color = self.player_colors[player_id] if player_id < len(self.player_colors) else NEON_CYAN
                 
                 # Draw egg (pulsing effect)
                 pulse = abs((pygame.time.get_ticks() % 1000) - 500) / 500
