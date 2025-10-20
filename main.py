@@ -49,7 +49,7 @@ class SnakeGame:
             self.title_screen = None
             print("Warning: title.png not found, using default title screen")
         
-        # Load bonus food image
+        # Load bonus food image (speed boost apple)
         try:
             bonus_path = os.path.join(SCRIPT_DIR, 'bonus.png')
             self.bonus_img = pygame.image.load(bonus_path).convert_alpha()
@@ -57,6 +57,15 @@ class SnakeGame:
         except:
             self.bonus_img = None
             print("Warning: bonus.png not found, using default bonus graphic")
+        
+        # Load bad apple image (speed reduction)
+        try:
+            bad_apple_path = os.path.join(SCRIPT_DIR, 'badApple.png')
+            self.bad_apple_img = pygame.image.load(bad_apple_path).convert_alpha()
+            self.bad_apple_img = pygame.transform.scale(self.bad_apple_img, (GRID_SIZE, GRID_SIZE))
+        except:
+            self.bad_apple_img = None
+            print("Warning: badApple.png not found, using default bad apple graphic")
         
         # Load game over screen image
         try:
@@ -104,6 +113,18 @@ class SnakeGame:
                 self.egg_piece_imgs.append(piece_img)
             except:
                 print("Warning: eggPiece{}.png not found".format(i))
+        
+        # Load player-specific egg images for multiplayer respawns
+        self.player_egg_imgs = []
+        for player_num in range(1, 5):  # Players 1-4
+            try:
+                egg_path = os.path.join(SCRIPT_DIR, 'egg{}.png'.format(player_num))
+                player_egg_img = pygame.image.load(egg_path).convert_alpha()
+                player_egg_img = pygame.transform.scale(player_egg_img, (GRID_SIZE * 2, GRID_SIZE * 2))
+                self.player_egg_imgs.append(player_egg_img)
+            except Exception as e:
+                self.player_egg_imgs.append(None)
+                print("Warning: egg{}.png not found: {}".format(player_num, e))
         
         # Load snake graphics (scaled larger than grid for visual overlap)
         self.snake_scale_factor = 1.25  # Scale up by 25% for overlap effect
@@ -587,11 +608,26 @@ class SnakeGame:
         # Remove from respawning players
         del self.respawning_players[player_id]
         
-        # Spawn egg crack particles
+        # Spawn egg crack particles and egg pieces
         self.sound_manager.play('crack')
-        self.create_particles(pos[0] * GRID_SIZE + GRID_SIZE // 2,
-                            pos[1] * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y,
-                            None, None, particle_type='white')
+        center_x = pos[0] * GRID_SIZE + GRID_SIZE // 2
+        center_y = pos[1] * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y
+        
+        # Spawn particle effect
+        self.create_particles(center_x, center_y, None, None, particle_type='white')
+        
+        # Spawn flying egg pieces (same as single player egg hatching)
+        if len(self.egg_piece_imgs) == 4:
+            velocities = [
+                (-4, -6),  # Top-left
+                (4, -6),   # Top-right
+                (-5, -3),  # Left
+                (5, -3)    # Right
+            ]
+            
+            for i, (vx, vy) in enumerate(velocities):
+                piece = EggPiece(center_x, center_y, self.egg_piece_imgs[i], (vx, vy))
+                self.egg_pieces.append(piece)
         
         print("Player {} respawned at {}".format(player_id + 1, pos))
     
@@ -2067,7 +2103,9 @@ class SnakeGame:
                     ctrl_type, ctrl_idx = self.player_controllers[i]
                     status = "Keyboard" if ctrl_type == 'keyboard' else "Gamepad"
                 else:
-                    status = "NO CONTROLLER"
+                    # No controller available - auto-switch to CPU
+                    self.player_slots[i] = 'cpu'
+                    status = "CPU"
             elif slot_type == 'cpu':
                 status = "CPU"
             else:
@@ -2390,22 +2428,26 @@ class SnakeGame:
                         pygame.draw.rect(self.screen, (255, 0, 0), food_rect, border_radius=GRID_SIZE // 4)
                 
                 elif food_type == 'apple':
-                    # Draw red apple (larger circle with highlight)
-                    center_x = fx * GRID_SIZE + GRID_SIZE // 2
-                    center_y = fy * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y
-                    # Main apple body
-                    pygame.draw.circle(self.screen, (200, 30, 30), (center_x, center_y), GRID_SIZE // 3)
-                    # Highlight
-                    pygame.draw.circle(self.screen, (255, 100, 100), (center_x - 2, center_y - 2), GRID_SIZE // 6)
+                    # Draw speed boost apple (bonus.png)
+                    if self.bonus_img:
+                        self.screen.blit(self.bonus_img, (fx * GRID_SIZE, fy * GRID_SIZE + GAME_OFFSET_Y))
+                    else:
+                        # Fallback to circle
+                        center_x = fx * GRID_SIZE + GRID_SIZE // 2
+                        center_y = fy * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y
+                        pygame.draw.circle(self.screen, (200, 30, 30), (center_x, center_y), GRID_SIZE // 3)
+                        pygame.draw.circle(self.screen, (255, 100, 100), (center_x - 2, center_y - 2), GRID_SIZE // 6)
                 
                 elif food_type == 'black_apple':
-                    # Draw black/dark purple apple
-                    center_x = fx * GRID_SIZE + GRID_SIZE // 2
-                    center_y = fy * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y
-                    # Main apple body
-                    pygame.draw.circle(self.screen, (40, 20, 50), (center_x, center_y), GRID_SIZE // 3)
-                    # Highlight
-                    pygame.draw.circle(self.screen, (80, 50, 90), (center_x - 2, center_y - 2), GRID_SIZE // 6)
+                    # Draw bad apple (badApple.png)
+                    if self.bad_apple_img:
+                        self.screen.blit(self.bad_apple_img, (fx * GRID_SIZE, fy * GRID_SIZE + GAME_OFFSET_Y))
+                    else:
+                        # Fallback to circle
+                        center_x = fx * GRID_SIZE + GRID_SIZE // 2
+                        center_y = fy * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y
+                        pygame.draw.circle(self.screen, (40, 20, 50), (center_x, center_y), GRID_SIZE // 3)
+                        pygame.draw.circle(self.screen, (80, 50, 90), (center_x - 2, center_y - 2), GRID_SIZE // 6)
         else:
             # Single player - draw regular food with animated worm
             if self.food_pos:
@@ -2450,13 +2492,21 @@ class SnakeGame:
                 # Get player color directly
                 egg_color = self.player_colors[player_id] if player_id < len(self.player_colors) else NEON_CYAN
                 
-                # Draw egg (pulsing effect)
-                pulse = abs((pygame.time.get_ticks() % 1000) - 500) / 500
-                size = int(GRID_SIZE * 0.4 + pulse * 3)
-                pygame.draw.ellipse(self.screen, egg_color, 
-                                   pygame.Rect(pixel_x + (GRID_SIZE - size) // 2,
-                                             pixel_y + (GRID_SIZE - size) // 2,
-                                             size, size))
+                # Draw egg using player-specific graphics
+                if player_id < len(self.player_egg_imgs) and self.player_egg_imgs[player_id]:
+                    # Center the 2x2 egg image on the grid cell
+                    egg_img = self.player_egg_imgs[player_id]
+                    egg_x = pixel_x - GRID_SIZE // 2
+                    egg_y = pixel_y - GRID_SIZE // 2
+                    self.screen.blit(egg_img, (egg_x, egg_y))
+                else:
+                    # Fallback to colored ellipse
+                    pulse = abs((pygame.time.get_ticks() % 1000) - 500) / 500
+                    size = int(GRID_SIZE * 0.4 + pulse * 3)
+                    pygame.draw.ellipse(self.screen, egg_color, 
+                                       pygame.Rect(pixel_x + (GRID_SIZE - size) // 2,
+                                                 pixel_y + (GRID_SIZE - size) // 2,
+                                                 size, size))
                 
                 # Draw timer below egg
                 seconds_left = max(0, egg_data['timer'] // 60 + 1)
@@ -2641,7 +2691,7 @@ class SnakeGame:
                     text = self.font_medium.render(score_text, True, self.player_colors[snake.player_id])
                     rect = text.get_rect(center=(SCREEN_WIDTH // 2, y_offset))
                     self.screen.blit(text, rect)
-                    y_offset += 30
+                    y_offset += 40
             else:
                 # Single player results
                 score_text = self.font_medium.render("Score: {}".format(self.score), True, NEON_CYAN)
@@ -2653,7 +2703,7 @@ class SnakeGame:
                 self.screen.blit(level_text, level_rect)
             
             hint_text = self.font_small.render("Start to continue", True, NEON_YELLOW)
-            hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 290))
+            hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 400))
             self.screen.blit(hint_text, hint_rect)
     
     def draw_level_complete(self):
