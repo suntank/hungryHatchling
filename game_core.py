@@ -126,6 +126,21 @@ def hue_shift_frames(frames, hue_shift):
     """Apply hue shift to a list of frames (for animations)"""
     return [hue_shift_surface(frame, hue_shift) for frame in frames]
 
+def hue_shift_color(color, hue_shift):
+    """Apply hue shift to a single RGB color tuple"""
+    r, g, b = color[0], color[1], color[2]
+    
+    # Convert RGB to HSV
+    h, s, v = colorsys.rgb_to_hsv(r / 255.0, g / 255.0, b / 255.0)
+    
+    # Shift the hue
+    h = (h + hue_shift / 360.0) % 1.0
+    
+    # Convert back to RGB
+    r, g, b = colorsys.hsv_to_rgb(h, s, v)
+    
+    return (int(r * 255), int(g * 255), int(b * 255))
+
 class Particle:
     """Visual effect particle"""
     def __init__(self, x, y, color, velocity):
@@ -306,6 +321,8 @@ class Snake:
         self.player_id = player_id
         self.alive = True
         self.score = 0
+        self.lives = 3  # Lives in multiplayer
+        self.is_cpu = False  # Is this a CPU player?
         self.speed_modifier = 0  # For multiplayer: apples increase, black apples decrease
         self.move_timer = 0  # Track movement progress for interpolation
         self.last_move_interval = 16  # Track the interval used for last move
