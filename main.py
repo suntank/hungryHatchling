@@ -295,6 +295,7 @@ class SnakeGame:
             'rounds': 3,
             'lives': 3,
             'item_frequency': 1,  # 0=Low, 1=Normal, 2=High
+            'cpu_difficulty': 1,  # 0=Easy, 1=Medium, 2=Hard, 3=Brutal
         }
         # Player slot types: 'player', 'cpu', 'off'
         self.player_slots = ['player', 'player', 'cpu', 'cpu']  # Default setup
@@ -575,6 +576,202 @@ class SnakeGame:
         
         print("Player {} respawned at {}".format(player_id + 1, pos))
     
+    def get_safe_cpu_direction(self, pos):
+        """Find a safe direction for CPU to hatch from egg."""
+        x, y = pos
+        directions = [Direction.UP, Direction.DOWN, Direction.LEFT, Direction.RIGHT]
+        
+        # Check which directions are safe
+        safe_dirs = []
+        for direction in directions:
+            dx, dy = direction.value
+            new_x, new_y = x + dx, y + dy
+            
+            # Check if in bounds and not occupied
+            if 0 <= new_x < GRID_WIDTH and 0 <= new_y < GRID_HEIGHT:
+                is_safe = True
+                # Check against all snake bodies
+                for snake in self.snakes:
+                    if snake.alive and (new_x, new_y) in snake.body:
+                        is_safe = False
+                        break
+                if is_safe:
+                    safe_dirs.append(direction)
+        
+        return random.choice(safe_dirs) if safe_dirs else random.choice(directions)
+    
+    def update_cpu_decision(self, snake):
+        """AI logic for CPU players."""
+        if not snake.alive:
+            return
+        
+        head_x, head_y = snake.body[0]
+        difficulty = snake.cpu_difficulty
+        
+        # Get all possible directions (excluding opposite of current direction)
+        possible_directions = []
+        for direction in [Direction.UP, Direction.DOWN, Direction.LEFT, Direction.RIGHT]:
+            # Can't go opposite direction
+            if direction.value == (-snake.direction.value[0], -snake.direction.value[1]):
+                continue
+            possible_directions.append(direction)
+        
+        # Evaluate each direction and choose based on difficulty
+        best_direction = None
+        best_score = -999999
+        safe_moves = []  # Track moves that don't immediately kill
+        
+        for direction in possible_directions:
+            dx, dy = direction.value
+            new_x = head_x + dx
+            new_y = head_y + dy
+            
+            # Calculate score for this direction
+            score = 0
+            is_immediately_fatal = False
+            
+            # Check if move is valid (not wall, not self)
+            if new_x < 0 or new_x >= GRID_WIDTH or new_y < 0 or new_y >= GRID_HEIGHT:
+                score -= 10000  # Wall collision
+                is_immediately_fatal = True
+            elif (new_x, new_y) in snake.body:
+                score -= 10000  # Self collision
+                is_immediately_fatal = True
+            else:
+                # Valid move, evaluate based on difficulty
+                
+                # Check collision with other snakes
+                for other_snake in self.snakes:
+                    if other_snake.player_id != snake.player_id and other_snake.alive:
+                        if (new_x, new_y) in other_snake.body:
+                            score -= 10000
+                            is_immediately_fatal = True
+                            break
+                
+                # Only evaluate further if not immediately fatal
+                if not is_immediately_fatal:
+                    # Look for food (all difficulties)
+                    closest_food_dist = 999999
+                    best_food_type = None
+                    
+                    for food_pos, food_type in self.food_items:
+                        fx, fy = food_pos
+                        dist = abs(new_x - fx) + abs(new_y - fy)
+                        
+                        # Weight food by type based on difficulty
+                        if difficulty >= 2:  # Hard+
+                            if food_type == 'apple':
+                                dist *= 0.7  # Prefer apples
+                            elif food_type == 'black_apple':
+                                dist *= 2.0  # Avoid black apples
+                        
+                        if dist < closest_food_dist:
+                            closest_food_dist = dist
+                            best_food_type = food_type
+                    
+                    # Score based on proximity to food
+                    if closest_food_dist < 999999:
+                        score += (100 - closest_food_dist * 5)
+                        
+                        # Brutal difficulty: strategic food choices
+                        if difficulty >= 3:
+                            if best_food_type == 'apple' and snake.speed_modifier < 0:
+                                score += 50  # Already fast, less priority
+                            elif best_food_type == 'apple':
+                                score += 100  # Prioritize speed boost
+                            elif best_food_type == 'black_apple':
+                                score -= 200  # Strongly avoid black apples
+                    
+                    # Avoid danger zones (look ahead)
+                    if difficulty >= 2:
+                        danger_count = 0
+                        for check_dir in [Direction.UP, Direction.DOWN, Direction.LEFT, Direction.RIGHT]:
+                            cdx, cdy = check_dir.value
+                            check_x = new_x + cdx
+                            check_y = new_y + cdy
+                            
+                            # Check if dangerous
+                            if check_x < 0 or check_x >= GRID_WIDTH or check_y < 0 or check_y >= GRID_HEIGHT:
+                                danger_count += 1
+                            else:
+                                for other_snake in self.snakes:
+                                    if other_snake.alive and (check_x, check_y) in other_snake.body:
+                                        danger_count += 1
+                                        break
+                        
+                        score -= danger_count * 10
+                    
+                    # Brutal: avoid corners and tight spaces
+                    if difficulty >= 3:
+                        open_spaces = 0
+                        for check_dir in [Direction.UP, Direction.DOWN, Direction.LEFT, Direction.RIGHT]:
+                            cdx, cdy = check_dir.value
+                            check_x = new_x + cdx
+                            check_y = new_y + cdy
+                            
+                            if 0 <= check_x < GRID_WIDTH and 0 <= check_y < GRID_HEIGHT:
+                                is_open = True
+                                for check_snake in self.snakes:
+                                    if check_snake.alive and (check_x, check_y) in check_snake.body:
+                                        is_open = False
+                                        break
+                                if is_open:
+                                    open_spaces += 1
+                        
+                        score += open_spaces * 15
+                    
+                    # Add small random factor (less random for higher difficulty)
+                    if difficulty == 0:  # Easy
+                        score += random.randint(-50, 50)
+                    elif difficulty == 1:  # Medium
+                        score += random.randint(-20, 20)
+                    elif difficulty == 2:  # Hard
+                        score += random.randint(-10, 10)
+                    # Brutal has minimal randomness
+                    
+                    # This is a safe move - add to list
+                    safe_moves.append((direction, score))
+            
+            # Track all moves with their scores (even fatal ones, as fallback)
+            if score > best_score:
+                best_score = score
+                best_direction = direction
+        
+        # Priority 1: Use safe moves if any exist
+        if safe_moves:
+            # Pick the best safe move
+            safe_moves.sort(key=lambda x: x[1], reverse=True)
+            best_direction = safe_moves[0][0]
+        
+        # Priority 2: If no safe moves, pick least bad option (happens when cornered)
+        elif best_direction is None and possible_directions:
+            # Just pick any direction to avoid getting stuck
+            best_direction = possible_directions[0]
+        
+        # Final validation: Make sure the chosen direction won't immediately kill us
+        if best_direction:
+            dx, dy = best_direction.value
+            next_x = head_x + dx
+            next_y = head_y + dy
+            
+            # Double check this move is safe
+            is_safe = True
+            if next_x < 0 or next_x >= GRID_WIDTH or next_y < 0 or next_y >= GRID_HEIGHT:
+                is_safe = False
+            elif (next_x, next_y) in snake.body:
+                is_safe = False
+            else:
+                for other_snake in self.snakes:
+                    if other_snake.player_id != snake.player_id and other_snake.alive:
+                        if (next_x, next_y) in other_snake.body:
+                            is_safe = False
+                            break
+            
+            # Only change direction if safe, or if we have no choice
+            if is_safe or not safe_moves:
+                if best_direction != snake.direction:
+                    snake.change_direction(best_direction)
+    
     def spawn_respawn_egg(self, player_id):
         """Spawn a respawn egg for a dead player."""
         # Find an unoccupied position
@@ -709,6 +906,15 @@ class SnakeGame:
                 egg_data = self.respawning_players[player_id]
                 egg_data['timer'] -= 1
                 
+                # Find the snake for this player
+                snake = next((s for s in self.snakes if s.player_id == player_id), None)
+                
+                # CPU players hatch immediately with smart direction
+                if snake and snake.is_cpu and egg_data['direction'] is None:
+                    egg_data['direction'] = self.get_safe_cpu_direction(egg_data['pos'])
+                    self.respawn_player(player_id, egg_data['pos'], egg_data['direction'])
+                    continue
+                
                 # Auto-hatch if timer expired
                 if egg_data['timer'] <= 0:
                     if egg_data['direction'] is None:
@@ -736,6 +942,10 @@ class SnakeGame:
                 
                 # Check if this snake should move
                 if snake.move_timer >= move_interval:
+                    # CPU AI decision making (right before movement)
+                    if snake.is_cpu and snake.player_id not in self.respawning_players:
+                        self.update_cpu_decision(snake)
+                    
                     snake.move_timer = 0
                     snake.last_move_interval = move_interval  # Track for interpolation
                     snake.move()
@@ -1213,10 +1423,10 @@ class SnakeGame:
                     self.state = GameState.MENU
             elif self.state == GameState.MULTIPLAYER_LOBBY:
                 if event.key == pygame.K_UP:
-                    self.lobby_selection = (self.lobby_selection - 1) % 6  # 2 settings + 4 players
+                    self.lobby_selection = (self.lobby_selection - 1) % 7  # 3 settings + 4 players
                     self.sound_manager.play('blip_select')
                 elif event.key == pygame.K_DOWN:
-                    self.lobby_selection = (self.lobby_selection + 1) % 6
+                    self.lobby_selection = (self.lobby_selection + 1) % 7
                     self.sound_manager.play('blip_select')
                 elif event.key == pygame.K_LEFT or event.key == pygame.K_RIGHT:
                     direction = 1 if event.key == pygame.K_RIGHT else -1
@@ -1450,9 +1660,12 @@ class SnakeGame:
         elif selection == 1:
             # Item frequency
             self.lobby_settings['item_frequency'] = (self.lobby_settings['item_frequency'] + direction) % 3
-        elif selection >= 2 and selection <= 5:
+        elif selection == 2:
+            # CPU difficulty
+            self.lobby_settings['cpu_difficulty'] = (self.lobby_settings['cpu_difficulty'] + direction) % 4
+        elif selection >= 3 and selection <= 6:
             # Player slots
-            player_idx = selection - 2
+            player_idx = selection - 3
             current = self.player_slots[player_idx]
             
             # Cycle: player -> cpu -> off -> player
@@ -1501,6 +1714,7 @@ class SnakeGame:
             snake.speed_modifier = 0
             snake.lives = self.lobby_settings['lives']
             snake.is_cpu = (self.player_slots[slot_id] == 'cpu')
+            snake.cpu_difficulty = self.lobby_settings['cpu_difficulty'] if snake.is_cpu else 0
             snake.reset(spawn_pos=spawn_positions[idx], direction=spawn_directions[idx])
             self.snakes.append(snake)
         
@@ -1801,6 +2015,7 @@ class SnakeGame:
         settings_items = [
             ("Lives", str(self.lobby_settings['lives'])),
             ("Item Spawn", ["Low", "Normal", "High"][self.lobby_settings['item_frequency']]),
+            ("CPU Difficulty", ["Easy", "Medium", "Hard", "Brutal"][self.lobby_settings['cpu_difficulty']]),
         ]
         
         for idx, (label, value) in enumerate(settings_items):
@@ -1818,13 +2033,13 @@ class SnakeGame:
         
         y += 10
         
-        # Player slots (starting at selection index 2)
+        # Player slots (starting at selection index 3)
         for i in range(4):
             player_name = self.player_names[i]
             player_color = self.player_colors[i]
             slot_type = self.player_slots[i]
             
-            is_selected = (self.lobby_selection == 2 + i)
+            is_selected = (self.lobby_selection == 3 + i)
             color = player_color if not is_selected else NEON_YELLOW
             
             # Slot status

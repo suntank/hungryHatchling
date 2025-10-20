@@ -323,6 +323,7 @@ class Snake:
         self.score = 0
         self.lives = 3  # Lives in multiplayer
         self.is_cpu = False  # Is this a CPU player?
+        self.cpu_difficulty = 0  # 0=Easy, 1=Medium, 2=Hard, 3=Brutal
         self.speed_modifier = 0  # For multiplayer: apples increase, black apples decrease
         self.move_timer = 0  # Track movement progress for interpolation
         self.last_move_interval = 16  # Track the interval used for last move
