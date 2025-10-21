@@ -232,9 +232,9 @@ class MusicManager:
     """Manages random music playback without immediate repeats"""
     def __init__(self):
         self.tracks = [
-            os.path.join(SCRIPT_DIR, 'sound', 'music1.mp3'),
-            os.path.join(SCRIPT_DIR, 'sound', 'music2.mp3'),
-            os.path.join(SCRIPT_DIR, 'sound', 'music3.mp3')
+            os.path.join(SCRIPT_DIR, 'sound', 'music', 'music1.mp3'),
+            os.path.join(SCRIPT_DIR, 'sound', 'music', 'music2.mp3'),
+            os.path.join(SCRIPT_DIR, 'sound', 'music', 'music3.mp3')
         ]
         self.last_track = None
         self.current_track = None
@@ -264,7 +264,7 @@ class MusicManager:
         """Play the game over music"""
         self.game_over_mode = True
         try:
-            game_over_path = os.path.join(SCRIPT_DIR, 'sound', 'GameOver.mp3')
+            game_over_path = os.path.join(SCRIPT_DIR, 'sound', 'music', 'GameOver.mp3')
             pygame.mixer.music.load(game_over_path)
             pygame.mixer.music.set_volume(0.9)
             pygame.mixer.music.play(-1)  # Loop indefinitely
@@ -292,16 +292,16 @@ class SoundManager:
         
         # Load all sound effects
         sound_files = {
-            'blip_select': os.path.join(SCRIPT_DIR, 'sound', 'blipSelect.wav'),
-            'die': os.path.join(SCRIPT_DIR, 'sound', 'die.wav'),
-            'eat_fruit': os.path.join(SCRIPT_DIR, 'sound', 'EatFruit.wav'),
-            'level_up': os.path.join(SCRIPT_DIR, 'sound', 'LevelUp.wav'),
-            'no_lives': os.path.join(SCRIPT_DIR, 'sound', 'NoLives.wav'),
-            'powerup': os.path.join(SCRIPT_DIR, 'sound', 'powerup.wav'),
-            'fullSnake': os.path.join(SCRIPT_DIR, 'sound', 'fullSnake.wav'),
-            'select_letter': os.path.join(SCRIPT_DIR, 'sound', 'SelectLetter.wav'),
-            'start_game': os.path.join(SCRIPT_DIR, 'sound', 'StartGame.wav'),
-            'crack': os.path.join(SCRIPT_DIR, 'sound', 'crack.wav')
+            'blip_select': os.path.join(SCRIPT_DIR, 'sound', 'sfx', 'blipSelect.wav'),
+            'die': os.path.join(SCRIPT_DIR, 'sound', 'sfx', 'die.wav'),
+            'eat_fruit': os.path.join(SCRIPT_DIR, 'sound', 'sfx', 'EatFruit.wav'),
+            'level_up': os.path.join(SCRIPT_DIR, 'sound', 'sfx', 'LevelUp.wav'),
+            'no_lives': os.path.join(SCRIPT_DIR, 'sound', 'sfx', 'NoLives.wav'),
+            'powerup': os.path.join(SCRIPT_DIR, 'sound', 'sfx', 'powerup.wav'),
+            'fullSnake': os.path.join(SCRIPT_DIR, 'sound', 'sfx', 'fullSnake.wav'),
+            'select_letter': os.path.join(SCRIPT_DIR, 'sound', 'sfx', 'SelectLetter.wav'),
+            'start_game': os.path.join(SCRIPT_DIR, 'sound', 'sfx', 'StartGame.wav'),
+            'crack': os.path.join(SCRIPT_DIR, 'sound', 'sfx', 'crack.wav')
         }
         
         for name, path in sound_files.items():

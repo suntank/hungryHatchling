@@ -33,7 +33,7 @@ class SnakeGame:
         
         # Load background image
         try:
-            bg_path = os.path.join(SCRIPT_DIR, 'bg.png')
+            bg_path = os.path.join(SCRIPT_DIR, 'img', 'bg', 'bg.png')
             self.background = pygame.image.load(bg_path).convert()
             self.background = pygame.transform.scale(self.background, (SCREEN_WIDTH, SCREEN_HEIGHT))
         except:
@@ -42,7 +42,7 @@ class SnakeGame:
         
         # Load title screen image
         try:
-            title_path = os.path.join(SCRIPT_DIR, 'title.png')
+            title_path = os.path.join(SCRIPT_DIR, 'img', 'bg', 'title.png')
             self.title_screen = pygame.image.load(title_path).convert()
             self.title_screen = pygame.transform.scale(self.title_screen, (SCREEN_WIDTH, SCREEN_HEIGHT))
         except:
@@ -51,7 +51,7 @@ class SnakeGame:
         
         # Load bonus food image (speed boost apple)
         try:
-            bonus_path = os.path.join(SCRIPT_DIR, 'bonus.png')
+            bonus_path = os.path.join(SCRIPT_DIR, 'img', 'bonus.png')
             self.bonus_img = pygame.image.load(bonus_path).convert_alpha()
             self.bonus_img = pygame.transform.scale(self.bonus_img, (GRID_SIZE, GRID_SIZE))
         except:
@@ -60,7 +60,7 @@ class SnakeGame:
         
         # Load bad apple image (speed reduction)
         try:
-            bad_apple_path = os.path.join(SCRIPT_DIR, 'badApple.png')
+            bad_apple_path = os.path.join(SCRIPT_DIR, 'img', 'badApple.png')
             self.bad_apple_img = pygame.image.load(bad_apple_path).convert_alpha()
             self.bad_apple_img = pygame.transform.scale(self.bad_apple_img, (GRID_SIZE, GRID_SIZE))
         except:
@@ -69,7 +69,7 @@ class SnakeGame:
         
         # Load game over screen image
         try:
-            gameover_path = os.path.join(SCRIPT_DIR, 'gameOver.png')
+            gameover_path = os.path.join(SCRIPT_DIR, 'img', 'bg', 'gameOver.png')
             self.gameover_screen = pygame.image.load(gameover_path).convert()
             self.gameover_screen = pygame.transform.scale(self.gameover_screen, (SCREEN_WIDTH, SCREEN_HEIGHT))
         except:
@@ -78,7 +78,7 @@ class SnakeGame:
         
         # Load high score screen image
         try:
-            highscore_path = os.path.join(SCRIPT_DIR, 'highScore.png')
+            highscore_path = os.path.join(SCRIPT_DIR, 'img', 'bg', 'highScore.png')
             self.highscore_screen = pygame.image.load(highscore_path).convert()
             self.highscore_screen = pygame.transform.scale(self.highscore_screen, (SCREEN_WIDTH, SCREEN_HEIGHT))
         except:
@@ -87,7 +87,7 @@ class SnakeGame:
         
         # Load difficulty selection screen image
         try:
-            difficulty_path = os.path.join(SCRIPT_DIR, 'difficulty.png')
+            difficulty_path = os.path.join(SCRIPT_DIR, 'img', 'bg', 'difficulty.png')
             self.difficulty_screen = pygame.image.load(difficulty_path).convert()
             self.difficulty_screen = pygame.transform.scale(self.difficulty_screen, (SCREEN_WIDTH, SCREEN_HEIGHT))
         except:
@@ -96,7 +96,7 @@ class SnakeGame:
         
         # Load splash screen image
         try:
-            splash_path = os.path.join(SCRIPT_DIR, 'splashAMS.png')
+            splash_path = os.path.join(SCRIPT_DIR, 'img', 'bg', 'splashAMS.png')
             self.splash_screen = pygame.image.load(splash_path).convert()
             self.splash_screen = pygame.transform.scale(self.splash_screen, (SCREEN_WIDTH, SCREEN_HEIGHT))
         except:
@@ -105,7 +105,7 @@ class SnakeGame:
         
         # Load Tweetrix logo
         try:
-            tweetrix_path = os.path.join(SCRIPT_DIR, 'Tweetrix.png')
+            tweetrix_path = os.path.join(SCRIPT_DIR, 'img', 'Tweetrix.png')
             self.tweetrix_logo = pygame.image.load(tweetrix_path).convert_alpha()
             # Scale logo to reasonable size (e.g., 100px wide, maintain aspect ratio)
             logo_width = 50
@@ -118,7 +118,7 @@ class SnakeGame:
         
         # Load multiplayer setup background
         try:
-            multi_bg_path = os.path.join(SCRIPT_DIR, 'multiBG.png')
+            multi_bg_path = os.path.join(SCRIPT_DIR, 'img', 'bg', 'multiBG.png')
             self.multi_bg = pygame.image.load(multi_bg_path).convert()
             self.multi_bg = pygame.transform.scale(self.multi_bg, (SCREEN_WIDTH, SCREEN_HEIGHT))
         except:
@@ -127,7 +127,7 @@ class SnakeGame:
         
         # Load egg images
         try:
-            egg_path = os.path.join(SCRIPT_DIR, 'egg.png')
+            egg_path = os.path.join(SCRIPT_DIR, 'img', 'egg.png')
             self.egg_img = pygame.image.load(egg_path).convert_alpha()
             self.egg_img = pygame.transform.scale(self.egg_img, (GRID_SIZE * 2, GRID_SIZE * 2))
         except:
@@ -138,7 +138,7 @@ class SnakeGame:
         self.egg_piece_imgs = []
         for i in range(1, 5):
             try:
-                piece_path = os.path.join(SCRIPT_DIR, 'eggPiece{}.png'.format(i))
+                piece_path = os.path.join(SCRIPT_DIR, 'img', 'eggPiece{}.png'.format(i))
                 piece_img = pygame.image.load(piece_path).convert_alpha()
                 piece_img = pygame.transform.scale(piece_img, (GRID_SIZE, GRID_SIZE))
                 self.egg_piece_imgs.append(piece_img)
@@ -149,7 +149,7 @@ class SnakeGame:
         self.player_egg_imgs = []
         for player_num in range(1, 5):  # Players 1-4
             try:
-                egg_path = os.path.join(SCRIPT_DIR, 'egg{}.png'.format(player_num))
+                egg_path = os.path.join(SCRIPT_DIR, 'img', 'egg{}.png'.format(player_num))
                 player_egg_img = pygame.image.load(egg_path).convert_alpha()
                 player_egg_img = pygame.transform.scale(player_egg_img, (GRID_SIZE * 2, GRID_SIZE * 2))
                 self.player_egg_imgs.append(player_egg_img)
@@ -168,12 +168,12 @@ class SnakeGame:
         for player_num in range(1, 5):  # Players 1-4
             try:
                 if player_num == 1:
-                    body_path = os.path.join(SCRIPT_DIR, 'HatchlingBody.png')
+                    body_path = os.path.join(SCRIPT_DIR, 'img', 'HatchlingBody.png')
                 else:
                     # Try standard name first, then .png.png (in case of naming issue)
-                    body_path = os.path.join(SCRIPT_DIR, 'HatchlingBody{}.png'.format(player_num))
+                    body_path = os.path.join(SCRIPT_DIR, 'img', 'HatchlingBody{}.png'.format(player_num))
                     if not os.path.exists(body_path):
-                        body_path = os.path.join(SCRIPT_DIR, 'HatchlingBody{}.png.png'.format(player_num))
+                        body_path = os.path.join(SCRIPT_DIR, 'img', 'HatchlingBody{}.png.png'.format(player_num))
                 
                 body_img = pygame.image.load(body_path).convert_alpha()
                 body_img = pygame.transform.scale(body_img, (self.snake_sprite_size, self.snake_sprite_size))
@@ -191,7 +191,7 @@ class SnakeGame:
         for player_num in range(1, 5):  # Players 1-4
             try:
                 from PIL import Image
-                head_path = os.path.join(SCRIPT_DIR, 'HatchlingHead{}.gif'.format(player_num))
+                head_path = os.path.join(SCRIPT_DIR, 'img', 'HatchlingHead{}.gif'.format(player_num))
                 frames = []
                 
                 # Load GIF frames using PIL
@@ -226,7 +226,7 @@ class SnakeGame:
         # Load particle effect animation (GIF)
         try:
             from PIL import Image
-            particle_path = os.path.join(SCRIPT_DIR, 'particlesRed.gif')
+            particle_path = os.path.join(SCRIPT_DIR, 'img', 'particlesRed.gif')
             self.particle_frames = []
             
             # Load GIF frames using PIL
@@ -255,7 +255,7 @@ class SnakeGame:
         # Load white particle effect animation (GIF) - for snake death
         try:
             from PIL import Image
-            particle_white_path = os.path.join(SCRIPT_DIR, 'particlesWhite.gif')
+            particle_white_path = os.path.join(SCRIPT_DIR, 'img', 'particlesWhite.gif')
             self.particle_white_frames = []
             
             # Load GIF frames using PIL
@@ -284,7 +284,7 @@ class SnakeGame:
         # Load rainbow particle effect animation (GIF) - for bonus collection
         try:
             from PIL import Image
-            particle_rainbow_path = os.path.join(SCRIPT_DIR, 'particlesRainbow.gif')
+            particle_rainbow_path = os.path.join(SCRIPT_DIR, 'img', 'particlesRainbow.gif')
             self.particle_rainbow_frames = []
             
             # Load GIF frames using PIL
@@ -313,7 +313,7 @@ class SnakeGame:
         # Load worm (food) animation (GIF)
         try:
             from PIL import Image
-            worm_path = os.path.join(SCRIPT_DIR, 'worm.gif')
+            worm_path = os.path.join(SCRIPT_DIR, 'img', 'worm.gif')
             self.worm_frames = []
             
             # Load GIF frames using PIL
@@ -349,7 +349,7 @@ class SnakeGame:
         star_names = ['starEmpty', 'easy', 'medium', 'hard', 'brutal']
         for star_name in star_names:
             try:
-                star_path = os.path.join(SCRIPT_DIR, '{}.png'.format(star_name))
+                star_path = os.path.join(SCRIPT_DIR, 'img', '{}.png'.format(star_name))
                 star_img = pygame.image.load(star_path).convert_alpha()
                 self.star_icons[star_name] = pygame.transform.scale(star_img, (self.icon_size, self.icon_size))
             except Exception as e:
@@ -358,7 +358,7 @@ class SnakeGame:
         
         # Input device icons
         try:
-            keyboard_path = os.path.join(SCRIPT_DIR, 'keyboard.png')
+            keyboard_path = os.path.join(SCRIPT_DIR, 'img', 'keyboard.png')
             self.keyboard_icon = pygame.image.load(keyboard_path).convert_alpha()
             self.keyboard_icon = pygame.transform.scale(self.keyboard_icon, (self.icon_size, self.icon_size))
         except Exception as e:
@@ -366,7 +366,7 @@ class SnakeGame:
             print("Warning: keyboard.png not found: {}".format(e))
         
         try:
-            gamepad_path = os.path.join(SCRIPT_DIR, 'gamepad.png')
+            gamepad_path = os.path.join(SCRIPT_DIR, 'img', 'gamepad.png')
             self.gamepad_icon = pygame.image.load(gamepad_path).convert_alpha()
             self.gamepad_icon = pygame.transform.scale(self.gamepad_icon, (self.icon_size, self.icon_size))
         except Exception as e:
@@ -374,7 +374,7 @@ class SnakeGame:
             print("Warning: gamepad.png not found: {}".format(e))
         
         try:
-            robot_path = os.path.join(SCRIPT_DIR, 'robot.png')
+            robot_path = os.path.join(SCRIPT_DIR, 'img', 'robot.png')
             self.robot_icon = pygame.image.load(robot_path).convert_alpha()
             self.robot_icon = pygame.transform.scale(self.robot_icon, (self.icon_size, self.icon_size))
         except Exception as e:
