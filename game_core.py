@@ -70,6 +70,8 @@ class GameState(Enum):
     EGG_HATCHING = 9
     MULTIPLAYER_MENU = 10
     MULTIPLAYER_LOBBY = 11
+    SINGLE_PLAYER_MENU = 12
+    ADVENTURE_LEVEL_SELECT = 13
 
 # Difficulty modes
 class Difficulty(Enum):
@@ -301,7 +303,9 @@ class SoundManager:
             'fullSnake': os.path.join(SCRIPT_DIR, 'sound', 'sfx', 'fullSnake.wav'),
             'select_letter': os.path.join(SCRIPT_DIR, 'sound', 'sfx', 'SelectLetter.wav'),
             'start_game': os.path.join(SCRIPT_DIR, 'sound', 'sfx', 'StartGame.wav'),
-            'crack': os.path.join(SCRIPT_DIR, 'sound', 'sfx', 'crack.wav')
+            'crack': os.path.join(SCRIPT_DIR, 'sound', 'sfx', 'crack.wav'),
+            'pickupCoin': os.path.join(SCRIPT_DIR, 'sound', 'sfx', 'pickupCoin.wav'),
+            'pickupDiamond': os.path.join(SCRIPT_DIR, 'sound', 'sfx', 'pickupDiamond.wav')
         }
         
         for name, path in sound_files.items():
@@ -365,7 +369,17 @@ class Snake:
         new_head_x = head_x + dx
         new_head_y = head_y + dy
         
-        # No wrapping - let collision detection handle walls
+        # Wrap around if out of bounds (for adventure mode)
+        if new_head_x < 0:
+            new_head_x = GRID_WIDTH - 1
+        elif new_head_x >= GRID_WIDTH:
+            new_head_x = 0
+        
+        if new_head_y < 0:
+            new_head_y = GRID_HEIGHT - 1
+        elif new_head_y >= GRID_HEIGHT:
+            new_head_y = 0
+        
         new_head = (new_head_x, new_head_y)
         self.body.insert(0, new_head)
         

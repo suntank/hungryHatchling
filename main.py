@@ -67,6 +67,15 @@ class SnakeGame:
             self.bad_apple_img = None
             print("Warning: badApple.png not found, using default bad apple graphic")
         
+        # Load wall image for adventure mode
+        try:
+            wall_path = os.path.join(SCRIPT_DIR, 'img', 'wall1.png')
+            self.wall_img = pygame.image.load(wall_path).convert_alpha()
+            self.wall_img = pygame.transform.scale(self.wall_img, (GRID_SIZE, GRID_SIZE))
+        except:
+            self.wall_img = None
+            print("Warning: wall1.png not found, using default wall graphic")
+        
         # Load game over screen image
         try:
             gameover_path = os.path.join(SCRIPT_DIR, 'img', 'bg', 'gameOver.png')
@@ -459,6 +468,8 @@ class SnakeGame:
         self.sound_manager = SoundManager()
         
         self.high_scores = self.load_high_scores()
+        self.level_scores = self.load_level_scores()  # Dictionary: level_number -> best_score
+        self.unlocked_levels = self.load_unlocked_levels()  # Set of unlocked level numbers
         self.player_name = ['A', 'A', 'A']
         self.name_index = 0
         self.current_hint = ""  # Will be set when entering high score entry
@@ -471,7 +482,20 @@ class SnakeGame:
         ]
         
         self.menu_selection = 0
-        self.menu_options = ["Start Game", "Multiplayer", "High Scores", "Quit"]
+        self.menu_options = ["Single Player", "Multiplayer", "High Scores", "Quit"]
+        
+        # Single player submenu
+        self.single_player_selection = 0
+        self.single_player_options = ["Adventure", "Endless", "Back"]
+        
+        # Adventure mode
+        self.game_mode = "endless"  # "endless" or "adventure"
+        self.current_level_data = None
+        self.level_walls = []  # List of (x, y) wall positions
+        self.worms_collected = 0
+        self.worms_required = 0
+        self.adventure_level_selection = 0  # Which level is selected in level select
+        self.total_levels = 32  # 30 regular + 2 bonus
         
         self.difficulty = Difficulty.MEDIUM  # Default difficulty
         self.difficulty_selection = 1  # Start on Medium
@@ -503,11 +527,81 @@ class SnakeGame:
     def add_high_score(self, name, score):
         self.high_scores.append({'name': name, 'score': score})
         self.high_scores.sort(key=lambda x: x['score'], reverse=True)
-        self.high_scores = self.high_scores[:10]
+        self.high_scores = self.high_scores[:10]  # Keep top 10
         self.save_high_scores()
     
     def is_high_score(self, score):
         return len(self.high_scores) < 10 or score > self.high_scores[-1]['score']
+    
+    def load_level_scores(self):
+        """Load level-specific high scores for adventure mode"""
+        try:
+            level_scores_path = os.path.join(SCRIPT_DIR, 'level_scores.json')
+            if os.path.exists(level_scores_path):
+                with open(level_scores_path, 'r') as f:
+                    return json.load(f)
+        except:
+            pass
+        return {}  # Dictionary: level_number -> best_score
+    
+    def save_level_scores(self):
+        """Save level-specific high scores"""
+        try:
+            level_scores_path = os.path.join(SCRIPT_DIR, 'level_scores.json')
+            with open(level_scores_path, 'w') as f:
+                json.dump(self.level_scores, f, indent=2)
+        except:
+            pass
+    
+    def update_level_score(self, level_number, score):
+        """Update the high score for a specific level, returns True if new high score"""
+        level_key = str(level_number)
+        if level_key not in self.level_scores or score > self.level_scores[level_key]:
+            self.level_scores[level_key] = score
+            self.save_level_scores()
+            return True
+        return False
+    
+    def get_level_high_score(self, level_number):
+        """Get the high score for a specific level"""
+        level_key = str(level_number)
+        return self.level_scores.get(level_key, 0)
+    
+    def load_unlocked_levels(self):
+        """Load which levels are unlocked and total coins"""
+        try:
+            unlock_path = os.path.join(SCRIPT_DIR, 'level_unlocks.json')
+            if os.path.exists(unlock_path):
+                with open(unlock_path, 'r') as f:
+                    data = json.load(f)
+                    self.total_coins = data.get('total_coins', 0)
+                    return set(data.get('unlocked', [1]))  # Default to level 1 unlocked
+        except:
+            pass
+        self.total_coins = 0
+        return {1}  # Only level 1 unlocked by default
+    
+    def save_unlocked_levels(self):
+        """Save which levels are unlocked and total coins"""
+        try:
+            unlock_path = os.path.join(SCRIPT_DIR, 'level_unlocks.json')
+            with open(unlock_path, 'w') as f:
+                data = {
+                    'unlocked': sorted(list(self.unlocked_levels)),
+                    'total_coins': getattr(self, 'total_coins', 0)
+                }
+                json.dump(data, f, indent=2)
+        except:
+            pass
+    
+    def unlock_level(self, level_number):
+        """Unlock a specific level"""
+        self.unlocked_levels.add(level_number)
+        self.save_unlocked_levels()
+    
+    def is_level_unlocked(self, level_number):
+        """Check if a level is unlocked"""
+        return level_number in self.unlocked_levels
     
     def detect_controllers(self):
         """Detect available input devices and assign them to players."""
@@ -1011,7 +1105,8 @@ class SnakeGame:
             self.game_over_timer -= 1
             if self.game_over_timer == 0:
                 # Timer expired, transition to appropriate screen
-                if self.is_high_score(self.score):
+                # Only check for high score in endless mode, not adventure mode
+                if self.game_mode != "adventure" and self.is_high_score(self.score):
                     self.state = GameState.HIGH_SCORE_ENTRY
                     self.player_name = ['A', 'A', 'A']
                     self.name_index = 0
@@ -1090,7 +1185,20 @@ class SnakeGame:
                     snake.move()
                     
                     # Check wall and self-collision
-                    if snake.check_collision(wrap_around=False):
+                    # In adventure mode, check for level walls only; otherwise check boundaries
+                    hit_wall = False
+                    if self.game_mode == "adventure":
+                        head = snake.body[0]
+                        if head in self.level_walls:
+                            hit_wall = True
+                        # Check self-collision
+                        if snake.body[0] in snake.body[1:]:
+                            hit_wall = True
+                    else:
+                        # Endless/multiplayer mode - check boundary walls
+                        hit_wall = snake.check_collision(wrap_around=False)
+                    
+                    if hit_wall:
                         self.handle_player_death(snake)
                         continue
                     
@@ -1109,7 +1217,21 @@ class SnakeGame:
                 self.snake.move()
                 
                 # Check collision (wall collision and self-collision) - single player
-                if self.snake.check_collision(wrap_around=False):
+                head = self.snake.body[0]
+                hit_wall = False
+                
+                # In adventure mode, only check level walls (no boundary walls)
+                if self.game_mode == "adventure":
+                    if head in self.level_walls:
+                        hit_wall = True
+                    # Only check self-collision, not boundary walls
+                    if self.snake.body[0] in self.snake.body[1:]:
+                        hit_wall = True
+                else:
+                    # In endless mode, check boundary walls and self-collision
+                    hit_wall = self.snake.check_collision(wrap_around=False)
+                
+                if hit_wall:
                     self.sound_manager.play('die')
                     self.lives -= 1
                     
@@ -1196,16 +1318,104 @@ class SnakeGame:
         else:
             # Single player food collection
             if self.move_timer == 0:  # Only check after movement
-                # Single player food collection
-                if self.snake.body[0] == self.food_pos:
-                    self.sound_manager.play('eat_fruit')
-                    self.snake.grow(self.get_difficulty_length_modifier())
-                    base_points = (7 + len(self.snake.body)) *  self.level
-                    self.score += int(base_points * self.get_score_multiplier())
-                    fx, fy = self.food_pos
-                    self.create_particles(fx * GRID_SIZE + GRID_SIZE // 2,
-                                        fy * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y, RED, 10)
-                    self.spawn_food()
+                # Check if snake ate any food
+                food_eaten = False
+                
+                if self.game_mode == "adventure":
+                    # In Adventure mode, check food_items list for worms and bonus fruits
+                    for i, (food_pos, food_type) in enumerate(self.food_items):
+                        if self.snake.body[0] == food_pos:
+                            # Handle different food types
+                            if food_type == 'bonus':
+                                # Bonus fruit gives extra points and special effects
+                                self.sound_manager.play('powerup')
+                                self.snake.grow(self.get_difficulty_length_modifier())
+                                base_points = (47 + len(self.snake.body)) * self.level
+                                self.score += int(base_points * self.get_score_multiplier())
+                                fx, fy = food_pos
+                                self.create_particles(fx * GRID_SIZE + GRID_SIZE // 2,
+                                                    fy * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y, 
+                                                    None, None, particle_type='rainbow')
+                                # Remove bonus fruit from list
+                                self.food_items.pop(i)
+                                self.bonus_fruits_collected += 1
+                                # Bonus fruit doesn't count toward worms_required
+                            elif food_type == 'coin':
+                                # Coin collectible - adds 1 coin to persistent total
+                                self.sound_manager.play('pickupCoin')
+                                self.total_coins += 1
+                                self.save_unlocked_levels()  # Save coins immediately
+                                fx, fy = food_pos
+                                self.create_particles(fx * GRID_SIZE + GRID_SIZE // 2,
+                                                    fy * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y, 
+                                                    YELLOW, 8)
+                                # Remove coin from list
+                                self.food_items.pop(i)
+                                # Coins don't grow snake or count toward completion
+                            elif food_type == 'diamond':
+                                # Diamond collectible - adds 10 coins to persistent total
+                                self.sound_manager.play('pickupDiamond')
+                                self.total_coins += 10
+                                self.save_unlocked_levels()  # Save coins immediately
+                                fx, fy = food_pos
+                                self.create_particles(fx * GRID_SIZE + GRID_SIZE // 2,
+                                                    fy * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y, 
+                                                    CYAN, 12)
+                                # Remove diamond from list
+                                self.food_items.pop(i)
+                                # Diamonds don't grow snake or count toward completion
+                            else:
+                                # Regular worm
+                                self.sound_manager.play('eat_fruit')
+                                self.snake.grow(1)
+                                fx, fy = food_pos
+                                self.create_particles(fx * GRID_SIZE + GRID_SIZE // 2,
+                                                    fy * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y, RED, 10)
+                                # Remove worm from list
+                                self.food_items.pop(i)
+                                self.worms_collected += 1
+                                
+                                # Check if all worms collected
+                                if self.worms_collected >= self.worms_required:
+                                    self.sound_manager.play('level_up')
+                                    
+                                    # Calculate completion percentage for adventure mode
+                                    # Starting length is 3 segments
+                                    starting_length = 3
+                                    current_segments = len(self.snake.body)
+                                    segments_gained = current_segments - starting_length
+                                    
+                                    total_items = self.worms_required + self.total_bonus_fruits
+                                    items_collected = self.worms_collected + self.bonus_fruits_collected
+                                    
+                                    # Completion = (items + segments) / (total_items * 2) * 100
+                                    max_possible = total_items + total_items
+                                    actual_earned = items_collected + segments_gained
+                                    self.completion_percentage = int((actual_earned / max_possible) * 100) if max_possible > 0 else 0
+                                    self.final_segments = current_segments
+                                    
+                                    # Save level score for adventure mode (still track for backwards compatibility)
+                                    self.is_new_level_high_score = self.update_level_score(self.current_adventure_level, self.completion_percentage)
+                                    # Unlock next level
+                                    self.unlock_level(self.current_adventure_level + 1)
+                                    self.state = GameState.LEVEL_COMPLETE
+                            
+                            food_eaten = True
+                            break
+                else:
+                    # Endless mode - original logic
+                    if self.snake.body[0] == self.food_pos:
+                        self.sound_manager.play('eat_fruit')
+                        self.snake.grow(self.get_difficulty_length_modifier())
+                        base_points = (7 + len(self.snake.body)) *  self.level
+                        self.score += int(base_points * self.get_score_multiplier())
+                        fx, fy = self.food_pos
+                        self.create_particles(fx * GRID_SIZE + GRID_SIZE // 2,
+                                            fy * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y, RED, 10)
+                        self.spawn_food()
+                        food_eaten = True
+                
+                if food_eaten and self.game_mode == "endless":
                 
                     # Check if snake filled the entire grid (GRID_WIDTH * GRID_HEIGHT = 225 cells)
                     max_snake_length = GRID_WIDTH * GRID_HEIGHT
@@ -1461,6 +1671,40 @@ class SnakeGame:
                             self.sound_manager.play('blip_select')
                             self.axis_was_neutral = False
                 
+                elif self.state == GameState.SINGLE_PLAYER_MENU:
+                    if self.axis_was_neutral and abs(axis_y) > threshold:
+                        if axis_y < -threshold:
+                            self.single_player_selection = (self.single_player_selection - 1) % len(self.single_player_options)
+                            self.sound_manager.play('blip_select')
+                            self.axis_was_neutral = False
+                        elif axis_y > threshold:
+                            self.single_player_selection = (self.single_player_selection + 1) % len(self.single_player_options)
+                            self.sound_manager.play('blip_select')
+                            self.axis_was_neutral = False
+                
+                elif self.state == GameState.ADVENTURE_LEVEL_SELECT:
+                    if self.axis_was_neutral:
+                        # Grid navigation (8 columns)
+                        cols = 8
+                        if abs(axis_x) > threshold:
+                            if axis_x < -threshold:
+                                self.adventure_level_selection = max(0, self.adventure_level_selection - 1)
+                                self.sound_manager.play('blip_select')
+                                self.axis_was_neutral = False
+                            elif axis_x > threshold:
+                                self.adventure_level_selection = min(self.total_levels - 1, self.adventure_level_selection + 1)
+                                self.sound_manager.play('blip_select')
+                                self.axis_was_neutral = False
+                        elif abs(axis_y) > threshold:
+                            if axis_y < -threshold:
+                                self.adventure_level_selection = max(0, self.adventure_level_selection - cols)
+                                self.sound_manager.play('blip_select')
+                                self.axis_was_neutral = False
+                            elif axis_y > threshold:
+                                self.adventure_level_selection = min(self.total_levels - 1, self.adventure_level_selection + cols)
+                                self.sound_manager.play('blip_select')
+                                self.axis_was_neutral = False
+                
                 elif self.state == GameState.DIFFICULTY_SELECT:
                     if self.axis_was_neutral and abs(axis_y) > threshold:
                         if axis_y < -threshold:
@@ -1516,6 +1760,48 @@ class SnakeGame:
                     self.sound_manager.play('blip_select')
                 elif event.key == pygame.K_RETURN:
                     self.select_menu_option()
+            elif self.state == GameState.SINGLE_PLAYER_MENU:
+                if event.key == pygame.K_UP:
+                    self.single_player_selection = (self.single_player_selection - 1) % len(self.single_player_options)
+                    self.sound_manager.play('blip_select')
+                elif event.key == pygame.K_DOWN:
+                    self.single_player_selection = (self.single_player_selection + 1) % len(self.single_player_options)
+                    self.sound_manager.play('blip_select')
+                elif event.key == pygame.K_RETURN:
+                    self.select_single_player_option()
+                elif event.key == pygame.K_ESCAPE:
+                    self.sound_manager.play('blip_select')
+                    self.state = GameState.MENU
+            elif self.state == GameState.ADVENTURE_LEVEL_SELECT:
+                cols = 8
+                if event.key == pygame.K_LEFT:
+                    self.adventure_level_selection = max(0, self.adventure_level_selection - 1)
+                    self.sound_manager.play('blip_select')
+                elif event.key == pygame.K_RIGHT:
+                    self.adventure_level_selection = min(self.total_levels - 1, self.adventure_level_selection + 1)
+                    self.sound_manager.play('blip_select')
+                elif event.key == pygame.K_UP:
+                    self.adventure_level_selection = max(0, self.adventure_level_selection - cols)
+                    self.sound_manager.play('blip_select')
+                elif event.key == pygame.K_DOWN:
+                    self.adventure_level_selection = min(self.total_levels - 1, self.adventure_level_selection + cols)
+                    self.sound_manager.play('blip_select')
+                elif event.key == pygame.K_RETURN:
+                    # Load and start the selected level
+                    level_num = self.adventure_level_selection + 1
+                    # Only allow playing unlocked levels
+                    if self.is_level_unlocked(level_num):
+                        if self.load_level(level_num):
+                            self.sound_manager.play('start_game')
+                            self.state = GameState.EGG_HATCHING
+                            self.score = 0
+                            self.level = level_num
+                    else:
+                        # Play error sound if level is locked
+                        self.sound_manager.play('blip_select')
+                elif event.key == pygame.K_ESCAPE:
+                    self.sound_manager.play('blip_select')
+                    self.state = GameState.SINGLE_PLAYER_MENU
             elif self.state == GameState.PLAYING:
                 if event.key == pygame.K_RETURN:
                     self.state = GameState.PAUSED
@@ -1534,8 +1820,12 @@ class SnakeGame:
                         self.state = GameState.MENU
             elif self.state == GameState.LEVEL_COMPLETE:
                 if event.key == pygame.K_RETURN:
-                    # Only used in single player
-                    self.next_level()
+                    # Adventure mode returns to level select, endless continues to next level
+                    if self.game_mode == "adventure":
+                        self.lives = 3  # Reset lives after completing a level
+                        self.state = GameState.ADVENTURE_LEVEL_SELECT
+                    else:
+                        self.next_level()
             elif self.state == GameState.HIGH_SCORE_ENTRY:
                 self.handle_high_score_keyboard(event)
             elif self.state == GameState.HIGH_SCORES:
@@ -1608,6 +1898,28 @@ class SnakeGame:
             if self.state == GameState.MENU:
                 if button == GamepadButton.BTN_START or button == GamepadButton.BTN_A:
                     self.select_menu_option()
+            elif self.state == GameState.SINGLE_PLAYER_MENU:
+                if button == GamepadButton.BTN_START or button == GamepadButton.BTN_A:
+                    self.select_single_player_option()
+                elif button == GamepadButton.BTN_B:
+                    self.sound_manager.play('blip_select')
+                    self.state = GameState.MENU
+            elif self.state == GameState.ADVENTURE_LEVEL_SELECT:
+                if button == GamepadButton.BTN_START or button == GamepadButton.BTN_A:
+                    level_num = self.adventure_level_selection + 1
+                    # Only allow playing unlocked levels
+                    if self.is_level_unlocked(level_num):
+                        if self.load_level(level_num):
+                            self.reset_game()
+                            self.state = GameState.EGG_HATCHING
+                    else:
+                        # Play error sound or do nothing if level is locked
+                        self.sound_manager.play('blip_select')
+                        self.score = 0
+                        self.level = level_num
+                elif button == GamepadButton.BTN_B:
+                    self.sound_manager.play('blip_select')
+                    self.state = GameState.SINGLE_PLAYER_MENU
             elif self.state == GameState.PLAYING:
                 if button == GamepadButton.BTN_START:
                     self.state = GameState.PAUSED
@@ -1626,8 +1938,11 @@ class SnakeGame:
                         self.state = GameState.MENU
             elif self.state == GameState.LEVEL_COMPLETE:
                 if button == GamepadButton.BTN_START:
-                    # Only used in single player
-                    self.next_level()
+                    # Adventure mode returns to level select, endless continues to next level
+                    if self.game_mode == "adventure":
+                        self.state = GameState.ADVENTURE_LEVEL_SELECT
+                    else:
+                        self.next_level()
             elif self.state == GameState.HIGH_SCORE_ENTRY:
                 if button == GamepadButton.BTN_A:
                     self.use_onscreen_keyboard()
@@ -1776,10 +2091,10 @@ class SnakeGame:
     
     def select_menu_option(self):
         if self.menu_selection == 0:
-            # Start Game - Go to difficulty selection
+            # Single Player - Go to single player submenu
             self.sound_manager.play('blip_select')
-            self.is_multiplayer = False
-            self.state = GameState.DIFFICULTY_SELECT
+            self.state = GameState.SINGLE_PLAYER_MENU
+            self.single_player_selection = 0
         elif self.menu_selection == 1:
             # Multiplayer - Go to multiplayer menu
             self.sound_manager.play('blip_select')
@@ -1793,6 +2108,92 @@ class SnakeGame:
             pygame.quit()
             exit()
     
+    def select_single_player_option(self):
+        """Handle single player submenu selection"""
+        if self.single_player_selection == 0:
+            # Adventure Mode - Go to level selection
+            self.sound_manager.play('blip_select')
+            self.game_mode = "adventure"
+            self.is_multiplayer = False
+            self.state = GameState.ADVENTURE_LEVEL_SELECT
+            self.adventure_level_selection = 0
+        elif self.single_player_selection == 1:
+            # Endless Mode - Go to difficulty selection
+            self.sound_manager.play('blip_select')
+            self.game_mode = "endless"
+            self.is_multiplayer = False
+            self.state = GameState.DIFFICULTY_SELECT
+        elif self.single_player_selection == 2:
+            # Back to main menu
+            self.sound_manager.play('blip_select')
+            self.state = GameState.MENU
+    
+    def load_level(self, level_number):
+        """Load a level from JSON file"""
+        try:
+            level_file = os.path.join(SCRIPT_DIR, 'levels', 'level_{:02d}.json'.format(level_number))
+            with open(level_file, 'r') as f:
+                self.current_level_data = json.load(f)
+            
+            # Store current level number for score tracking
+            self.current_adventure_level = level_number
+            
+            # Parse level data
+            self.level_walls = [(w['x'], w['y']) for w in self.current_level_data['walls']]
+            self.worms_required = self.current_level_data['worms_required']
+            self.worms_collected = 0
+            self.bonus_fruits_collected = 0
+            self.total_bonus_fruits = len(self.current_level_data.get('bonus_fruit_positions', []))
+            
+            # Set up starting position
+            start_pos = self.current_level_data['starting_position']
+            start_dir_str = self.current_level_data['starting_direction']
+            
+            # Convert direction string to Direction enum
+            direction_map = {
+                'UP': Direction.UP,
+                'DOWN': Direction.DOWN,
+                'LEFT': Direction.LEFT,
+                'RIGHT': Direction.RIGHT
+            }
+            start_dir = direction_map.get(start_dir_str, Direction.RIGHT)
+            
+            # Reset snake to starting position
+            self.snake = Snake(player_id=0)
+            self.snakes = [self.snake]
+            self.snake.body = [start_pos]
+            self.snake.direction = start_dir
+            self.snake.next_direction = start_dir
+            
+            # Spawn worms at specified positions
+            self.food_items = []
+            for worm_data in self.current_level_data['worm_positions']:
+                self.food_items.append(((worm_data['x'], worm_data['y']), 'worm'))
+            
+            # Spawn bonus fruits at specified positions (if any)
+            if 'bonus_fruit_positions' in self.current_level_data:
+                for bonus_data in self.current_level_data['bonus_fruit_positions']:
+                    self.food_items.append(((bonus_data['x'], bonus_data['y']), 'bonus'))
+            
+            # Spawn coins at specified positions (if any)
+            if 'coin_positions' in self.current_level_data:
+                for coin_data in self.current_level_data['coin_positions']:
+                    self.food_items.append(((coin_data['x'], coin_data['y']), 'coin'))
+            
+            # Spawn diamonds at specified positions (if any)
+            if 'diamond_positions' in self.current_level_data:
+                for diamond_data in self.current_level_data['diamond_positions']:
+                    self.food_items.append(((diamond_data['x'], diamond_data['y']), 'diamond'))
+            
+            # Don't set food_pos in Adventure mode - use food_items list instead
+            self.food_pos = None
+            
+            print("Loaded level {}: {}".format(level_number, self.current_level_data['name']))
+            return True
+            
+        except Exception as e:
+            print("Error loading level {}: {}".format(level_number, e))
+            return False
 
     def change_lobby_setting(self, selection, direction):
         """Change a lobby setting or player slot."""
@@ -1949,9 +2350,14 @@ class SnakeGame:
         self.sound_manager.play('crack')
         
         # Reset snake with chosen direction
-        self.snake.reset()
-        self.snake.direction = direction
-        self.snake.next_direction = direction
+        # In adventure mode, use the level's starting position
+        if self.game_mode == "adventure" and hasattr(self, 'current_level_data'):
+            start_pos = tuple(self.current_level_data['starting_position'])
+            self.snake.reset(spawn_pos=start_pos, direction=direction)
+        else:
+            self.snake.reset()
+            self.snake.direction = direction
+            self.snake.next_direction = direction
         
         # Create flying egg pieces
         center_x = SCREEN_WIDTH // 2
@@ -2052,6 +2458,10 @@ class SnakeGame:
             self.draw_splash()
         elif self.state == GameState.MENU:
             self.draw_menu()
+        elif self.state == GameState.SINGLE_PLAYER_MENU:
+            self.draw_single_player_menu()
+        elif self.state == GameState.ADVENTURE_LEVEL_SELECT:
+            self.draw_adventure_level_select()
         elif self.state == GameState.MULTIPLAYER_MENU:
             self.draw_multiplayer_menu()
         elif self.state == GameState.MULTIPLAYER_LOBBY:
@@ -2119,6 +2529,132 @@ class SnakeGame:
             logo_x = 10  # 10 pixels from left edge
             logo_y = SCREEN_HEIGHT - self.tweetrix_logo.get_height() - 10  # 10 pixels from bottom
             self.screen.blit(self.tweetrix_logo, (logo_x, logo_y))
+    
+    def draw_single_player_menu(self):
+        """Draw the single player mode selection menu."""
+        # Use title screen or background
+        if self.title_screen:
+            self.screen.blit(self.title_screen, (0, 0))
+        elif self.background:
+            self.screen.blit(self.background, (0, 0))
+        else:
+            self.screen.fill(DARK_BG)
+        
+        # Title
+        title = self.font_large.render("SINGLE PLAYER", True, BLACK)
+        title_rect = title.get_rect(center=((SCREEN_WIDTH // 2)+3, 103))
+        self.screen.blit(title, title_rect)
+        title = self.font_large.render("SINGLE PLAYER", True, NEON_YELLOW)
+        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 100))
+        self.screen.blit(title, title_rect)
+        
+        # Render menu options
+        for i, option in enumerate(self.single_player_options):
+            color = NEON_YELLOW if i == self.single_player_selection else NEON_CYAN
+            text = self.font_medium.render(option, True, BLACK)
+            text_rect = text.get_rect(center=((SCREEN_WIDTH // 2)+3, 253 + i * 60))
+            self.screen.blit(text, text_rect)
+            
+            text = self.font_medium.render(option, True, color)
+            text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, 250 + i * 60))
+            self.screen.blit(text, text_rect)
+        
+        # Hint text
+        hint_text = self.font_small.render("Press B to go back", True, BLACK)
+        hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+2, 452))
+        self.screen.blit(hint_text, hint_rect)
+        hint_text = self.font_small.render("Press B to go back", True, NEON_PURPLE)
+        hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 450))
+        self.screen.blit(hint_text, hint_rect)
+    
+    def draw_adventure_level_select(self):
+        """Draw the adventure mode level selection screen."""
+        # Use difficulty screen or background
+        if self.difficulty_screen:
+            self.screen.blit(self.difficulty_screen, (0, 0))
+        elif self.background:
+            self.screen.blit(self.background, (0, 0))
+        else:
+            self.screen.fill(DARK_BG)
+        
+        # Title
+        title = self.font_large.render("LEVEL SELECT", True, BLACK)
+        title_rect = title.get_rect(center=((SCREEN_WIDTH // 2)+3, 33))
+        self.screen.blit(title, title_rect)
+        title = self.font_large.render("LEVEL SELECT", True, NEON_YELLOW)
+        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 30))
+        self.screen.blit(title, title_rect)
+        
+        # Draw level grid (8 columns x 4 rows for 32 levels)
+        cols = 8
+        rows = 4
+        cell_size = 50
+        spacing = 10
+        start_x = (SCREEN_WIDTH - (cols * cell_size + (cols - 1) * spacing)) // 2
+        start_y = 80
+        
+        for i in range(self.total_levels):
+            row = i // cols
+            col = i % cols
+            x = start_x + col * (cell_size + spacing)
+            y = start_y + row * (cell_size + spacing)
+            
+            # Draw level box
+            rect = pygame.Rect(x, y, cell_size, cell_size)
+            level_num = i + 1
+            is_unlocked = self.is_level_unlocked(level_num)
+            
+            # Different colors for locked, selected, unlocked levels
+            if not is_unlocked:
+                # Locked level - dark/grayed out
+                color = DARK_GRAY
+                border_color = DARK_GRAY
+                fill_color = (30, 30, 30)
+                pygame.draw.rect(self.screen, fill_color, rect)  # Fill background
+            elif i == self.adventure_level_selection:
+                # Selected level
+                color = NEON_YELLOW
+                border_color = NEON_YELLOW
+            elif i >= 30:  # Bonus levels
+                color = NEON_PURPLE
+                border_color = NEON_PURPLE
+            else:
+                # Unlocked level
+                color = NEON_CYAN
+                border_color = NEON_CYAN
+            
+            # Draw box border
+            pygame.draw.rect(self.screen, border_color, rect, 3)
+            
+            # Draw level number or lock icon for locked levels
+            if not is_unlocked:
+                # Draw "X" or "?" for locked levels
+                lock_text = self.font_medium.render("?", True, color)
+                lock_rect = lock_text.get_rect(center=rect.center)
+                self.screen.blit(lock_text, lock_rect)
+            else:
+                num_text = self.font_small.render(str(level_num), True, color)
+                num_rect = num_text.get_rect(center=rect.center)
+                self.screen.blit(num_text, num_rect)
+        
+        # Display selected level info
+        selected_level = self.adventure_level_selection + 1
+        info_y = start_y + rows * (cell_size + spacing) + 20
+        
+        info_text = self.font_medium.render("Level {}".format(selected_level), True, BLACK)
+        info_rect = info_text.get_rect(center=((SCREEN_WIDTH // 2)+2, info_y + 2))
+        self.screen.blit(info_text, info_rect)
+        info_text = self.font_medium.render("Level {}".format(selected_level), True, NEON_GREEN)
+        info_rect = info_text.get_rect(center=(SCREEN_WIDTH // 2, info_y))
+        self.screen.blit(info_text, info_rect)
+        
+        # Hint text
+        hint_text = self.font_small.render("Press Start to begin", True, BLACK)
+        hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+2, 452))
+        self.screen.blit(hint_text, hint_rect)
+        hint_text = self.font_small.render("Press Start to begin", True, NEON_PURPLE)
+        hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 450))
+        self.screen.blit(hint_text, hint_rect)
     
     def draw_multiplayer_menu(self):
         """Draw the multiplayer mode selection menu."""
@@ -2435,11 +2971,33 @@ class SnakeGame:
         else:
             self.screen.fill(DARK_BG)
         
+        # Draw walls in Adventure mode
+        if self.game_mode == "adventure" and self.level_walls:
+            for wx, wy in self.level_walls:
+                if self.wall_img:
+                    self.screen.blit(self.wall_img, (wx * GRID_SIZE, wy * GRID_SIZE + GAME_OFFSET_Y))
+                else:
+                    # Fallback to colored rectangles
+                    wall_rect = pygame.Rect(wx * GRID_SIZE, wy * GRID_SIZE + GAME_OFFSET_Y, GRID_SIZE, GRID_SIZE)
+                    pygame.draw.rect(self.screen, NEON_PURPLE, wall_rect)
+                    pygame.draw.rect(self.screen, (100, 50, 150), wall_rect, 2)
+        
         # Draw food
-        fx, fy = self.food_pos
-        if self.worm_frames:
-            worm_img = self.worm_frames[self.worm_frame_index]
-            self.screen.blit(worm_img, (fx * GRID_SIZE, fy * GRID_SIZE + GAME_OFFSET_Y))
+        if self.game_mode == "adventure" and self.food_items:
+            # Draw worms and bonus fruits from food_items in Adventure mode
+            for food_pos, food_type in self.food_items:
+                fx, fy = food_pos
+                if food_type == 'worm' and self.worm_frames:
+                    worm_img = self.worm_frames[self.worm_frame_index]
+                    self.screen.blit(worm_img, (fx * GRID_SIZE, fy * GRID_SIZE + GAME_OFFSET_Y))
+                elif food_type == 'bonus' and self.bonus_img:
+                    self.screen.blit(self.bonus_img, (fx * GRID_SIZE, fy * GRID_SIZE + GAME_OFFSET_Y))
+        elif self.food_pos:
+            # Draw single food in Endless mode
+            fx, fy = self.food_pos
+            if self.worm_frames:
+                worm_img = self.worm_frames[self.worm_frame_index]
+                self.screen.blit(worm_img, (fx * GRID_SIZE, fy * GRID_SIZE + GAME_OFFSET_Y))
         
         # Draw bonus food if present
         if self.bonus_food_pos:
@@ -2455,11 +3013,18 @@ class SnakeGame:
         for piece in self.egg_pieces:
             piece.draw(self.screen)
         
-        # Draw egg in center
+        # Draw egg at starting position (adventure mode) or center (endless mode)
         if self.egg_img:
-            center_x = SCREEN_WIDTH // 2 - GRID_SIZE
-            center_y = SCREEN_HEIGHT // 2 - GRID_SIZE
-            self.screen.blit(self.egg_img, (center_x, center_y))
+            if self.game_mode == "adventure" and hasattr(self, 'current_level_data'):
+                # Use level's starting position
+                egg_x, egg_y = self.current_level_data['starting_position']
+                egg_pixel_x = egg_x * GRID_SIZE
+                egg_pixel_y = egg_y * GRID_SIZE + GAME_OFFSET_Y
+            else:
+                # Default to center for endless mode
+                egg_pixel_x = SCREEN_WIDTH // 2 - GRID_SIZE
+                egg_pixel_y = SCREEN_HEIGHT // 2 - GRID_SIZE
+            self.screen.blit(self.egg_img, (egg_pixel_x, egg_pixel_y))
         
         # Draw HUD
         # Draw HUD text (background now part of bg.png)
@@ -2493,10 +3058,16 @@ class SnakeGame:
         fruits_label_rect = fruits_label.get_rect(center=(SCREEN_WIDTH // 2 + 60, 14))
         self.screen.blit(fruits_label, fruits_label_rect)
 
-        fruits_value = self.font_small.render("{}/12".format(self.fruits_eaten_this_level), True, BLACK)
+        # Show correct count based on game mode
+        if self.game_mode == "adventure":
+            worm_count_text = "{}/{}".format(self.worms_collected, self.worms_required)
+        else:
+            worm_count_text = "{}/12".format(self.fruits_eaten_this_level)
+        
+        fruits_value = self.font_small.render(worm_count_text, True, BLACK)
         fruits_value_rect = fruits_value.get_rect(center=(SCREEN_WIDTH // 2 + 135, 16))
         self.screen.blit(fruits_value, fruits_value_rect)
-        fruits_value = self.font_small.render("{}/12".format(self.fruits_eaten_this_level), True, WHITE)
+        fruits_value = self.font_small.render(worm_count_text, True, WHITE)
         fruits_value_rect = fruits_value.get_rect(center=(SCREEN_WIDTH // 2 + 133, 14))
         self.screen.blit(fruits_value, fruits_value_rect)
         
@@ -2552,6 +3123,23 @@ class SnakeGame:
                 previous_pos = snake.previous_body[i]
             else:
                 previous_pos = current_pos
+            
+            # Handle wrapping - detect if snake wrapped around screen edges
+            dx = current_pos[0] - previous_pos[0]
+            dy = current_pos[1] - previous_pos[1]
+            
+            # Adjust for wrapping (if difference is too large, it wrapped)
+            if abs(dx) > GRID_WIDTH // 2:
+                if dx > 0:
+                    previous_pos = (previous_pos[0] + GRID_WIDTH, previous_pos[1])
+                else:
+                    previous_pos = (previous_pos[0] - GRID_WIDTH, previous_pos[1])
+            
+            if abs(dy) > GRID_HEIGHT // 2:
+                if dy > 0:
+                    previous_pos = (previous_pos[0], previous_pos[1] + GRID_HEIGHT)
+                else:
+                    previous_pos = (previous_pos[0], previous_pos[1] - GRID_HEIGHT)
             
             # Linear interpolation
             interp_x = previous_pos[0] + (current_pos[0] - previous_pos[0]) * progress
@@ -2681,8 +3269,8 @@ class SnakeGame:
                         pygame.draw.circle(self.screen, (40, 20, 50), (center_x, center_y), GRID_SIZE // 3)
                         pygame.draw.circle(self.screen, (80, 50, 90), (center_x - 2, center_y - 2), GRID_SIZE // 6)
         else:
-            # Single player - draw regular food with animated worm
-            if self.food_pos:
+            # Single player - draw regular food with animated worm (Endless mode only)
+            if self.game_mode == "endless" and self.food_pos:
                 fx, fy = self.food_pos
                 if self.worm_frames:
                     # Draw animated worm
@@ -2699,6 +3287,68 @@ class SnakeGame:
                                            GRID_SIZE - 4 + size_offset * 2)
                     # Use pure red color (255, 0, 0) instead of NEON_PINK
                     pygame.draw.rect(self.screen, (255, 0, 0), food_rect, border_radius=GRID_SIZE // 4)
+        
+        # Draw walls in Adventure mode
+        if self.game_mode == "adventure" and self.level_walls:
+            for wx, wy in self.level_walls:
+                if self.wall_img:
+                    self.screen.blit(self.wall_img, (wx * GRID_SIZE, wy * GRID_SIZE + GAME_OFFSET_Y))
+                else:
+                    # Fallback to colored rectangles
+                    wall_rect = pygame.Rect(wx * GRID_SIZE, wy * GRID_SIZE + GAME_OFFSET_Y, GRID_SIZE, GRID_SIZE)
+                    pygame.draw.rect(self.screen, NEON_PURPLE, wall_rect)
+                    pygame.draw.rect(self.screen, (100, 50, 150), wall_rect, 2)
+        
+        # Draw worms and bonus fruits in Adventure mode (from food_items list)
+        if self.game_mode == "adventure" and self.food_items:
+            for food_pos, food_type in self.food_items:
+                fx, fy = food_pos
+                if food_type == 'worm':
+                    if self.worm_frames:
+                        worm_img = self.worm_frames[self.worm_frame_index]
+                        self.screen.blit(worm_img, (fx * GRID_SIZE, fy * GRID_SIZE + GAME_OFFSET_Y))
+                    else:
+                        food_rect = pygame.Rect(fx * GRID_SIZE + 2, fy * GRID_SIZE + 2 + GAME_OFFSET_Y,
+                                               GRID_SIZE - 4, GRID_SIZE - 4)
+                        pygame.draw.rect(self.screen, (255, 0, 0), food_rect, border_radius=GRID_SIZE // 4)
+                elif food_type == 'bonus':
+                    if self.bonus_img:
+                        self.screen.blit(self.bonus_img, (fx * GRID_SIZE, fy * GRID_SIZE + GAME_OFFSET_Y))
+                    else:
+                        # Fallback to yellow circle
+                        pygame.draw.circle(self.screen, NEON_YELLOW, 
+                                         (fx * GRID_SIZE + GRID_SIZE // 2, fy * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y),
+                                         GRID_SIZE // 3)
+                elif food_type == 'coin':
+                    # Draw coin as a golden circle
+                    center_x = fx * GRID_SIZE + GRID_SIZE // 2
+                    center_y = fy * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y
+                    pygame.draw.circle(self.screen, YELLOW, (center_x, center_y), GRID_SIZE // 4)
+                    pygame.draw.circle(self.screen, (255, 165, 0), (center_x, center_y), GRID_SIZE // 4, 2)
+                    # Add inner circle for detail
+                    pygame.draw.circle(self.screen, (255, 165, 0), (center_x, center_y), GRID_SIZE // 6, 2)
+                elif food_type == 'diamond':
+                    # Draw diamond as a cyan diamond shape
+                    center_x = fx * GRID_SIZE + GRID_SIZE // 2
+                    center_y = fy * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y
+                    size = GRID_SIZE // 3
+                    points = [
+                        (center_x, center_y - size),  # Top
+                        (center_x + size, center_y),  # Right
+                        (center_x, center_y + size),  # Bottom
+                        (center_x - size, center_y)   # Left
+                    ]
+                    pygame.draw.polygon(self.screen, CYAN, points)
+                    pygame.draw.polygon(self.screen, (0, 0, 255), points, 2)
+                    # Add inner diamond for sparkle
+                    inner_size = size // 2
+                    inner_points = [
+                        (center_x, center_y - inner_size),
+                        (center_x + inner_size, center_y),
+                        (center_x, center_y + inner_size),
+                        (center_x - inner_size, center_y)
+                    ]
+                    pygame.draw.polygon(self.screen, WHITE, inner_points, 1)
         
         # Draw bonus food
         if self.bonus_food_pos:
@@ -2832,12 +3482,34 @@ class SnakeGame:
             fruits_label_rect = fruits_label.get_rect(center=(SCREEN_WIDTH // 2 + 60, 14))
             self.screen.blit(fruits_label, fruits_label_rect)
 
-            fruits_value = self.font_small.render("{}/12".format(self.fruits_eaten_this_level), True, BLACK)
+            # Show correct count based on game mode
+            if self.game_mode == "adventure":
+                worm_count_text = "{}/{}".format(self.worms_collected, self.worms_required)
+            else:
+                worm_count_text = "{}/12".format(self.fruits_eaten_this_level)
+            
+            fruits_value = self.font_small.render(worm_count_text, True, BLACK)
             fruits_value_rect = fruits_value.get_rect(center=(SCREEN_WIDTH // 2 + 135, 16))
             self.screen.blit(fruits_value, fruits_value_rect)
-            fruits_value = self.font_small.render("{}/12".format(self.fruits_eaten_this_level), True, WHITE)
+            fruits_value = self.font_small.render(worm_count_text, True, WHITE)
             fruits_value_rect = fruits_value.get_rect(center=(SCREEN_WIDTH // 2 + 133, 14))
             self.screen.blit(fruits_value, fruits_value_rect)
+            
+            # Show coins in adventure mode
+            if self.game_mode == "adventure":
+                coins_label = self.font_small.render("COINS:", True, BLACK)
+                coins_label_rect = coins_label.get_rect(center=(SCREEN_WIDTH - 60, 16))
+                self.screen.blit(coins_label, coins_label_rect)
+                coins_label = self.font_small.render("COINS:", True, YELLOW)
+                coins_label_rect = coins_label.get_rect(center=(SCREEN_WIDTH - 62, 14))
+                self.screen.blit(coins_label, coins_label_rect)
+                
+                coins_value = self.font_small.render("{}".format(getattr(self, 'total_coins', 0)), True, BLACK)
+                coins_value_rect = coins_value.get_rect(center=(SCREEN_WIDTH - 10, 16))
+                self.screen.blit(coins_value, coins_value_rect)
+                coins_value = self.font_small.render("{}".format(getattr(self, 'total_coins', 0)), True, WHITE)
+                coins_value_rect = coins_value.get_rect(center=(SCREEN_WIDTH - 12, 14))
+                self.screen.blit(coins_value, coins_value_rect)
         
         # Lives with label (only in single player)
         if not self.is_multiplayer:
@@ -2944,7 +3616,87 @@ class SnakeGame:
         overlay.fill(DARK_BG)
         self.screen.blit(overlay, (0, 0))
         
-        if self.is_multiplayer:
+        if self.game_mode == "adventure" and not self.is_multiplayer:
+            # Adventure mode victory screen with completion percentage
+            complete_text = self.font_large.render("VICTORY!", True, BLACK)
+            complete_rect = complete_text.get_rect(center=((SCREEN_WIDTH // 2)+3, SCREEN_HEIGHT // 2 - 90+3))
+            self.screen.blit(complete_text, complete_rect)
+            complete_text = self.font_large.render("VICTORY!", True, NEON_YELLOW)
+            complete_rect = complete_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 90))
+            self.screen.blit(complete_text, complete_rect)
+            
+            # Show completion percentage
+            if hasattr(self, 'completion_percentage'):
+                percent_text = "{}% Complete".format(self.completion_percentage)
+                percent_label = self.font_large.render(percent_text, True, BLACK)
+                percent_rect = percent_label.get_rect(center=((SCREEN_WIDTH // 2)+2, SCREEN_HEIGHT // 2 - 35+2))
+                self.screen.blit(percent_label, percent_rect)
+                percent_label = self.font_large.render(percent_text, True, NEON_GREEN)
+                percent_rect = percent_label.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 35))
+                self.screen.blit(percent_label, percent_rect)
+            
+            # Show breakdown
+            y_pos = SCREEN_HEIGHT // 2 + 10
+            
+            # Segments
+            if hasattr(self, 'final_segments'):
+                segments_text = "Segments: {}".format(self.final_segments)
+                segments_label = self.font_medium.render(segments_text, True, BLACK)
+                segments_rect = segments_label.get_rect(center=((SCREEN_WIDTH // 2)+2, y_pos+2))
+                self.screen.blit(segments_label, segments_rect)
+                segments_label = self.font_medium.render(segments_text, True, NEON_CYAN)
+                segments_rect = segments_label.get_rect(center=(SCREEN_WIDTH // 2, y_pos))
+                self.screen.blit(segments_label, segments_rect)
+                y_pos += 35
+            
+            # Worms collected
+            worms_text = "Worms: {}/{}".format(self.worms_collected, self.worms_required)
+            worms_label = self.font_medium.render(worms_text, True, BLACK)
+            worms_rect = worms_label.get_rect(center=((SCREEN_WIDTH // 2)+2, y_pos+2))
+            self.screen.blit(worms_label, worms_rect)
+            worms_label = self.font_medium.render(worms_text, True, WHITE)
+            worms_rect = worms_label.get_rect(center=(SCREEN_WIDTH // 2, y_pos))
+            self.screen.blit(worms_label, worms_rect)
+            y_pos += 35
+            
+            # Bonus fruits collected
+            if hasattr(self, 'total_bonus_fruits') and self.total_bonus_fruits > 0:
+                bonus_text = "Bonus: {}/{}".format(self.bonus_fruits_collected, self.total_bonus_fruits)
+                bonus_label = self.font_medium.render(bonus_text, True, BLACK)
+                bonus_rect = bonus_label.get_rect(center=((SCREEN_WIDTH // 2)+2, y_pos+2))
+                self.screen.blit(bonus_label, bonus_rect)
+                bonus_label = self.font_medium.render(bonus_text, True, NEON_ORANGE)
+                bonus_rect = bonus_label.get_rect(center=(SCREEN_WIDTH // 2, y_pos))
+                self.screen.blit(bonus_label, bonus_rect)
+                y_pos += 35
+            
+            # Show best completion for this level
+            level_high = self.get_level_high_score(self.current_adventure_level)
+            high_text = "Best: {}%".format(level_high)
+            high_label = self.font_small.render(high_text, True, BLACK)
+            high_rect = high_label.get_rect(center=((SCREEN_WIDTH // 2)+2, y_pos+2))
+            self.screen.blit(high_label, high_rect)
+            high_label = self.font_small.render(high_text, True, NEON_YELLOW)
+            high_rect = high_label.get_rect(center=(SCREEN_WIDTH // 2, y_pos))
+            self.screen.blit(high_label, high_rect)
+            y_pos += 25
+            
+            # Check if new high score - show on separate line
+            if hasattr(self, 'is_new_level_high_score') and self.is_new_level_high_score:
+                new_high_text = self.font_small.render("NEW BEST!", True, BLACK)
+                new_high_rect = new_high_text.get_rect(center=((SCREEN_WIDTH // 2)+2, y_pos+2))
+                self.screen.blit(new_high_text, new_high_rect)
+                new_high_text = self.font_small.render("NEW BEST!", True, NEON_GREEN)
+                new_high_rect = new_high_text.get_rect(center=(SCREEN_WIDTH // 2, y_pos))
+                self.screen.blit(new_high_text, new_high_rect)
+            
+            hint_text = self.font_small.render("Start to continue", True, BLACK)
+            hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+3, SCREEN_HEIGHT - 60+3))
+            self.screen.blit(hint_text, hint_rect)
+            hint_text = self.font_small.render("Start to continue", True, NEON_YELLOW)
+            hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT - 60))
+            self.screen.blit(hint_text, hint_rect)
+        elif self.is_multiplayer:
             # Show round results
             # Find winner of this round
             winner_id = None

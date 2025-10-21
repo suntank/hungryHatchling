@@ -12,11 +12,8 @@ ENV/
 
 # Game Data
 highscores.json
-
-# Music Files (user-provided)
-*.mp3
-*.wav
-*.ogg
+level_scores.json
+level_unlocks.json
 
 # IDE
 .vscode/
