@@ -2711,13 +2711,13 @@ class SnakeGame:
         
         # Title
         title = self.font_large.render("SETUP", True, BLACK)
-        title_rect = title.get_rect(center=((SCREEN_WIDTH // 2)+3, 28))
+        title_rect = title.get_rect(center=((SCREEN_WIDTH // 2)+3, 34))
         self.screen.blit(title, title_rect)
         title = self.font_large.render("SETUP", True, NEON_YELLOW)
-        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 25))
+        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 32))
         self.screen.blit(title, title_rect)
         
-        y = 100  # Start higher to fit everything
+        y = 80  # Start higher to fit everything
         center_x = SCREEN_WIDTH // 2
         
         # Settings section with visual icons
@@ -2886,7 +2886,7 @@ class SnakeGame:
                 icon_scaled = pygame.transform.scale(icon, (36, 36))
                 self.screen.blit(icon_scaled, (icon_x, icon_y))
             
-            y += 38  # Reduced spacing between players
+            y += 58  # Increased spacing to prevent overlap (head_size is 48)
         
         # Instructions - positioned at bottom
         y = SCREEN_HEIGHT - 60  # Start from bottom up
