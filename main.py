@@ -1360,7 +1360,7 @@ class SnakeGame:
                                 fx, fy = food_pos
                                 self.create_particles(fx * GRID_SIZE + GRID_SIZE // 2,
                                                     fy * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y, 
-                                                    CYAN, 12)
+                                                    NEON_CYAN, 12)
                                 # Remove diamond from list
                                 self.food_items.pop(i)
                                 # Diamonds don't grow snake or count toward completion
@@ -1382,7 +1382,8 @@ class SnakeGame:
                                     # Calculate completion percentage for adventure mode
                                     # Starting length is 3 segments
                                     starting_length = 3
-                                    current_segments = len(self.snake.body)
+                                    # Include pending growth segments in the final count
+                                    current_segments = len(self.snake.body) + self.snake.grow_pending
                                     segments_gained = current_segments - starting_length
                                     
                                     total_items = self.worms_required + self.total_bonus_fruits
@@ -1815,7 +1816,13 @@ class SnakeGame:
                         # Go back to multiplayer lobby
                         self.sound_manager.play('blip_select')
                         self.state = GameState.MULTIPLAYER_LOBBY
+                    elif self.game_mode == "adventure":
+                        # Adventure mode - reset lives and go back to level select
+                        self.sound_manager.play('blip_select')
+                        self.lives = 3
+                        self.state = GameState.ADVENTURE_LEVEL_SELECT
                     else:
+                        # Endless mode - reset game and go to menu
                         self.reset_game()
                         self.state = GameState.MENU
             elif self.state == GameState.LEVEL_COMPLETE:
@@ -1933,13 +1940,20 @@ class SnakeGame:
                         # Go back to multiplayer lobby
                         self.sound_manager.play('blip_select')
                         self.state = GameState.MULTIPLAYER_LOBBY
+                    elif self.game_mode == "adventure":
+                        # Adventure mode - reset lives and go back to level select
+                        self.sound_manager.play('blip_select')
+                        self.lives = 3
+                        self.state = GameState.ADVENTURE_LEVEL_SELECT
                     else:
+                        # Endless mode - reset game and go to menu
                         self.reset_game()
                         self.state = GameState.MENU
             elif self.state == GameState.LEVEL_COMPLETE:
                 if button == GamepadButton.BTN_START:
                     # Adventure mode returns to level select, endless continues to next level
                     if self.game_mode == "adventure":
+                        self.lives = 3  # Reset lives after completing a level
                         self.state = GameState.ADVENTURE_LEVEL_SELECT
                     else:
                         self.next_level()
@@ -3338,7 +3352,7 @@ class SnakeGame:
                         (center_x, center_y + size),  # Bottom
                         (center_x - size, center_y)   # Left
                     ]
-                    pygame.draw.polygon(self.screen, CYAN, points)
+                    pygame.draw.polygon(self.screen, NEON_CYAN, points)
                     pygame.draw.polygon(self.screen, (0, 0, 255), points, 2)
                     # Add inner diamond for sparkle
                     inner_size = size // 2
