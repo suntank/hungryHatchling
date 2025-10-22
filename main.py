@@ -419,6 +419,39 @@ class SnakeGame:
             self.spider_frames = []
             print("Warning: spider.gif not found or could not be loaded: {}".format(e))
         
+        # Load wasp enemy animation (GIF) - animates at 24 FPS
+        try:
+            from PIL import Image
+            wasp_path = os.path.join(SCRIPT_DIR, 'img', 'wasp.gif')
+            self.wasp_frames = []
+            
+            # Load GIF frames using PIL
+            gif = Image.open(wasp_path)
+            frame_count = 0
+            try:
+                while True:
+                    # Convert PIL image to pygame surface
+                    frame = gif.copy().convert('RGBA')
+                    pygame_frame = pygame.image.frombytes(
+                        frame.tobytes(), frame.size, frame.mode
+                    ).convert_alpha()
+                    # Scale to fit grid size
+                    pygame_frame = pygame.transform.scale(pygame_frame, (GRID_SIZE, GRID_SIZE))
+                    self.wasp_frames.append(pygame_frame)
+                    frame_count += 1
+                    gif.seek(frame_count)
+            except EOFError:
+                pass  # End of frames
+            
+            self.wasp_frame_index = 0
+            # Fast animation for wasps - update every frame for rapid wing movement
+            self.wasp_animation_speed = 1  # Change frame every game frame (~60 FPS)
+            self.wasp_animation_counter = 0
+            print("Loaded {} frames for wasp animation".format(len(self.wasp_frames)))
+        except Exception as e:
+            self.wasp_frames = []
+            print("Warning: wasp.gif not found or could not be loaded: {}".format(e))
+        
         # Load UI icons for multiplayer lobby
         # Star rating icons for difficulty
         self.icon_size = 48  # Standard icon size (2x for better visibility)
@@ -531,7 +564,7 @@ class SnakeGame:
                 print("Axes: {}, Buttons: {}".format(self.joystick.get_numaxes(), self.joystick.get_numbuttons()))
         
         self.music_manager = MusicManager()
-        self.music_manager.play_next()
+        self.music_manager.play_theme()  # Start with theme music for menus
         
         self.sound_manager = SoundManager()
         
@@ -1143,7 +1176,8 @@ class SnakeGame:
         return interpolated_positions
     
     def update_game(self):
-        self.music_manager.update()
+        # Update music - we're in gameplay (not menu)
+        self.music_manager.update(in_menu=False)
         
         # Handle multiplayer end timer (delay after last player dies)
         if hasattr(self, 'multiplayer_end_timer') and self.multiplayer_end_timer > 0:
@@ -1323,11 +1357,17 @@ class SnakeGame:
                     for enemy in self.enemies:
                         if enemy.alive:
                             enemy.update(self.snake.body, self.level_walls, self.food_items)
-                            # Update enemy animation (only animates when moving)
+                            
+                            # Update enemy animation
                             if enemy.enemy_type.startswith('enemy_ant') and self.ant_frames:
+                                # Ants only animate when moving
                                 enemy.update_animation(len(self.ant_frames), self.ant_animation_speed)
                             elif enemy.enemy_type.startswith('enemy_spider') and self.spider_frames:
+                                # Spiders only animate when moving
                                 enemy.update_animation(len(self.spider_frames), self.spider_animation_speed)
+                            elif enemy.enemy_type.startswith('enemy_wasp') and self.wasp_frames:
+                                # Wasps animate freely every frame (rapid wing flapping)
+                                enemy.animation_frame = (enemy.animation_frame + 1) % len(self.wasp_frames)
                             
                             # Check collision with snake
                             collision_type = enemy.check_collision_with_snake(self.snake.body[0], self.snake.body)
@@ -1509,6 +1549,8 @@ class SnakeGame:
                                     self.is_new_level_high_score = self.update_level_score(self.current_adventure_level, self.completion_percentage)
                                     # Unlock next level
                                     self.unlock_level(self.current_adventure_level + 1)
+                                    # Play victory jingle
+                                    self.music_manager.play_victory_jingle()
                                     self.state = GameState.LEVEL_COMPLETE
                             
                             food_eaten = True
@@ -1550,6 +1592,8 @@ class SnakeGame:
                     self.fruits_eaten_this_level += 1
                     if self.fruits_eaten_this_level >= 12:
                         self.sound_manager.play('level_up')
+                        # Play victory jingle
+                        self.music_manager.play_victory_jingle()
                         self.state = GameState.LEVEL_COMPLETE
                     ran = random.random()
                     if ran < 0.3:
@@ -1860,6 +1904,9 @@ class SnakeGame:
             # Skip splash screen on any key press
             if self.state == GameState.SPLASH:
                 self.state = GameState.MENU
+                # Ensure theme music is playing
+                if not self.music_manager.theme_mode:
+                    self.music_manager.play_theme()
                 return True
             
             if self.state == GameState.MENU:
@@ -1931,17 +1978,25 @@ class SnakeGame:
                         # Adventure mode - reset lives and go back to level select
                         self.sound_manager.play('blip_select')
                         self.lives = 3
+                        self.music_manager.stop_game_over_music()
+                        self.music_manager.play_theme()
                         self.state = GameState.ADVENTURE_LEVEL_SELECT
                     else:
                         # Endless mode - reset game and go to menu
                         self.reset_game()
                         self.state = GameState.MENU
+                        # Returning to menu - play theme music
+                        self.music_manager.stop_game_over_music()
+                        self.music_manager.play_theme()
             elif self.state == GameState.LEVEL_COMPLETE:
                 if event.key == pygame.K_RETURN:
                     # Adventure mode returns to level select, endless continues to next level
                     if self.game_mode == "adventure":
                         self.lives = 3  # Reset lives after completing a level
                         self.state = GameState.ADVENTURE_LEVEL_SELECT
+                        # Returning to level select menu - ensure theme music is playing
+                        if not self.music_manager.theme_mode and not pygame.mixer.music.get_busy():
+                            self.music_manager.play_theme()
                     else:
                         self.next_level()
             elif self.state == GameState.HIGH_SCORE_ENTRY:
@@ -1949,6 +2004,9 @@ class SnakeGame:
             elif self.state == GameState.HIGH_SCORES:
                 if event.key == pygame.K_RETURN:
                     self.state = GameState.MENU
+                    # Ensure theme music is playing when returning to menu
+                    if not self.music_manager.theme_mode:
+                        self.music_manager.play_theme()
             elif self.state == GameState.MULTIPLAYER_MENU:
                 if event.key == pygame.K_UP:
                     self.multiplayer_menu_selection = (self.multiplayer_menu_selection - 1) % len(self.multiplayer_menu_options)
@@ -2508,8 +2566,12 @@ class SnakeGame:
                 piece = EggPiece(center_x, center_y, self.egg_piece_imgs[i], (vx, vy))
                 self.egg_pieces.append(piece)
         
-        # Transition to playing
+        # Transition to playing - start gameplay music
         self.state = GameState.PLAYING
+        # Switch from theme music to gameplay music
+        if self.music_manager.theme_mode:
+            pygame.mixer.music.stop()
+            self.music_manager.play_next()
     
     def next_level(self):
         self.level += 1
@@ -2520,6 +2582,10 @@ class SnakeGame:
         self.bonus_food_pos = None
         self.bonus_food_timer = 0
         self.state = GameState.PLAYING
+        # If theme music was playing, switch to gameplay music
+        if self.music_manager.theme_mode:
+            pygame.mixer.music.stop()
+            self.music_manager.play_next()
     
     def run(self):
         running = True
@@ -2555,12 +2621,14 @@ class SnakeGame:
                         self.worm_animation_counter = 0
                         self.worm_frame_index = (self.worm_frame_index + 1) % len(self.worm_frames)
                 
-                self.music_manager.update()
+                # Update music - LEVEL_COMPLETE is a menu state (returning to menus)
+                self.music_manager.update(in_menu=True)
             elif self.state == GameState.PLAYING:
                 self.update_game()
             elif self.state == GameState.GAME_OVER:
                 # Update game over timer and music even when not playing
-                self.music_manager.update()
+                # Game over has its own music, so pass in_menu=False
+                self.music_manager.update(in_menu=False)
                 if self.game_over_timer > 0:
                     self.game_over_timer -= 1
                     if self.game_over_timer == 0:
@@ -3131,6 +3199,10 @@ class SnakeGame:
                     if enemy.alive:
                         render_x, render_y = enemy.get_render_position()
                         
+                        # Skip wasps here - they're drawn on top later
+                        if enemy.enemy_type.startswith('enemy_wasp'):
+                            continue
+                        
                         # Draw enemy using sprite if available
                         enemy_frames = None
                         if enemy.enemy_type.startswith('enemy_ant') and self.ant_frames:
@@ -3535,6 +3607,10 @@ class SnakeGame:
                 if enemy.alive:
                     render_x, render_y = enemy.get_render_position()
                     
+                    # Skip wasps here - they're drawn on top later
+                    if enemy.enemy_type.startswith('enemy_wasp'):
+                        continue
+                    
                     # Draw enemy using sprite if available
                     enemy_frames = None
                     if enemy.enemy_type.startswith('enemy_ant') and self.ant_frames:
@@ -3644,6 +3720,43 @@ class SnakeGame:
         # Draw egg pieces (if any are still flying)
         for piece in self.egg_pieces:
             piece.draw(self.screen)
+        
+        # Draw wasps on top of everything (they fly over the snake)
+        if self.game_mode == "adventure" and hasattr(self, 'enemies'):
+            for enemy in self.enemies:
+                if enemy.alive and enemy.enemy_type.startswith('enemy_wasp'):
+                    render_x, render_y = enemy.get_render_position()
+                    
+                    # Draw wasp using sprite if available
+                    if self.wasp_frames:
+                        wasp_img = self.wasp_frames[enemy.animation_frame]
+                        # Rotate sprite to match direction
+                        rotated_img = pygame.transform.rotate(wasp_img, -enemy.angle)
+                        # Get rect to center the rotated image on the grid position
+                        img_rect = rotated_img.get_rect(center=(int(render_x * GRID_SIZE + GRID_SIZE // 2), 
+                                                                 int(render_y * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y)))
+                        self.screen.blit(rotated_img, img_rect)
+                    else:
+                        # Fallback to circle rendering if no sprite
+                        center_x = int(render_x * GRID_SIZE + GRID_SIZE // 2)
+                        center_y = int(render_y * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y)
+                        radius = GRID_SIZE // 3
+                        
+                        # Yellow color for wasps
+                        enemy_color = (255, 215, 0)
+                        
+                        # Draw enemy body
+                        pygame.draw.circle(self.screen, enemy_color, (center_x, center_y), radius)
+                        pygame.draw.circle(self.screen, BLACK, (center_x, center_y), radius, 2)
+                        
+                        # Draw angry face
+                        eye_offset = radius // 3
+                        eye_size = 3
+                        pygame.draw.circle(self.screen, BLACK, (center_x - eye_offset, center_y - eye_offset), eye_size)
+                        pygame.draw.circle(self.screen, BLACK, (center_x + eye_offset, center_y - eye_offset), eye_size)
+                        pygame.draw.line(self.screen, BLACK, 
+                                       (center_x - eye_offset, center_y + eye_offset),
+                                       (center_x + eye_offset, center_y + eye_offset), 2)
         
         # Draw HUD text (background now part of bg.png)
         if self.is_multiplayer:

@@ -238,15 +238,37 @@ class MusicManager:
             os.path.join(SCRIPT_DIR, 'sound', 'music', 'music2.mp3'),
             os.path.join(SCRIPT_DIR, 'sound', 'music', 'music3.mp3')
         ]
+        self.theme_track = os.path.join(SCRIPT_DIR, 'sound', 'music', 'Theme.mp3')
         self.last_track = None
         self.current_track = None
         self.music_enabled = True
         self.game_over_mode = False
+        self.theme_mode = False  # True when playing theme music for menus
+        self.victory_jingle_playing = False  # Track when victory jingle is playing
         
+    def play_theme(self):
+        """Play the theme music on loop for menu states"""
+        if not self.music_enabled or self.game_over_mode:
+            return
+        
+        # Only load and play if not already playing theme
+        if not self.theme_mode or not pygame.mixer.music.get_busy():
+            self.theme_mode = True
+            self.current_track = self.theme_track
+            try:
+                pygame.mixer.music.load(self.theme_track)
+                pygame.mixer.music.set_volume(0.9)
+                pygame.mixer.music.play(-1)  # Loop indefinitely
+            except:
+                print("Warning: Could not load Theme.mp3")
+    
     def play_next(self):
         """Play a random track that's different from the last one"""
         if not self.music_enabled or self.game_over_mode:
             return
+        
+        # Switch out of theme mode when playing random tracks
+        self.theme_mode = False
             
         available_tracks = [t for t in self.tracks if t != self.last_track]
         if not available_tracks:
@@ -280,10 +302,45 @@ class MusicManager:
             pygame.mixer.music.stop()
             self.play_next()
     
-    def update(self):
-        """Check if music finished and play next track"""
-        if self.music_enabled and not self.game_over_mode and not pygame.mixer.music.get_busy():
-            self.play_next()
+    def play_victory_jingle(self):
+        """Play the victory jingle once (after level completion)"""
+        self.victory_jingle_playing = True
+        try:
+            victory_path = os.path.join(SCRIPT_DIR, 'sound', 'music', 'victoryJingle.mp3')
+            pygame.mixer.music.load(victory_path)
+            pygame.mixer.music.set_volume(0.9)
+            pygame.mixer.music.play()  # Play once (not looping)
+            # Note: After this finishes, update() will automatically resume theme music
+        except:
+            print("Warning: Could not load victoryJingle.mp3")
+            self.victory_jingle_playing = False
+            # If jingle can't load, resume theme music for menus
+            self.play_theme()
+    
+    def update(self, in_menu=False):
+        """Check if music finished and play next track
+        
+        Args:
+            in_menu: True if currently in a menu state, False if in gameplay
+        """
+        if not self.music_enabled or self.game_over_mode:
+            return
+        
+        if not pygame.mixer.music.get_busy():
+            # Music has stopped, determine what to play next
+            if self.victory_jingle_playing:
+                # Victory jingle finished, resume theme music
+                self.victory_jingle_playing = False
+                self.play_theme()
+            elif in_menu:
+                # In menu, play theme music
+                self.play_theme()
+            else:
+                # In gameplay, play random tracks
+                if self.theme_mode:
+                    # Transitioning from menu to gameplay, stop theme and start random
+                    self.theme_mode = False
+                self.play_next()
 
 
 class SoundManager:
@@ -482,6 +539,18 @@ class Enemy:
             self.is_rotating = False
             self.is_moving = False
     
+        # Wasp-specific properties (continuous movement, no collision with snake body)
+        if enemy_type.startswith('enemy_wasp'):
+            self.target_x = x
+            self.target_y = y
+            self.is_moving = True  # Always moving
+            self.previous_x = x
+            self.previous_y = y
+            # Start with a random direction
+            directions = [0, 90, 180, 270]  # Right, Down, Left, Up
+            self.angle = random.choice(directions)
+            self.target_angle = self.angle
+    
     def update(self, snake_body, level_walls, collectibles):
         """Update enemy behavior based on type"""
         if not self.alive:
@@ -491,6 +560,8 @@ class Enemy:
             self._update_ant(snake_body, level_walls, collectibles)
         elif self.enemy_type.startswith('enemy_spider'):
             self._update_spider(snake_body, level_walls, collectibles)
+        elif self.enemy_type.startswith('enemy_wasp'):
+            self._update_wasp(snake_body, level_walls, collectibles)
     
     def update_animation(self, total_frames, animation_speed=1):
         """Update animation frame - only animates when moving"""
@@ -688,11 +759,117 @@ class Enemy:
         self.is_rotating = True
         self.rotation_delay = 1  # Very fast rotation (1 frame, faster than ants)
     
+    def _update_wasp(self, snake_body, level_walls, collectibles):
+        """Wasp AI: continuously moves in a direction, only turns when hitting walls
+        Faster than spiders, ignores player body, cannot be killed, always drawn on top"""
+        
+        # Wasps always animate - no speed limitation, update every frame
+        # This is handled separately from the standard animation system
+        # The animation frame counter will be updated externally at full speed
+        
+        # Handle movement interpolation (even faster than spiders - 3 frames)
+        if self.is_moving:
+            self.move_timer += 1
+            if self.move_timer >= 3:  # Full movement complete in 3 frames (faster than spiders)
+                self.grid_x = self.target_x
+                self.grid_y = self.target_y
+                self.move_timer = 0
+                self.previous_x = self.grid_x
+                self.previous_y = self.grid_y
+                
+                # Immediately choose next move (continuous movement)
+                self._choose_wasp_move(level_walls)
+            return
+    
+    def _choose_wasp_move(self, level_walls):
+        """Choose next move for wasp - continue in current direction or turn at wall"""
+        # Calculate next position based on current angle
+        next_x = self.grid_x
+        next_y = self.grid_y
+        
+        if self.angle == 0:  # Right
+            next_x += 1
+        elif self.angle == 90:  # Down
+            next_y += 1
+        elif self.angle == 180:  # Left
+            next_x -= 1
+        elif self.angle == 270:  # Up
+            next_y -= 1
+        
+        # Check if next position would be a wall or out of bounds
+        hit_obstacle = False
+        if next_x < 0 or next_x >= GRID_WIDTH or next_y < 0 or next_y >= GRID_HEIGHT:
+            hit_obstacle = True
+        elif (next_x, next_y) in level_walls:
+            hit_obstacle = True
+        
+        if hit_obstacle:
+            # Turn: try perpendicular directions first, then opposite
+            possible_turns = []
+            
+            # Get perpendicular directions
+            if self.angle == 0 or self.angle == 180:  # Moving horizontally
+                perpendicular = [270, 90]  # Up, Down
+            else:  # Moving vertically
+                perpendicular = [0, 180]  # Right, Left
+            
+            # Try perpendicular directions
+            for test_angle in perpendicular:
+                test_x = self.grid_x
+                test_y = self.grid_y
+                if test_angle == 0:
+                    test_x += 1
+                elif test_angle == 90:
+                    test_y += 1
+                elif test_angle == 180:
+                    test_x -= 1
+                elif test_angle == 270:
+                    test_y -= 1
+                
+                # Check if this direction is valid
+                if 0 <= test_x < GRID_WIDTH and 0 <= test_y < GRID_HEIGHT:
+                    if (test_x, test_y) not in level_walls:
+                        possible_turns.append((test_angle, test_x, test_y))
+            
+            # If no perpendicular direction works, try opposite direction
+            if not possible_turns:
+                opposite_angle = (self.angle + 180) % 360
+                test_x = self.grid_x
+                test_y = self.grid_y
+                if opposite_angle == 0:
+                    test_x += 1
+                elif opposite_angle == 90:
+                    test_y += 1
+                elif opposite_angle == 180:
+                    test_x -= 1
+                elif opposite_angle == 270:
+                    test_y -= 1
+                
+                if 0 <= test_x < GRID_WIDTH and 0 <= test_y < GRID_HEIGHT:
+                    if (test_x, test_y) not in level_walls:
+                        possible_turns.append((opposite_angle, test_x, test_y))
+            
+            # Choose a turn direction
+            if possible_turns:
+                self.angle, next_x, next_y = random.choice(possible_turns)
+                self.target_angle = self.angle
+            else:
+                # Stuck - stay in place (shouldn't happen in well-designed levels)
+                return
+        
+        # Set target position and start moving
+        self.target_x = next_x
+        self.target_y = next_y
+        self.is_moving = True
+        self.move_timer = 0
+    
     def get_render_position(self):
         """Get interpolated position for rendering"""
         if self.is_moving:
-            # Spiders move in 5 frames, ants move in 10 frames
-            if self.enemy_type.startswith('enemy_spider'):
+            # Wasps move in 3 frames, spiders in 5 frames, ants in 10 frames
+            if self.enemy_type.startswith('enemy_wasp'):
+                progress = self.move_timer / 3.0
+            elif self.enemy_type.startswith('enemy_spider'):
                 progress = self.move_timer / 5.0
             else:
                 progress = self.move_timer / 10.0  # Ants and other enemies
@@ -719,7 +896,11 @@ class Enemy:
         if check_pos == snake_head:
             return 'head'
         
-        # Check collision with snake body (excluding head)
+        # Wasps ignore snake body (they fly over it) and cannot be killed
+        if self.enemy_type.startswith('enemy_wasp'):
+            return None  # Wasp only collides with head, never with body
+        
+        # Check collision with snake body (excluding head) for non-wasp enemies
         if check_pos in snake_body[1:]:
             return 'body'
         
