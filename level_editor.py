@@ -28,7 +28,44 @@ YELLOW = (255, 255, 0)
 CYAN = (0, 255, 255)
 ORANGE = (255, 165, 0)
 
-# Tool types
+# Categories and Items
+CATEGORIES = {
+    "terrain": {
+        "name": "Terrain",
+        "items": [
+            {"id": "wall", "name": "Wall", "color": GRAY},
+        ]
+    },
+    "collectibles": {
+        "name": "Collectibles",
+        "items": [
+            {"id": "worm", "name": "Worm", "color": GREEN},
+            {"id": "bonus", "name": "Bonus Fruit", "color": RED},
+            {"id": "coin", "name": "Coin", "color": YELLOW},
+            {"id": "diamond", "name": "Diamond", "color": CYAN},
+        ]
+    },
+    "enemies": {
+        "name": "Enemies",
+        "items": [
+            {"id": "enemy_spider", "name": "Spider", "color": (139, 69, 19)},
+            {"id": "enemy_beetle", "name": "Beetle", "color": (75, 0, 130)},
+            {"id": "enemy_scorpion", "name": "Scorpion", "color": (255, 140, 0)},
+            {"id": "enemy_ant", "name": "Ant", "color": (165, 42, 42)},
+            {"id": "enemy_wasp", "name": "Wasp", "color": (255, 215, 0)},
+            {"id": "enemy_centipede", "name": "Centipede", "color": (128, 0, 0)},
+        ]
+    },
+    "special": {
+        "name": "Special",
+        "items": [
+            {"id": "egg", "name": "Start Position", "color": WHITE},
+            {"id": "erase", "name": "Eraser", "color": RED},
+        ]
+    }
+}
+
+# Legacy tool constants for backward compatibility
 TOOL_WALL = "wall"
 TOOL_WORM = "worm"
 TOOL_EGG = "egg"
@@ -47,11 +84,13 @@ class LevelEditor:
         
         # Editor state
         self.current_tool = TOOL_WALL
+        self.current_category = None  # Track which category is open
         self.walls = []
         self.worms = []
         self.bonus_fruits = []
         self.coins = []
         self.diamonds = []
+        self.enemies = []  # New: store all enemy types
         self.starting_position = [10, 7]
         self.starting_direction = "RIGHT"
         
@@ -72,7 +111,7 @@ class LevelEditor:
         
         # UI elements
         self.toolbar_height = 120
-        self.tool_buttons = self._create_tool_buttons()
+        self.category_buttons = self._create_category_buttons()
         # Action buttons - positioned in a row at the bottom
         button_y = SCREEN_HEIGHT - 95
         self.save_button = pygame.Rect(SCREEN_WIDTH - 85, button_y, 75, 28)
@@ -93,19 +132,24 @@ class LevelEditor:
         self.available_levels = []
         self.selected_level_index = 0
         
-    def _create_tool_buttons(self):
-        """Create buttons for each tool"""
+        # Item selection mode (for choosing items within a category)
+        self.item_selection_mode = False
+        self.selected_item_index = 0
+        self.available_items = []
+        
+    def _create_category_buttons(self):
+        """Create buttons for each category"""
         buttons = {}
-        button_width = 80
+        button_width = 120
         button_height = 34
-        spacing = 6
+        spacing = 10
         start_x = 10
         y = GRID_HEIGHT * GRID_SIZE + 50  # Position relative to grid
         
-        tools = [TOOL_WALL, TOOL_WORM, TOOL_EGG, TOOL_BONUS, TOOL_COIN, TOOL_DIAMOND, TOOL_ERASE]
-        for i, tool in enumerate(tools):
+        category_ids = list(CATEGORIES.keys())
+        for i, category_id in enumerate(category_ids):
             x = start_x + i * (button_width + spacing)
-            buttons[tool] = pygame.Rect(x, y, button_width, button_height)
+            buttons[category_id] = pygame.Rect(x, y, button_width, button_height)
         
         return buttons
     
@@ -132,9 +176,14 @@ class LevelEditor:
                 self._handle_text_input(event)
                 continue
             
-            # Handle selection mode separately
+            # Handle level selection separately when in selection mode
             elif self.selection_mode and event.type == pygame.KEYDOWN:
                 self._handle_selection_input(event)
+                continue
+            
+            # Handle item selection separately when in item selection mode
+            elif self.item_selection_mode and event.type == pygame.KEYDOWN:
+                self._handle_item_selection_input(event)
                 continue
             
             elif event.type == pygame.MOUSEBUTTONDOWN:
@@ -187,10 +236,13 @@ class LevelEditor:
         
         # Check if clicking on toolbar buttons
         if y > GRID_HEIGHT * GRID_SIZE:
-            # Check tool buttons
-            for tool, rect in self.tool_buttons.items():
+            # Check category buttons - open item selection window
+            for category_id, rect in self.category_buttons.items():
                 if rect.collidepoint(pos):
-                    self.current_tool = tool
+                    self.current_category = category_id
+                    self.available_items = CATEGORIES[category_id]["items"]
+                    self.item_selection_mode = True
+                    self.selected_item_index = 0
                     return
             
             # Check action buttons
@@ -260,6 +312,22 @@ class LevelEditor:
             # Cancel selection
             self.selection_mode = False
     
+    def _handle_item_selection_input(self, event):
+        """Handle keyboard input for item selection within a category"""
+        if event.key == pygame.K_UP:
+            self.selected_item_index = max(0, self.selected_item_index - 1)
+        elif event.key == pygame.K_DOWN:
+            self.selected_item_index = min(len(self.available_items) - 1, self.selected_item_index + 1)
+        elif event.key == pygame.K_RETURN:
+            # Select the item and set it as current tool
+            if 0 <= self.selected_item_index < len(self.available_items):
+                selected_item = self.available_items[self.selected_item_index]
+                self.current_tool = selected_item["id"]
+            self.item_selection_mode = False
+        elif event.key == pygame.K_ESCAPE:
+            # Cancel selection
+            self.item_selection_mode = False
+    
     def _place_item(self, grid_x, grid_y):
         """Place an item at the given grid position"""
         pos = {"x": grid_x, "y": grid_y}
@@ -279,6 +347,10 @@ class LevelEditor:
             self.coins.append(pos)
         elif self.current_tool == TOOL_DIAMOND:
             self.diamonds.append(pos)
+        elif self.current_tool.startswith("enemy_"):
+            # Handle all enemy types
+            enemy_data = {"x": grid_x, "y": grid_y, "type": self.current_tool}
+            self.enemies.append(enemy_data)
         # TOOL_ERASE just removes items, no placement needed
     
     def _remove_item_at(self, grid_x, grid_y):
@@ -297,6 +369,9 @@ class LevelEditor:
         
         # Remove diamonds
         self.diamonds = [d for d in self.diamonds if not (d["x"] == grid_x and d["y"] == grid_y)]
+        
+        # Remove enemies
+        self.enemies = [e for e in self.enemies if not (e["x"] == grid_x and e["y"] == grid_y)]
         
         # Note: Starting position is not removed, just overwritten if placing egg
     
@@ -317,7 +392,7 @@ class LevelEditor:
             "bonus_fruit_positions": self.bonus_fruits,
             "coin_positions": self.coins,
             "diamond_positions": self.diamonds,
-            "enemies": [],
+            "enemies": self.enemies,
             "boss_data": None
         }
         
@@ -356,6 +431,7 @@ class LevelEditor:
             self.bonus_fruits = level_data.get("bonus_fruit_positions", [])
             self.coins = level_data.get("coin_positions", [])
             self.diamonds = level_data.get("diamond_positions", [])
+            self.enemies = level_data.get("enemies", [])
             
             print(f"Level loaded from {filepath}")
         except FileNotFoundError:
@@ -370,6 +446,7 @@ class LevelEditor:
         self.bonus_fruits = []
         self.coins = []
         self.diamonds = []
+        self.enemies = []
         self.starting_position = [10, 7]
         print("Level cleared")
     
@@ -386,6 +463,7 @@ class LevelEditor:
         self._draw_bonus_fruits()
         self._draw_coins()
         self._draw_diamonds()
+        self._draw_enemies()
         self._draw_starting_position()
         
         # Draw toolbar
@@ -398,6 +476,10 @@ class LevelEditor:
         # Draw selection overlay if in selection mode
         if self.selection_mode:
             self._draw_selection_overlay()
+        
+        # Draw item selection overlay if in item selection mode
+        if self.item_selection_mode:
+            self._draw_item_selection_overlay()
         
         pygame.display.flip()
     
@@ -479,6 +561,41 @@ class LevelEditor:
             ]
             pygame.draw.polygon(self.screen, WHITE, inner_points, 1)
     
+    def _draw_enemies(self):
+        """Draw enemies on the grid"""
+        for enemy in self.enemies:
+            x = enemy["x"] * GRID_SIZE
+            y = enemy["y"] * GRID_SIZE
+            enemy_type = enemy.get("type", "enemy_spider")
+            
+            # Get color for this enemy type from the CATEGORIES
+            enemy_color = RED  # Default color
+            for category_data in CATEGORIES.values():
+                for item in category_data["items"]:
+                    if item["id"] == enemy_type:
+                        enemy_color = item["color"]
+                        break
+            
+            # Draw enemy as a distinctive shape (octagon/circle with marking)
+            center_x = x + GRID_SIZE // 2
+            center_y = y + GRID_SIZE // 2
+            radius = GRID_SIZE // 3
+            
+            # Draw body
+            pygame.draw.circle(self.screen, enemy_color, (center_x, center_y), radius)
+            pygame.draw.circle(self.screen, BLACK, (center_x, center_y), radius, 2)
+            
+            # Draw simple angry eyes
+            eye_offset = radius // 3
+            eye_size = 3
+            pygame.draw.circle(self.screen, BLACK, (center_x - eye_offset, center_y - eye_offset), eye_size)
+            pygame.draw.circle(self.screen, BLACK, (center_x + eye_offset, center_y - eye_offset), eye_size)
+            
+            # Draw angry mouth
+            pygame.draw.line(self.screen, BLACK, 
+                           (center_x - eye_offset, center_y + eye_offset),
+                           (center_x + eye_offset, center_y + eye_offset), 2)
+    
     def _draw_starting_position(self):
         """Draw the starting position (egg)"""
         x = self.starting_position[0] * GRID_SIZE
@@ -503,20 +620,26 @@ class LevelEditor:
         info = self.font_small.render(info_text, True, WHITE)
         self.screen.blit(info, (8, base_y + 5))
         
-        # Second line of info for coins and diamonds
-        info_text2 = f"Coins: {len(self.coins)} | Diamonds: {len(self.diamonds)}"
+        # Second line of info for coins, diamonds, and enemies
+        info_text2 = f"Coins: {len(self.coins)} | Diamonds: {len(self.diamonds)} | Enemies: {len(self.enemies)}"
         info2 = self.font_small.render(info_text2, True, WHITE)
         self.screen.blit(info2, (8, base_y + 25))
         
-        # Middle section: Tool buttons
-        for tool, rect in self.tool_buttons.items():
-            # Highlight current tool
-            color = CYAN if tool == self.current_tool else LIGHT_GRAY
+        # Middle section: Category buttons
+        for category_id, rect in self.category_buttons.items():
+            # Highlight if this is the current category with selected tool
+            category_has_current_tool = False
+            for item in CATEGORIES[category_id]["items"]:
+                if item["id"] == self.current_tool:
+                    category_has_current_tool = True
+                    break
+            
+            color = CYAN if category_has_current_tool else LIGHT_GRAY
             pygame.draw.rect(self.screen, color, rect)
             pygame.draw.rect(self.screen, WHITE, rect, 2)
             
-            # Button label
-            label_text = tool.upper()
+            # Button label - use category name
+            label_text = CATEGORIES[category_id]["name"]
             label = self.font_small.render(label_text, True, BLACK)
             label_rect = label.get_rect(center=rect.center)
             self.screen.blit(label, label_rect)
@@ -525,7 +648,7 @@ class LevelEditor:
         # Current tool indicator (left side)
         tool_text = f"Tool: {self.current_tool.upper()}"
         tool_render = self.font_small.render(tool_text, True, CYAN)
-        self.screen.blit(tool_render, (8, base_y + 92))
+        self.screen.blit(tool_render, (8, base_y + 87))
         
         # Draw action buttons (right side)
         # Clear button
@@ -631,6 +754,66 @@ class LevelEditor:
         # Draw instructions
         inst_y = box_y + box_height - 30
         instructions = self.font_small.render("↑↓: Navigate | ENTER: Load | ESC: Cancel", True, LIGHT_GRAY)
+        inst_rect = instructions.get_rect(center=(SCREEN_WIDTH // 2, inst_y))
+        self.screen.blit(instructions, inst_rect)
+    
+    def _draw_item_selection_overlay(self):
+        """Draw item selection overlay for choosing items within a category"""
+        if not self.current_category:
+            return
+        
+        # Semi-transparent overlay
+        overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+        overlay.set_alpha(200)
+        overlay.fill(BLACK)
+        self.screen.blit(overlay, (0, 0))
+        
+        # Selection box
+        box_width = 450
+        box_height = min(450, 120 + len(self.available_items) * 40)
+        box_x = (SCREEN_WIDTH - box_width) // 2
+        box_y = (GRID_HEIGHT * GRID_SIZE - box_height) // 2
+        
+        # Draw box background
+        pygame.draw.rect(self.screen, DARK_GRAY, (box_x, box_y, box_width, box_height))
+        pygame.draw.rect(self.screen, WHITE, (box_x, box_y, box_width, box_height), 3)
+        
+        # Draw title with category name
+        category_name = CATEGORIES[self.current_category]["name"]
+        title = self.font_medium.render(f"Select {category_name} Item", True, WHITE)
+        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, box_y + 25))
+        self.screen.blit(title, title_rect)
+        
+        # Draw item list
+        list_y = box_y + 60
+        max_visible = min(8, len(self.available_items))
+        start_index = max(0, min(self.selected_item_index - max_visible // 2, len(self.available_items) - max_visible))
+        
+        for i in range(start_index, min(start_index + max_visible, len(self.available_items))):
+            item = self.available_items[i]
+            item_name = item["name"]
+            item_color = item["color"]
+            
+            # Highlight selected item
+            if i == self.selected_item_index:
+                highlight_rect = pygame.Rect(box_x + 10, list_y + (i - start_index) * 40, box_width - 20, 35)
+                pygame.draw.rect(self.screen, CYAN, highlight_rect)
+                text_color = BLACK
+            else:
+                text_color = WHITE
+            
+            # Draw color preview square
+            color_square = pygame.Rect(box_x + 20, list_y + (i - start_index) * 40 + 5, 25, 25)
+            pygame.draw.rect(self.screen, item_color, color_square)
+            pygame.draw.rect(self.screen, WHITE, color_square, 2)
+            
+            # Draw item name
+            item_text = self.font_small.render(item_name, True, text_color)
+            self.screen.blit(item_text, (box_x + 55, list_y + (i - start_index) * 40 + 8))
+        
+        # Draw instructions
+        inst_y = box_y + box_height - 30
+        instructions = self.font_small.render("↑↓: Navigate | ENTER: Select | ESC: Cancel", True, LIGHT_GRAY)
         inst_rect = instructions.get_rect(center=(SCREEN_WIDTH // 2, inst_y))
         self.screen.blit(instructions, inst_rect)
     

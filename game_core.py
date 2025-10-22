@@ -442,3 +442,285 @@ class Snake:
     def grow(self, amount=1):
         """Grow snake by amount"""
         self.grow_pending += amount
+
+
+class Enemy:
+    """Base enemy class for adventure mode"""
+    def __init__(self, x, y, enemy_type):
+        self.grid_x = x
+        self.grid_y = y
+        self.enemy_type = enemy_type
+        self.alive = True
+        
+        # Movement properties
+        self.previous_x = x
+        self.previous_y = y
+        self.move_timer = 0  # For interpolation
+        self.angle = 0  # Direction the enemy is facing (0=right, 90=down, 180=left, 270=up)
+        
+        # Animation properties
+        self.animation_frame = 0  # Current frame of animation
+        self.animation_counter = 0  # Counter for animation timing
+        
+        # Ant-specific properties
+        if enemy_type.startswith('enemy_ant'):
+            self.move_cooldown = 0  # Counts turns until next move (moves every 3 turns)
+            self.rotation_delay = 0  # Delay before actual movement (1 second = 60 frames at 60 FPS)
+            self.target_angle = 0  # The angle to rotate to before moving
+            self.target_x = x
+            self.target_y = y
+            self.is_rotating = False
+            self.is_moving = False
+        
+        # Spider-specific properties (similar to ant but faster)
+        if enemy_type.startswith('enemy_spider'):
+            self.move_cooldown = 0  # Counts turns until next move (moves every 1-2 turns, faster than ants)
+            self.rotation_delay = 0  # Delay before actual movement
+            self.target_angle = 0  # The angle to rotate to before moving
+            self.target_x = x
+            self.target_y = y
+            self.is_rotating = False
+            self.is_moving = False
+    
+    def update(self, snake_body, level_walls, collectibles):
+        """Update enemy behavior based on type"""
+        if not self.alive:
+            return
+        
+        if self.enemy_type.startswith('enemy_ant'):
+            self._update_ant(snake_body, level_walls, collectibles)
+        elif self.enemy_type.startswith('enemy_spider'):
+            self._update_spider(snake_body, level_walls, collectibles)
+    
+    def update_animation(self, total_frames, animation_speed=1):
+        """Update animation frame - only animates when moving"""
+        if self.is_moving and total_frames > 0:
+            self.animation_counter += 1
+            if self.animation_counter >= animation_speed:
+                self.animation_counter = 0
+                self.animation_frame = (self.animation_frame + 1) % total_frames
+    
+    def _update_ant(self, snake_body, level_walls, collectibles):
+        """Ant AI: moves every 3 turns to a random adjacent square"""
+        # Handle rotation delay
+        if self.is_rotating:
+            if self.rotation_delay > 0:
+                self.rotation_delay -= 1
+                # Smoothly rotate to target angle
+                angle_diff = self.target_angle - self.angle
+                if abs(angle_diff) > 180:
+                    if angle_diff > 0:
+                        angle_diff -= 360
+                    else:
+                        angle_diff += 360
+                self.angle += angle_diff * 0.3  # Smooth rotation (faster)
+                self.angle = self.angle % 360
+            else:
+                # Rotation complete, start moving
+                self.angle = self.target_angle
+                self.is_rotating = False
+                self.is_moving = True
+                self.move_timer = 0
+                self.previous_x = self.grid_x
+                self.previous_y = self.grid_y
+            return
+        
+        # Handle movement interpolation
+        if self.is_moving:
+            self.move_timer += 1
+            if self.move_timer >= 10:  # Full movement complete (faster than snake)
+                self.grid_x = self.target_x
+                self.grid_y = self.target_y
+                self.move_timer = 0
+                self.is_moving = False
+                self.move_cooldown = 3  # Reset cooldown
+                # Stop animation and return to frame 0
+                self.animation_frame = 0
+                self.animation_counter = 0
+            return
+        
+        # Count down movement cooldown
+        if self.move_cooldown > 0:
+            self.move_cooldown -= 1
+            return
+        
+        # Time to choose a new direction and move
+        self._choose_ant_move(snake_body, level_walls, collectibles)
+    
+    def _choose_ant_move(self, snake_body, level_walls, collectibles):
+        """Choose a random adjacent square for ant to move to"""
+        # Get all adjacent positions
+        adjacent = [
+            (self.grid_x, self.grid_y - 1, 270),  # Up
+            (self.grid_x, self.grid_y + 1, 90),   # Down
+            (self.grid_x - 1, self.grid_y, 180),  # Left
+            (self.grid_x + 1, self.grid_y, 0)     # Right
+        ]
+        
+        # Filter out invalid moves (walls, collectibles, out of bounds)
+        valid_moves = []
+        for new_x, new_y, angle in adjacent:
+            # Check bounds
+            if new_x < 0 or new_x >= GRID_WIDTH or new_y < 0 or new_y >= GRID_HEIGHT:
+                continue
+            
+            # Check walls
+            if (new_x, new_y) in level_walls:
+                continue
+            
+            # Check collectibles
+            if any(pos == (new_x, new_y) for pos, _ in collectibles):
+                continue
+            
+            # This position is valid (even if snake is there)
+            valid_moves.append((new_x, new_y, angle))
+        
+        # If no valid moves, stay in place
+        if not valid_moves:
+            self.move_cooldown = 3
+            return
+        
+        # Choose a random valid move
+        self.target_x, self.target_y, self.target_angle = random.choice(valid_moves)
+        
+        # Start rotation phase
+        self.is_rotating = True
+        self.rotation_delay = 2  # Fast rotation (2 frames)
+    
+    def _update_spider(self, snake_body, level_walls, collectibles):
+        """Spider AI: moves every 1-2 turns to a random adjacent square, twice as fast as ants
+        Special: if player head enters target space, spider instantly moves there killing the player"""
+        snake_head = snake_body[0] if snake_body else None
+        
+        # Special spider behavior: If not currently moving/rotating and player head is in target space,
+        # instantly initiate movement to that space
+        if snake_head and not self.is_rotating and not self.is_moving:
+            # Check if we have a target and if snake head is there
+            if hasattr(self, 'target_x') and hasattr(self, 'target_y'):
+                if snake_head == (self.target_x, self.target_y):
+                    # Player entered our target space! Move there immediately
+                    self.is_rotating = True
+                    self.rotation_delay = 1  # Very fast rotation for instant attack
+                    self.move_cooldown = 0  # Override any cooldown
+        
+        # Handle rotation delay
+        if self.is_rotating:
+            if self.rotation_delay > 0:
+                self.rotation_delay -= 1
+                # Smoothly rotate to target angle
+                angle_diff = self.target_angle - self.angle
+                if abs(angle_diff) > 180:
+                    if angle_diff > 0:
+                        angle_diff -= 360
+                    else:
+                        angle_diff += 360
+                self.angle += angle_diff * 0.4  # Even faster rotation than ants
+                self.angle = self.angle % 360
+            else:
+                # Rotation complete, start moving
+                self.angle = self.target_angle
+                self.is_rotating = False
+                self.is_moving = True
+                self.move_timer = 0
+                self.previous_x = self.grid_x
+                self.previous_y = self.grid_y
+            return
+        
+        # Handle movement interpolation (twice as fast as ants)
+        if self.is_moving:
+            self.move_timer += 1
+            if self.move_timer >= 5:  # Full movement complete in 5 frames (twice as fast as ants)
+                self.grid_x = self.target_x
+                self.grid_y = self.target_y
+                self.move_timer = 0
+                self.is_moving = False
+                self.move_cooldown = random.randint(1, 2)  # Reset cooldown (1-2 turns, faster than ants)
+                # Stop animation and return to frame 0
+                self.animation_frame = 0
+                self.animation_counter = 0
+            return
+        
+        # Count down movement cooldown
+        if self.move_cooldown > 0:
+            self.move_cooldown -= 1
+            return
+        
+        # Time to choose a new direction and move
+        self._choose_spider_move(snake_body, level_walls, collectibles)
+    
+    def _choose_spider_move(self, snake_body, level_walls, collectibles):
+        """Choose a random adjacent square for spider to move to (similar to ant)"""
+        # Get all adjacent positions
+        adjacent = [
+            (self.grid_x, self.grid_y - 1, 270),  # Up
+            (self.grid_x, self.grid_y + 1, 90),   # Down
+            (self.grid_x - 1, self.grid_y, 180),  # Left
+            (self.grid_x + 1, self.grid_y, 0)     # Right
+        ]
+        
+        # Filter out invalid moves (walls, collectibles, out of bounds)
+        valid_moves = []
+        for new_x, new_y, angle in adjacent:
+            # Check bounds
+            if new_x < 0 or new_x >= GRID_WIDTH or new_y < 0 or new_y >= GRID_HEIGHT:
+                continue
+            
+            # Check walls
+            if (new_x, new_y) in level_walls:
+                continue
+            
+            # Check collectibles
+            if any(pos == (new_x, new_y) for pos, _ in collectibles):
+                continue
+            
+            # This position is valid (even if snake is there)
+            valid_moves.append((new_x, new_y, angle))
+        
+        # If no valid moves, stay in place
+        if not valid_moves:
+            self.move_cooldown = random.randint(1, 2)
+            return
+        
+        # Choose a random valid move
+        self.target_x, self.target_y, self.target_angle = random.choice(valid_moves)
+        
+        # Start rotation phase
+        self.is_rotating = True
+        self.rotation_delay = 1  # Very fast rotation (1 frame, faster than ants)
+    
+    def get_render_position(self):
+        """Get interpolated position for rendering"""
+        if self.is_moving:
+            # Spiders move in 5 frames, ants move in 10 frames
+            if self.enemy_type.startswith('enemy_spider'):
+                progress = self.move_timer / 5.0
+            else:
+                progress = self.move_timer / 10.0  # Ants and other enemies
+            render_x = self.previous_x + (self.target_x - self.previous_x) * progress
+            render_y = self.previous_y + (self.target_y - self.previous_y) * progress
+            return render_x, render_y
+        return self.grid_x, self.grid_y
+    
+    def check_collision_with_snake(self, snake_head, snake_body):
+        """Check if enemy collides with snake
+        Returns: 'head' if collided with head, 'body' if collided with body, None otherwise
+        """
+        if not self.alive:
+            return None
+        
+        # When moving, check collision with target position (early detection)
+        # This prevents the ant from completing its full movement animation before dying
+        if self.is_moving:
+            check_pos = (self.target_x, self.target_y)
+        else:
+            check_pos = (self.grid_x, self.grid_y)
+        
+        # Check collision with snake head
+        if check_pos == snake_head:
+            return 'head'
+        
+        # Check collision with snake body (excluding head)
+        if check_pos in snake_body[1:]:
+            return 'body'
+        
+        return None

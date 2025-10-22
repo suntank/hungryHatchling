@@ -3,7 +3,11 @@ import pygame
 import json
 import os
 import random
-from game_core import *
+from game_core import Snake, GameState, Difficulty, Direction, Particle, GifParticle, EggPiece, MusicManager, SoundManager, Enemy, hue_shift_surface, hue_shift_frames, hue_shift_color
+from game_core import SCREEN_WIDTH, SCREEN_HEIGHT, GRID_SIZE, GRID_WIDTH, GRID_HEIGHT, HUD_HEIGHT, GAME_OFFSET_Y
+from game_core import BLACK, WHITE, GREEN, DARK_GREEN, RED, YELLOW, ORANGE, GRAY, DARK_GRAY
+from game_core import NEON_GREEN, NEON_LIME, NEON_PINK, NEON_CYAN, NEON_ORANGE, NEON_PURPLE, NEON_YELLOW, NEON_BLUE
+from game_core import GRID_COLOR, HUD_BG, DARK_BG
 
 # Get the directory where this script is located
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -350,6 +354,70 @@ class SnakeGame:
         except Exception as e:
             self.worm_frames = []
             print("Warning: worm.gif not found or could not be loaded: {}".format(e))
+        
+        # Load ant enemy animation (GIF)
+        try:
+            from PIL import Image
+            ant_path = os.path.join(SCRIPT_DIR, 'img', 'ant.gif')
+            self.ant_frames = []
+            
+            # Load GIF frames using PIL
+            gif = Image.open(ant_path)
+            frame_count = 0
+            try:
+                while True:
+                    # Convert PIL image to pygame surface
+                    frame = gif.copy().convert('RGBA')
+                    pygame_frame = pygame.image.frombytes(
+                        frame.tobytes(), frame.size, frame.mode
+                    ).convert_alpha()
+                    # Scale to fit grid size
+                    pygame_frame = pygame.transform.scale(pygame_frame, (GRID_SIZE, GRID_SIZE))
+                    self.ant_frames.append(pygame_frame)
+                    frame_count += 1
+                    gif.seek(frame_count)
+            except EOFError:
+                pass  # End of frames
+            
+            self.ant_frame_index = 0
+            self.ant_animation_speed = 1  # Change frame every N game frames (fast animation)
+            self.ant_animation_counter = 0
+            print("Loaded {} frames for ant animation".format(len(self.ant_frames)))
+        except Exception as e:
+            self.ant_frames = []
+            print("Warning: ant.gif not found or could not be loaded: {}".format(e))
+        
+        # Load spider enemy animation (GIF)
+        try:
+            from PIL import Image
+            spider_path = os.path.join(SCRIPT_DIR, 'img', 'spider.gif')
+            self.spider_frames = []
+            
+            # Load GIF frames using PIL
+            gif = Image.open(spider_path)
+            frame_count = 0
+            try:
+                while True:
+                    # Convert PIL image to pygame surface
+                    frame = gif.copy().convert('RGBA')
+                    pygame_frame = pygame.image.frombytes(
+                        frame.tobytes(), frame.size, frame.mode
+                    ).convert_alpha()
+                    # Scale to fit grid size
+                    pygame_frame = pygame.transform.scale(pygame_frame, (GRID_SIZE, GRID_SIZE))
+                    self.spider_frames.append(pygame_frame)
+                    frame_count += 1
+                    gif.seek(frame_count)
+            except EOFError:
+                pass  # End of frames
+            
+            self.spider_frame_index = 0
+            self.spider_animation_speed = 1  # Change frame every N game frames (fast animation)
+            self.spider_animation_counter = 0
+            print("Loaded {} frames for spider animation".format(len(self.spider_frames)))
+        except Exception as e:
+            self.spider_frames = []
+            print("Warning: spider.gif not found or could not be loaded: {}".format(e))
         
         # Load UI icons for multiplayer lobby
         # Star rating icons for difficulty
@@ -1245,11 +1313,53 @@ class SnakeGame:
                         self.sound_manager.play('no_lives')
                         self.music_manager.play_game_over_music()
                         self.state = GameState.GAME_OVER
-                        self.game_over_timer = self.game_over_delay  # Start 3-second timer
+                        self.game_over_timer = self.game_over_delay
                     else:
-                        # Go to egg hatching state instead of immediate reset
+                        # Go to egg hatching state for respawn
                         self.state = GameState.EGG_HATCHING
-                    return
+                
+                # Update enemies in adventure mode
+                if self.game_mode == "adventure" and hasattr(self, 'enemies'):
+                    for enemy in self.enemies:
+                        if enemy.alive:
+                            enemy.update(self.snake.body, self.level_walls, self.food_items)
+                            # Update enemy animation (only animates when moving)
+                            if enemy.enemy_type.startswith('enemy_ant') and self.ant_frames:
+                                enemy.update_animation(len(self.ant_frames), self.ant_animation_speed)
+                            elif enemy.enemy_type.startswith('enemy_spider') and self.spider_frames:
+                                enemy.update_animation(len(self.spider_frames), self.spider_animation_speed)
+                            
+                            # Check collision with snake
+                            collision_type = enemy.check_collision_with_snake(self.snake.body[0], self.snake.body)
+                            
+                            if collision_type == 'head':
+                                # Snake head hit enemy - snake dies
+                                self.sound_manager.play('die')
+                                self.lives -= 1
+                                
+                                # Spawn white particles on all snake body segments
+                                for segment_x, segment_y in self.snake.body:
+                                    self.create_particles(segment_x * GRID_SIZE + GRID_SIZE // 2,
+                                                        segment_y * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y, 
+                                                        None, None, particle_type='white')
+                                
+                                if self.lives < 0:
+                                    self.sound_manager.play('no_lives')
+                                    self.music_manager.play_game_over_music()
+                                    self.state = GameState.GAME_OVER
+                                    self.game_over_timer = self.game_over_delay
+                                else:
+                                    # Go to egg hatching state for respawn
+                                    self.state = GameState.EGG_HATCHING
+                                break  # Don't check more enemies this frame
+                            
+                            elif collision_type == 'body':
+                                # Enemy hit snake body - enemy dies
+                                enemy.alive = False
+                                # Spawn white particles where enemy died
+                                self.create_particles(enemy.grid_x * GRID_SIZE + GRID_SIZE // 2,
+                                                    enemy.grid_y * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y, 
+                                                    None, None, particle_type='white')
         
         # Food collection (outside movement block)
         if self.is_multiplayer:
@@ -1794,6 +1904,7 @@ class SnakeGame:
                     if self.is_level_unlocked(level_num):
                         if self.load_level(level_num):
                             self.sound_manager.play('start_game')
+                            self.lives = 3  # Reset lives when starting a level
                             self.state = GameState.EGG_HATCHING
                             self.score = 0
                             self.level = level_num
@@ -2198,6 +2309,13 @@ class SnakeGame:
             if 'diamond_positions' in self.current_level_data:
                 for diamond_data in self.current_level_data['diamond_positions']:
                     self.food_items.append(((diamond_data['x'], diamond_data['y']), 'diamond'))
+            
+            # Load enemies (if any)
+            self.enemies = []
+            if 'enemies' in self.current_level_data:
+                for enemy_data in self.current_level_data['enemies']:
+                    enemy = Enemy(enemy_data['x'], enemy_data['y'], enemy_data['type'])
+                    self.enemies.append(enemy)
             
             # Don't set food_pos in Adventure mode - use food_items list instead
             self.food_pos = None
@@ -3006,6 +3124,53 @@ class SnakeGame:
                     self.screen.blit(worm_img, (fx * GRID_SIZE, fy * GRID_SIZE + GAME_OFFSET_Y))
                 elif food_type == 'bonus' and self.bonus_img:
                     self.screen.blit(self.bonus_img, (fx * GRID_SIZE, fy * GRID_SIZE + GAME_OFFSET_Y))
+            
+            # Draw enemies in Adventure mode
+            if hasattr(self, 'enemies'):
+                for enemy in self.enemies:
+                    if enemy.alive:
+                        render_x, render_y = enemy.get_render_position()
+                        
+                        # Draw enemy using sprite if available
+                        enemy_frames = None
+                        if enemy.enemy_type.startswith('enemy_ant') and self.ant_frames:
+                            enemy_frames = self.ant_frames
+                        elif enemy.enemy_type.startswith('enemy_spider') and self.spider_frames:
+                            enemy_frames = self.spider_frames
+                        
+                        if enemy_frames:
+                            enemy_img = enemy_frames[enemy.animation_frame]
+                            # Rotate sprite to match direction (angle: 0=right, 90=down, 180=left, 270=up)
+                            # pygame.transform.rotate rotates counter-clockwise, so negate the angle
+                            rotated_img = pygame.transform.rotate(enemy_img, -enemy.angle)
+                            # Get rect to center the rotated image on the grid position
+                            img_rect = rotated_img.get_rect(center=(int(render_x * GRID_SIZE + GRID_SIZE // 2), 
+                                                                     int(render_y * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y)))
+                            self.screen.blit(rotated_img, img_rect)
+                        else:
+                            # Fallback to circle rendering if no sprite
+                            center_x = int(render_x * GRID_SIZE + GRID_SIZE // 2)
+                            center_y = int(render_y * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y)
+                            radius = GRID_SIZE // 3
+                            
+                            # Get color based on enemy type
+                            if enemy.enemy_type.startswith('enemy_spider'):
+                                enemy_color = (139, 69, 19)  # Brown for spiders
+                            else:
+                                enemy_color = (165, 42, 42)  # Default ant brown
+                            
+                            # Draw enemy body
+                            pygame.draw.circle(self.screen, enemy_color, (center_x, center_y), radius)
+                            pygame.draw.circle(self.screen, BLACK, (center_x, center_y), radius, 2)
+                            
+                            # Draw angry face
+                            eye_offset = radius // 3
+                            eye_size = 3
+                            pygame.draw.circle(self.screen, BLACK, (center_x - eye_offset, center_y - eye_offset), eye_size)
+                            pygame.draw.circle(self.screen, BLACK, (center_x + eye_offset, center_y - eye_offset), eye_size)
+                            pygame.draw.line(self.screen, BLACK, 
+                                           (center_x - eye_offset, center_y + eye_offset),
+                                           (center_x + eye_offset, center_y + eye_offset), 2)
         elif self.food_pos:
             # Draw single food in Endless mode
             fx, fy = self.food_pos
@@ -3363,6 +3528,53 @@ class SnakeGame:
                         (center_x - inner_size, center_y)
                     ]
                     pygame.draw.polygon(self.screen, WHITE, inner_points, 1)
+        
+        # Draw enemies in Adventure mode during PLAYING state
+        if self.game_mode == "adventure" and hasattr(self, 'enemies'):
+            for enemy in self.enemies:
+                if enemy.alive:
+                    render_x, render_y = enemy.get_render_position()
+                    
+                    # Draw enemy using sprite if available
+                    enemy_frames = None
+                    if enemy.enemy_type.startswith('enemy_ant') and self.ant_frames:
+                        enemy_frames = self.ant_frames
+                    elif enemy.enemy_type.startswith('enemy_spider') and self.spider_frames:
+                        enemy_frames = self.spider_frames
+                    
+                    if enemy_frames:
+                        enemy_img = enemy_frames[enemy.animation_frame]
+                        # Rotate sprite to match direction (angle: 0=right, 90=down, 180=left, 270=up)
+                        # pygame.transform.rotate rotates counter-clockwise, so negate the angle
+                        rotated_img = pygame.transform.rotate(enemy_img, -enemy.angle)
+                        # Get rect to center the rotated image on the grid position
+                        img_rect = rotated_img.get_rect(center=(int(render_x * GRID_SIZE + GRID_SIZE // 2), 
+                                                                 int(render_y * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y)))
+                        self.screen.blit(rotated_img, img_rect)
+                    else:
+                        # Fallback to circle rendering if no sprite
+                        center_x = int(render_x * GRID_SIZE + GRID_SIZE // 2)
+                        center_y = int(render_y * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y)
+                        radius = GRID_SIZE // 3
+                        
+                        # Get color based on enemy type
+                        if enemy.enemy_type.startswith('enemy_spider'):
+                            enemy_color = (139, 69, 19)  # Brown for spiders
+                        else:
+                            enemy_color = (165, 42, 42)  # Default ant brown
+                        
+                        # Draw enemy body
+                        pygame.draw.circle(self.screen, enemy_color, (center_x, center_y), radius)
+                        pygame.draw.circle(self.screen, BLACK, (center_x, center_y), radius, 2)
+                        
+                        # Draw angry face
+                        eye_offset = radius // 3
+                        eye_size = 3
+                        pygame.draw.circle(self.screen, BLACK, (center_x - eye_offset, center_y - eye_offset), eye_size)
+                        pygame.draw.circle(self.screen, BLACK, (center_x + eye_offset, center_y - eye_offset), eye_size)
+                        pygame.draw.line(self.screen, BLACK, 
+                                       (center_x - eye_offset, center_y + eye_offset),
+                                       (center_x + eye_offset, center_y + eye_offset), 2)
         
         # Draw bonus food
         if self.bonus_food_pos:
