@@ -480,6 +480,23 @@ class SnakeGame:
                 self.boss_animations[anim_name] = []
                 print("Warning: {}.gif not found or could not be loaded: {}".format(anim_name, e))
         
+        # Load bad snake graphics for boss minions
+        try:
+            bad_head_path = os.path.join(SCRIPT_DIR, 'img', 'badSnakeHead.png')
+            self.bad_snake_head_img = pygame.image.load(bad_head_path).convert_alpha()
+            self.bad_snake_head_img = pygame.transform.scale(self.bad_snake_head_img, (self.snake_sprite_size, self.snake_sprite_size))
+        except Exception as e:
+            self.bad_snake_head_img = None
+            print("Warning: badSnakeHead.png not found: {}".format(e))
+        
+        try:
+            bad_body_path = os.path.join(SCRIPT_DIR, 'img', 'badSnakeBody.png')
+            self.bad_snake_body_img = pygame.image.load(bad_body_path).convert_alpha()
+            self.bad_snake_body_img = pygame.transform.scale(self.bad_snake_body_img, (self.snake_sprite_size, self.snake_sprite_size))
+        except Exception as e:
+            self.bad_snake_body_img = None
+            print("Warning: badSnakeBody.png not found: {}".format(e))
+        
         # Boss battle state
         self.boss_active = False
         self.boss_data = None
@@ -493,6 +510,8 @@ class SnakeGame:
         self.boss_animation_loop = True  # Whether current animation loops
         self.screen_shake_intensity = 0
         self.screen_shake_offset = (0, 0)
+        self.boss_minions = []  # List of boss minion snakes
+        self.boss_minion_respawn_timers = {}  # Dict of minion_id -> respawn_timer
         
         # Load UI icons for multiplayer lobby
         # Star rating icons for difficulty
@@ -815,6 +834,90 @@ class SnakeGame:
                 if (x, y) not in self.snake.body:
                     self.food_pos = (x, y)
                     break
+    
+    def spawn_adventure_food(self):
+        """Spawn a worm in adventure mode, avoiding occupied positions"""
+        occupied_positions = set()
+        occupied_positions.update(self.snake.body)
+        occupied_positions.update(self.level_walls)
+        
+        # Add boss minion positions
+        if hasattr(self, 'boss_minions'):
+            for minion in self.boss_minions:
+                if minion.alive:
+                    occupied_positions.update(minion.body)
+        
+        # Try to find a valid spawn position
+        max_attempts = 100
+        for _ in range(max_attempts):
+            x = random.randint(1, GRID_WIDTH - 2)
+            y = random.randint(1, GRID_HEIGHT - 2)
+            if (x, y) not in occupied_positions:
+                self.food_items.append(((x, y), 'worm'))
+                print("Spawned new worm at ({}, {})".format(x, y))
+                return
+        
+        print("Warning: Could not find valid position to spawn worm")
+    
+    def spawn_boss_minions(self):
+        """Spawn 2 hard-AI boss minion snakes for the boss battle"""
+        # Clear any existing minions
+        self.boss_minions = []
+        self.boss_minion_respawn_timers = {}
+        
+        # Spawn positions: top-right and bottom-right (near the boss)
+        minion_positions = [
+            (GRID_WIDTH - 3, 3),  # Top right
+            (GRID_WIDTH - 3, GRID_HEIGHT - 4)  # Bottom right
+        ]
+        
+        minion_directions = [
+            Direction.LEFT,  # Face left (toward player)
+            Direction.LEFT
+        ]
+        
+        for i in range(2):
+            minion = Snake(player_id=100 + i)  # Use high IDs to distinguish from regular players
+            minion.is_cpu = True
+            minion.cpu_difficulty = 2  # Hard difficulty (0=Easy, 1=Medium, 2=Hard, 3=Brutal)
+            minion.reset(spawn_pos=minion_positions[i], direction=minion_directions[i])
+            minion.alive = True
+            minion.is_boss_minion = True  # Mark as boss minion
+            # Initialize movement tracking for smooth interpolation
+            minion.move_timer = 0
+            minion.last_move_interval = 16
+            minion.previous_body = minion.body.copy()
+            self.boss_minions.append(minion)
+            print("Spawned boss minion {} at {}".format(i+1, minion_positions[i]))
+    
+    def respawn_boss_minion(self, minion_index):
+        """Respawn a dead boss minion"""
+        if minion_index >= len(self.boss_minions):
+            return
+        
+        minion = self.boss_minions[minion_index]
+        
+        # Respawn positions
+        minion_positions = [
+            (GRID_WIDTH - 3, 3),  # Top right
+            (GRID_WIDTH - 3, GRID_HEIGHT - 4)  # Bottom right
+        ]
+        
+        # Reset the minion
+        minion.reset(spawn_pos=minion_positions[minion_index], direction=Direction.LEFT)
+        minion.alive = True
+        minion.is_cpu = True
+        minion.cpu_difficulty = 2  # Hard difficulty
+        # Initialize movement tracking for smooth interpolation
+        minion.move_timer = 0
+        minion.last_move_interval = 16
+        minion.previous_body = minion.body.copy()
+        
+        # Remove from respawn timer
+        if minion_index in self.boss_minion_respawn_timers:
+            del self.boss_minion_respawn_timers[minion_index]
+        
+        print("Boss minion {} respawned at {}".format(minion_index + 1, minion_positions[minion_index]))
     
     def spawn_food_item(self, food_type):
         """Spawn a specific food item for multiplayer."""
@@ -1254,6 +1357,9 @@ class SnakeGame:
                 boss_y = (SCREEN_HEIGHT - 256) // 2  # Vertically centered
                 self.boss_position = (boss_x, boss_y)
                 
+                # Spawn 2 boss minions (hard AI CPU snakes)
+                self.spawn_boss_minions()
+                
                 print("Boss spawning at {} seconds at position {}".format(self.boss_spawn_timer, self.boss_position))
             
             # Update boss animation
@@ -1290,6 +1396,66 @@ class SnakeGame:
                 self.screen_shake_offset = (shake_x, shake_y)
             else:
                 self.screen_shake_offset = (0, 0)
+            
+            # Update boss minions
+            if self.boss_minions:
+                for minion_idx, minion in enumerate(self.boss_minions):
+                    if minion.alive:
+                        # Update minion AI and movement
+                        minion.move_timer += 1
+                        move_interval = 16  # Same speed as normal snakes
+                        
+                        if minion.move_timer >= move_interval:
+                            # AI decision making
+                            self.update_cpu_decision(minion)
+                            minion.move_timer = 0
+                            minion.last_move_interval = move_interval  # Track for interpolation
+                            minion.move()
+                            
+                            # Check collision with player snake
+                            if minion.body[0] == self.snake.body[0]:
+                                # Minion head hit player head - player dies
+                                self.sound_manager.play('die')
+                                self.lives -= 1
+                                if self.lives <= 0:
+                                    self.music_manager.play_game_over_music()
+                                    self.state = GameState.GAME_OVER
+                                    self.game_over_timer = self.game_over_delay
+                                else:
+                                    self.state = GameState.EGG_HATCHING
+                            elif minion.body[0] in self.snake.body[1:]:
+                                # Minion head hit player's body - minion dies
+                                minion.alive = False
+                                self.boss_minion_respawn_timers[minion_idx] = 300  # 5 seconds at 60 FPS
+                                self.sound_manager.play('eat')
+                                print("Boss minion {} killed, will respawn in 5 seconds".format(minion_idx + 1))
+                            
+                            # Check if minion ate food
+                            minion_head = minion.body[0]
+                            for food_idx, (food_pos, food_type) in enumerate(self.food_items):
+                                if minion_head == food_pos:
+                                    # Minion ate the food!
+                                    if food_type == 'worm':
+                                        minion.grow()  # Grow the minion
+                                        self.sound_manager.play('eat')
+                                        # Remove eaten food
+                                        self.food_items.pop(food_idx)
+                                        # Spawn new worm
+                                        self.spawn_adventure_food()
+                                        print("Boss minion {} ate a worm and grew!".format(minion_idx + 1))
+                                    elif food_type == 'bonus':
+                                        minion.grow()
+                                        self.sound_manager.play('bonus')
+                                        self.food_items.pop(food_idx)
+                                        self.bonus_fruits_collected += 1
+                                        print("Boss minion {} ate a bonus fruit!".format(minion_idx + 1))
+                                    break
+                    else:
+                        # Minion is dead, check respawn timer
+                        if minion_idx in self.boss_minion_respawn_timers:
+                            self.boss_minion_respawn_timers[minion_idx] -= 1
+                            if self.boss_minion_respawn_timers[minion_idx] <= 0:
+                                self.respawn_boss_minion(minion_idx)
         
         # Handle multiplayer end timer (delay after last player dies)
         if hasattr(self, 'multiplayer_end_timer') and self.multiplayer_end_timer > 0:
@@ -1438,6 +1604,14 @@ class SnakeGame:
                 # Check collision (wall collision and self-collision) - single player
                 head = self.snake.body[0]
                 hit_wall = False
+                
+                # Check collision with boss minions (player head hitting any part of minion)
+                if self.boss_minions:
+                    for minion in self.boss_minions:
+                        if minion.alive and head in minion.body:
+                            hit_wall = True
+                            print("Player collided with boss minion!")
+                            break
                 
                 # In adventure mode, only check level walls (no boundary walls)
                 if self.game_mode == "adventure":
@@ -3506,8 +3680,10 @@ class SnakeGame:
         """Draw a single snake with its color-shifted graphics."""
         # Get interpolated positions for smooth movement
         # Calculate progress between frames for interpolation
-        if self.is_multiplayer:
-            # Use snake's individual timer and interval
+        is_boss_minion = hasattr(snake, 'is_boss_minion') and snake.is_boss_minion
+        
+        if self.is_multiplayer or is_boss_minion:
+            # Use snake's individual timer and interval (for multiplayer or boss minions)
             move_interval = max(1, snake.last_move_interval)
             progress = min(1.0, snake.move_timer / move_interval)
         else:
@@ -3545,11 +3721,21 @@ class SnakeGame:
             interpolated_positions.append((interp_x, interp_y))
         
         # Get player-specific graphics
-        if player_id < len(self.player_graphics):
+        # Check if this is a boss minion
+        is_boss_minion = hasattr(snake, 'is_boss_minion') and snake.is_boss_minion
+        
+        if is_boss_minion:
+            # Use bad snake graphics for boss minions
+            body_img = self.bad_snake_body_img
+            head_img_static = self.bad_snake_head_img  # Static image for minions
+            head_frames = None
+        elif player_id < len(self.player_graphics):
             body_img, head_frames = self.player_graphics[player_id]
+            head_img_static = None
         else:
             body_img = self.snake_body_img
             head_frames = self.snake_head_frames
+            head_img_static = None
         
         # Create a list of (index, x, y) tuples and sort by y-coordinate for proper z-ordering
         segments_with_indices = [(i, x, y) for i, (x, y) in enumerate(interpolated_positions)]
@@ -3561,8 +3747,22 @@ class SnakeGame:
             pixel_y = y * GRID_SIZE + self.snake_offset + GAME_OFFSET_Y
             
             if i == 0:
-                # Draw head with animation
-                if head_frames:
+                # Draw head with animation or static image
+                if head_img_static:
+                    # Boss minion - use static bad snake head
+                    dx, dy = snake.direction.value
+                    if dx == 1:  # Right
+                        rotated_head = pygame.transform.rotate(head_img_static, -90)
+                    elif dx == -1:  # Left
+                        rotated_head = pygame.transform.rotate(head_img_static, 90)
+                    elif dy == -1:  # Up
+                        rotated_head = head_img_static
+                    else:  # Down
+                        rotated_head = pygame.transform.rotate(head_img_static, 180)
+                    
+                    self.screen.blit(rotated_head, (int(pixel_x), int(pixel_y)))
+                elif head_frames:
+                    # Regular player - use animated head
                     head_img = head_frames[self.head_frame_index]
                     # Rotate head based on direction
                     dx, dy = snake.direction.value
@@ -3854,6 +4054,13 @@ class SnakeGame:
             if anim_frames and self.boss_animation_frame < len(anim_frames):
                 boss_frame = anim_frames[self.boss_animation_frame]
                 self.screen.blit(boss_frame, self.boss_position)
+        
+        # Draw boss minions with interpolation
+        if self.boss_minions:
+            for minion in self.boss_minions:
+                if minion.alive:
+                    # Use draw_snake for smooth interpolation
+                    self.draw_snake(minion, minion.player_id)
         
         # Draw snakes
         if self.is_multiplayer:
