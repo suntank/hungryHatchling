@@ -452,6 +452,48 @@ class SnakeGame:
             self.wasp_frames = []
             print("Warning: wasp.gif not found or could not be loaded: {}".format(e))
         
+        # Load boss animations
+        self.boss_animations = {}
+        boss_anim_names = ['wormBossEmerges', 'wormBossIdle', 'wormBossAttack', 'wormBossDeath']
+        for anim_name in boss_anim_names:
+            try:
+                from PIL import Image
+                boss_path = os.path.join(SCRIPT_DIR, 'img', 'boss', '{}.gif'.format(anim_name))
+                frames = []
+                gif = Image.open(boss_path)
+                frame_count = 0
+                try:
+                    while True:
+                        frame = gif.copy().convert('RGBA')
+                        pygame_frame = pygame.image.frombytes(
+                            frame.tobytes(), frame.size, frame.mode
+                        ).convert_alpha()
+                        # Keep original 256x256 size for boss
+                        frames.append(pygame_frame)
+                        frame_count += 1
+                        gif.seek(frame_count)
+                except EOFError:
+                    pass
+                self.boss_animations[anim_name] = frames
+                print("Loaded {} frames for {} animation".format(len(frames), anim_name))
+            except Exception as e:
+                self.boss_animations[anim_name] = []
+                print("Warning: {}.gif not found or could not be loaded: {}".format(anim_name, e))
+        
+        # Boss battle state
+        self.boss_active = False
+        self.boss_data = None
+        self.boss_spawn_timer = 0  # Timer in seconds for boss events
+        self.boss_spawned = False
+        self.boss_current_animation = None
+        self.boss_animation_frame = 0
+        self.boss_animation_counter = 0
+        self.boss_animation_speed = 5  # Frames per game frame (higher = slower)
+        self.boss_position = (0, 0)  # Boss position in pixels
+        self.boss_animation_loop = True  # Whether current animation loops
+        self.screen_shake_intensity = 0
+        self.screen_shake_offset = (0, 0)
+        
         # Load UI icons for multiplayer lobby
         # Star rating icons for difficulty
         self.icon_size = 48  # Standard icon size (2x for better visibility)
@@ -1179,6 +1221,76 @@ class SnakeGame:
         # Update music - we're in gameplay (not menu)
         self.music_manager.update(in_menu=False)
         
+        # Update boss battle if active
+        if self.boss_active and self.boss_data == 'wormBoss':
+            # Increment boss timer (60 frames per second)
+            self.boss_spawn_timer += 1 / 60.0
+            
+            # At 16 seconds, start screen shake (only if boss hasn't spawned yet)
+            if self.boss_spawn_timer >= 14.0 and self.boss_spawn_timer < 28.0 and not self.boss_spawned:
+                
+                self.screen_shake_intensity = 2  # Shake intensity in pixels
+                        # At 16 seconds, start screen shake (only if boss hasn't spawned yet)
+            if self.boss_spawn_timer >= 18.0 and self.boss_spawn_timer < 28.0 and not self.boss_spawned:
+                
+                self.screen_shake_intensity = 4  # Shake intensity in pixels
+            if self.boss_spawn_timer >= 22.0 and self.boss_spawn_timer < 28.0 and not self.boss_spawned:
+                
+                self.screen_shake_intensity = 8  # Shake intensity in pixels
+            
+            # At 28 seconds, spawn the boss
+            if self.boss_spawn_timer >= 29.0 and not self.boss_spawned:
+                self.boss_spawned = True
+                self.screen_shake_intensity = 0  # Stop shaking when boss appears
+                self.boss_current_animation = 'wormBossEmerges'
+                self.boss_animation_frame = 0
+                self.boss_animation_counter = 0
+                self.boss_animation_loop = False  # Emergence plays once
+                
+                # Position boss: far right but not off screen
+                # Boss is 256x256, screen is 480 wide
+                # Place it so right edge is near screen edge but fully visible
+                boss_x = SCREEN_WIDTH - 256 - 32  # 32 pixels from right edge
+                boss_y = (SCREEN_HEIGHT - 256) // 2  # Vertically centered
+                self.boss_position = (boss_x, boss_y)
+                
+                print("Boss spawning at {} seconds at position {}".format(self.boss_spawn_timer, self.boss_position))
+            
+            # Update boss animation
+            if self.boss_spawned and self.boss_current_animation:
+                self.boss_animation_counter += 1
+                if self.boss_animation_counter >= self.boss_animation_speed:
+                    self.boss_animation_counter = 0
+                    self.boss_animation_frame += 1
+                    
+                    # Check if animation finished
+                    anim_frames = self.boss_animations.get(self.boss_current_animation, [])
+                    if anim_frames and self.boss_animation_frame >= len(anim_frames):
+                        if self.boss_animation_loop:
+                            # Loop the animation
+                            self.boss_animation_frame = 0
+                        else:
+                            # Animation finished, transition to next
+                            if self.boss_current_animation == 'wormBossEmerges':
+                                # After emergence, play idle
+                                self.boss_current_animation = 'wormBossIdle'
+                                self.boss_animation_frame = 0
+                                self.boss_animation_loop = True
+                                print("Boss emergence complete, transitioning to idle")
+                            else:
+                                # Stay on last frame
+                                self.boss_animation_frame = len(anim_frames) - 1
+            
+            # Update screen shake
+            if self.screen_shake_intensity > 0:
+                # Random shake offset
+                import random
+                shake_x = random.randint(-self.screen_shake_intensity, self.screen_shake_intensity)
+                shake_y = random.randint(-self.screen_shake_intensity, self.screen_shake_intensity)
+                self.screen_shake_offset = (shake_x, shake_y)
+            else:
+                self.screen_shake_offset = (0, 0)
+        
         # Handle multiplayer end timer (delay after last player dies)
         if hasattr(self, 'multiplayer_end_timer') and self.multiplayer_end_timer > 0:
             self.multiplayer_end_timer -= 1
@@ -1251,13 +1363,18 @@ class SnakeGame:
                     self.respawn_player(player_id, egg_data['pos'], egg_data['direction'])
                     continue
                 
-                # Auto-hatch if timer expired
-                if egg_data['timer'] <= 0:
-                    if egg_data['direction'] is None:
-                        # Choose random direction
-                        egg_data['direction'] = random.choice([Direction.UP, Direction.DOWN, Direction.LEFT, Direction.RIGHT])
-                    
-                    self.respawn_player(player_id, egg_data['pos'], egg_data['direction'])
+                # Auto-hatch in boss mode
+                if self.state == GameState.EGG_HATCHING:
+                    if hasattr(self, 'boss_active') and self.boss_active:
+                        self.hatch_egg(Direction.RIGHT)
+                    else:
+                        # Immediately hatch with random direction after 1 second
+                        self.egg_timer = getattr(self, 'egg_timer', 0) + 1
+                        if self.egg_timer > 60:  # 1 second
+                            # Auto-hatch with a random direction
+                            direction = random.choice([Direction.UP, Direction.DOWN, Direction.LEFT, Direction.RIGHT])
+                            self.hatch_egg(direction)    
+                            self.respawn_player(player_id, egg_data['pos'], egg_data['direction'])
         
         self.move_timer += 1
         
@@ -2375,6 +2492,29 @@ class SnakeGame:
                     enemy = Enemy(enemy_data['x'], enemy_data['y'], enemy_data['type'])
                     self.enemies.append(enemy)
             
+            # Handle boss battle data
+            if 'boss_data' in self.current_level_data and self.current_level_data['boss_data']:
+                self.boss_data = self.current_level_data['boss_data']
+                self.boss_active = True
+                self.boss_spawned = False
+                self.boss_spawn_timer = 0
+                self.screen_shake_intensity = 0
+                
+                # If it's a wormBoss, play FinalBoss music instead of normal music
+                if self.boss_data == 'wormBoss':
+                    try:
+                        boss_music_path = os.path.join(SCRIPT_DIR, 'sound', 'music', 'FinalBoss.mp3')
+                        pygame.mixer.music.load(boss_music_path)
+                        pygame.mixer.music.set_volume(0.9)
+                        pygame.mixer.music.play(-1)  # Loop
+                        self.music_manager.theme_mode = False
+                        print("Playing FinalBoss music for boss battle")
+                    except Exception as e:
+                        print("Warning: Could not load FinalBoss.mp3: {}".format(e))
+            else:
+                self.boss_data = None
+                self.boss_active = False
+            
             # Don't set food_pos in Adventure mode - use food_items list instead
             self.food_pos = None
             
@@ -2384,7 +2524,6 @@ class SnakeGame:
         except Exception as e:
             print("Error loading level {}: {}".format(level_number, e))
             return False
-
     def change_lobby_setting(self, selection, direction):
         """Change a lobby setting or player slot."""
         self.sound_manager.play('blip_select')
@@ -2604,6 +2743,10 @@ class SnakeGame:
                     self.state = GameState.MENU
             
             if self.state == GameState.EGG_HATCHING:
+                # In boss mode, immediately hatch facing right
+                if hasattr(self, 'boss_active') and self.boss_active:
+                    self.hatch_egg(Direction.RIGHT)
+                
                 # Update particles (death particles from previous life)
                 self.particles = [p for p in self.particles if p.is_alive()]
                 for particle in self.particles:
@@ -2686,7 +2829,11 @@ class SnakeGame:
             self.draw_difficulty_select()
         
         # Scale the render surface to the display surface
-        self.display.blit(pygame.transform.scale(self.screen, (SCREEN_WIDTH * self.scale, SCREEN_HEIGHT * self.scale)), (0, 0))
+        scaled_screen = pygame.transform.scale(self.screen, (SCREEN_WIDTH * self.scale, SCREEN_HEIGHT * self.scale))
+        
+        # Apply screen shake offset if active
+        shake_x, shake_y = self.screen_shake_offset if hasattr(self, 'screen_shake_offset') else (0, 0)
+        self.display.blit(scaled_screen, (shake_x * self.scale, shake_y * self.scale))
         pygame.display.flip()
     
     def draw_splash(self):
@@ -3700,6 +3847,13 @@ class SnakeGame:
                 timer_text = self.font_small.render(str(seconds_left), True, egg_color)
                 timer_rect = timer_text.get_rect(center=(pixel_x + GRID_SIZE // 2, pixel_y + GRID_SIZE + 6))
                 self.screen.blit(timer_text, timer_rect)
+        
+        # Draw boss if spawned
+        if self.boss_spawned and self.boss_current_animation:
+            anim_frames = self.boss_animations.get(self.boss_current_animation, [])
+            if anim_frames and self.boss_animation_frame < len(anim_frames):
+                boss_frame = anim_frames[self.boss_animation_frame]
+                self.screen.blit(boss_frame, self.boss_position)
         
         # Draw snakes
         if self.is_multiplayer:
