@@ -1334,15 +1334,15 @@ class SnakeGame:
                 
                 self.screen_shake_intensity = 2  # Shake intensity in pixels
                         # At 16 seconds, start screen shake (only if boss hasn't spawned yet)
-            if self.boss_spawn_timer >= 18.0 and self.boss_spawn_timer < 28.0 and not self.boss_spawned:
+            if self.boss_spawn_timer >= 17.0 and self.boss_spawn_timer < 28.0 and not self.boss_spawned:
                 
                 self.screen_shake_intensity = 4  # Shake intensity in pixels
-            if self.boss_spawn_timer >= 22.0 and self.boss_spawn_timer < 28.0 and not self.boss_spawned:
+            if self.boss_spawn_timer >= 21.0 and self.boss_spawn_timer < 28.0 and not self.boss_spawned:
                 
                 self.screen_shake_intensity = 8  # Shake intensity in pixels
             
             # At 28 seconds, spawn the boss
-            if self.boss_spawn_timer >= 29.0 and not self.boss_spawned:
+            if self.boss_spawn_timer >= 28.0 and not self.boss_spawned:
                 self.boss_spawned = True
                 self.screen_shake_intensity = 0  # Stop shaking when boss appears
                 self.boss_current_animation = 'wormBossEmerges'
@@ -1390,7 +1390,6 @@ class SnakeGame:
             # Update screen shake
             if self.screen_shake_intensity > 0:
                 # Random shake offset
-                import random
                 shake_x = random.randint(-self.screen_shake_intensity, self.screen_shake_intensity)
                 shake_y = random.randint(-self.screen_shake_intensity, self.screen_shake_intensity)
                 self.screen_shake_offset = (shake_x, shake_y)
