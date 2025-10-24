@@ -3,7 +3,7 @@ import pygame
 import json
 import os
 import random
-from game_core import Snake, GameState, Difficulty, Direction, Particle, GifParticle, EggPiece, MusicManager, SoundManager, Enemy, hue_shift_surface, hue_shift_frames, hue_shift_color
+from game_core import Snake, GameState, Difficulty, Direction, Particle, GifParticle, EggPiece, MusicManager, SoundManager, Enemy, Bullet, Spewtum, hue_shift_surface, hue_shift_frames, hue_shift_color
 from game_core import SCREEN_WIDTH, SCREEN_HEIGHT, GRID_SIZE, GRID_WIDTH, GRID_HEIGHT, HUD_HEIGHT, GAME_OFFSET_Y
 from game_core import BLACK, WHITE, GREEN, DARK_GREEN, RED, YELLOW, ORANGE, GRAY, DARK_GRAY
 from game_core import NEON_GREEN, NEON_LIME, NEON_PINK, NEON_CYAN, NEON_ORANGE, NEON_PURPLE, NEON_YELLOW, NEON_BLUE
@@ -480,6 +480,28 @@ class SnakeGame:
                 self.boss_animations[anim_name] = []
                 print("Warning: {}.gif not found or could not be loaded: {}".format(anim_name, e))
         
+        # Load spewtum projectile animation
+        self.spewtum_frames = []
+        try:
+            from PIL import Image
+            spewtum_path = os.path.join(SCRIPT_DIR, 'img', 'boss', 'bossSpewtum.gif')
+            gif = Image.open(spewtum_path)
+            frame_count = 0
+            try:
+                while True:
+                    frame = gif.copy().convert('RGBA')
+                    pygame_frame = pygame.image.frombytes(
+                        frame.tobytes(), frame.size, frame.mode
+                    ).convert_alpha()
+                    self.spewtum_frames.append(pygame_frame)
+                    frame_count += 1
+                    gif.seek(frame_count)
+            except EOFError:
+                pass
+            print("Loaded {} frames for bossSpewtum animation".format(len(self.spewtum_frames)))
+        except Exception as e:
+            print("Warning: bossSpewtum.gif not found or could not be loaded: {}".format(e))
+        
         # Load bad snake graphics for boss minions
         try:
             bad_head_path = os.path.join(SCRIPT_DIR, 'img', 'badSnakeHead.png')
@@ -512,6 +534,17 @@ class SnakeGame:
         self.screen_shake_offset = (0, 0)
         self.boss_minions = []  # List of boss minion snakes
         self.boss_minion_respawn_timers = {}  # Dict of minion_id -> respawn_timer
+        self.boss_attack_timer = 0  # Timer for periodic boss attacks
+        self.boss_attack_interval = 1200  # Start at 20 seconds (1200 frames at 60 FPS)
+        self.boss_attack_interval_min = 180  # Fastest attack speed: 3 seconds
+        self.boss_attack_interval_max = 1200  # Slowest attack speed: 20 seconds
+        self.boss_is_attacking = False  # Whether boss is currently in attack animation
+        self.spewtums = []  # List of active spewtum projectiles
+        self.boss_health = 50  # Boss health
+        self.boss_max_health = 50  # Boss maximum health
+        self.boss_damage_flash = 0  # Timer for red flash when boss is hit
+        self.boss_super_attack_thresholds = [0.75, 0.5, 0.25]  # Health % thresholds for super attacks
+        self.boss_super_attacks_used = set()  # Track which thresholds have been used
         
         # Load UI icons for multiplayer lobby
         # Star rating icons for difficulty
@@ -605,6 +638,7 @@ class SnakeGame:
         self.move_timer = 0
         self.particles = []
         self.egg_pieces = []  # Track flying egg shell pieces
+        self.bullets = []  # Track player bullets from isotope ability
         self.game_over_timer = 0
         self.game_over_delay = 180  # 3 seconds at 60 FPS
         self.multiplayer_end_timer = 0  # Timer for delay after last player dies in multiplayer
@@ -841,6 +875,9 @@ class SnakeGame:
         occupied_positions.update(self.snake.body)
         occupied_positions.update(self.level_walls)
         
+        # Add existing food items to avoid spawning on top of them
+        occupied_positions.update([pos for pos, _ in self.food_items])
+        
         # Add boss minion positions
         if hasattr(self, 'boss_minions'):
             for minion in self.boss_minions:
@@ -852,6 +889,13 @@ class SnakeGame:
         for _ in range(max_attempts):
             x = random.randint(1, GRID_WIDTH - 2)
             y = random.randint(1, GRID_HEIGHT - 2)
+            
+            # Avoid lower right quadrant during boss battles (boss zone)
+            if hasattr(self, 'boss_active') and self.boss_active and self.boss_spawned:
+                # Lower right quadrant: x >= 8 and y >= 8 (roughly half of 15x15 grid)
+                if x >= 8 and y >= 8:
+                    continue  # Skip this position, try again
+            
             if (x, y) not in occupied_positions:
                 self.food_items.append(((x, y), 'worm'))
                 print("Spawned new worm at ({}, {})".format(x, y))
@@ -919,6 +963,156 @@ class SnakeGame:
         
         print("Boss minion {} respawned at {}".format(minion_index + 1, minion_positions[minion_index]))
     
+    def spawn_boss_spewtums(self):
+        """Spawn spewtum projectiles from the boss position.
+        Normally fires 1 large (2x) spewtum, but occasionally (20% chance) fires 3 smaller spewtums.
+        """
+        if not self.spewtum_frames:
+            print("Warning: No spewtum frames loaded, cannot spawn spewtums")
+            return
+        
+        import math
+        import random
+        
+        # Boss position is in bottom right (256x256 sprite)
+        boss_center_x = self.boss_position[0] + 128  # Center of 256px boss
+        boss_center_y = self.boss_position[1] + 128  # Center of 256px boss
+        
+        # Player head position (convert to pixel coordinates)
+        player_head = self.snake.body[0]
+        player_x = player_head[0] * GRID_SIZE + GRID_SIZE // 2
+        player_y = player_head[1] * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y
+        
+        # Calculate direction from boss to player
+        dx = player_x - boss_center_x
+        dy = player_y - boss_center_y
+        
+        # Calculate base angle to player (in radians)
+        base_angle_rad = math.atan2(dy, dx)
+        
+        # 20% chance for rare attack (3 small spewtums), 80% chance for normal attack (1 large spewtum)
+        is_rare_attack = random.random() < 0.2
+        
+        if is_rare_attack:
+            # Rare attack: 3 smaller spewtums in a spread pattern
+            spread_angles = [-15, 0, 15]  # Degrees of spread
+            speed = 2.5
+            scale = 1.0  # Normal size
+            print("Boss rare attack: 3 small spewtums")
+        else:
+            # Normal attack: 1 large spewtum aimed directly at player
+            spread_angles = [0]  # No spread, just center
+            speed = 2.0  # Slightly slower for the larger projectile
+            scale = 2.0  # Double size
+            print("Boss normal attack: 1 large spewtum")
+        
+        for i, spread_deg in enumerate(spread_angles):
+            # Convert spread to radians and add to base angle
+            spread_rad = math.radians(spread_deg)
+            angle_rad = base_angle_rad + spread_rad
+            
+            # Calculate velocity components
+            velocity_x = math.cos(angle_rad) * speed
+            velocity_y = math.sin(angle_rad) * speed
+            
+            # Calculate rotation angle for sprite (pygame rotates counter-clockwise)
+            # Convert to degrees and adjust for sprite orientation
+            rotation_angle = -math.degrees(angle_rad)  # Negative for pygame rotation
+            
+            # Spawn position offset a bit from boss center towards firing direction
+            spawn_offset = 40
+            spewtum_x = boss_center_x + math.cos(angle_rad) * spawn_offset
+            spewtum_y = boss_center_y + math.sin(angle_rad) * spawn_offset
+            
+            spewtum = Spewtum(spewtum_x, spewtum_y, self.spewtum_frames, velocity_x, velocity_y, rotation_angle, scale)
+            self.spewtums.append(spewtum)
+            print("Spawned spewtum {} at ({:.1f}, {:.1f}) with angle {:.1f}°, velocity ({:.2f}, {:.2f}), scale {:.1f}x".format(
+                i + 1, spewtum_x, spewtum_y, math.degrees(angle_rad), velocity_x, velocity_y, scale))
+        
+        # Play attack sound
+        self.sound_manager.play('shoot')
+    
+    def spawn_boss_super_attack(self):
+        """Boss super attack: spawns 3 destroyable enemy walls around the arena"""
+        import random
+        
+        print("BOSS SUPER ATTACK: Spawning enemy walls!")
+        
+        # Create a small pattern of enemy walls (just 3 walls)
+        wall_positions = []
+        
+        # Spawn 3 random walls in strategic positions
+        attempts = 0
+        max_attempts = 50
+        
+        while len(wall_positions) < 3 and attempts < max_attempts:
+            attempts += 1
+            
+            # Pick a random position, avoiding edges and center
+            x = random.randint(2, GRID_WIDTH - 3)
+            y = random.randint(2, GRID_HEIGHT - 3)
+            pos = (x, y)
+            
+            # Make sure not spawning on player, existing walls, or too close to boss
+            # Boss is in bottom right corner, so avoid that area
+            if (pos not in self.snake.body and 
+                pos not in self.level_walls and
+                pos not in wall_positions and
+                x < GRID_WIDTH - 4 and  # Keep away from boss area
+                y < GRID_HEIGHT - 4):
+                wall_positions.append(pos)
+        
+        # Create enemy wall objects
+        for pos in wall_positions:
+            # Check if position is clear (no snake, no existing enemies, no food items)
+            existing_enemy_positions = [(e.grid_x, e.grid_y) for e in self.enemies if e.alive]
+            food_positions = [food_pos for food_pos, _ in self.food_items]
+            
+            if (pos not in self.snake.body and 
+                pos not in existing_enemy_positions and
+                pos not in food_positions):
+                
+                enemy_wall = Enemy(pos[0], pos[1], 'enemy_wall')
+                self.enemies.append(enemy_wall)
+        
+        # Play sound effect (will fallback if specific sound not available)
+        self.sound_manager.play('shoot')  # Using shoot as placeholder
+        
+        # Create screen shake effect (will last for 30 frames = 0.5 seconds)
+        self.screen_shake_intensity = 5
+        self.screen_shake_timer = 30  # Frames to shake
+        
+        print("Spawned {} enemy walls in super attack pattern".format(len([e for e in self.enemies if e.enemy_type == 'enemy_wall' and e.alive])))
+    
+    def respawn_boss_minion(self, minion_index):
+        """Respawn a dead boss minion"""
+        if minion_index >= len(self.boss_minions):
+            return
+        
+        minion = self.boss_minions[minion_index]
+        
+        # Respawn positions
+        minion_positions = [
+            (GRID_WIDTH - 3, 3),  # Top right
+            (GRID_WIDTH - 3, GRID_HEIGHT - 4)  # Bottom right
+        ]
+        
+        # Reset the minion
+        minion.reset(spawn_pos=minion_positions[minion_index], direction=Direction.LEFT)
+        minion.alive = True
+        minion.is_cpu = True
+        minion.cpu_difficulty = 2  # Hard difficulty
+        # Initialize movement tracking for smooth interpolation
+        minion.move_timer = 0
+        minion.last_move_interval = 16
+        minion.previous_body = minion.body.copy()
+        
+        # Remove from respawn timer
+        if minion_index in self.boss_minion_respawn_timers:
+            del self.boss_minion_respawn_timers[minion_index]
+        
+        print("Boss minion {} respawned at {}".format(minion_index + 1, minion_positions[minion_index]))
+    
     def spawn_food_item(self, food_type):
         """Spawn a specific food item for multiplayer."""
         occupied_positions = set()
@@ -945,6 +1139,45 @@ class SnakeGame:
                 self.bonus_food_pos = (x, y)
                 self.bonus_food_timer = 600
                 break
+    
+    def spawn_isotope(self):
+        """Spawn an isotope collectible in a safe location (for boss battles)"""
+        # Collect all occupied positions
+        occupied_positions = set()
+        occupied_positions.update(self.snake.body)
+        
+        # Add boss minion positions if they exist
+        if hasattr(self, 'boss_minions'):
+            for minion in self.boss_minions:
+                if minion and minion.alive:
+                    occupied_positions.update(minion.body)
+        
+        # Add existing food items
+        occupied_positions.update([pos for pos, _ in self.food_items])
+        
+        # Add level walls if they exist
+        if hasattr(self, 'level_walls'):
+            occupied_positions.update(self.level_walls)
+        
+        # Try to spawn isotope in a safe location
+        max_attempts = 100
+        for _ in range(max_attempts):
+            x = random.randint(2, GRID_WIDTH - 3)
+            y = random.randint(2, GRID_HEIGHT - 3)
+            
+            # Avoid lower right quadrant during boss battles (boss zone)
+            if hasattr(self, 'boss_active') and self.boss_active and self.boss_spawned:
+                # Lower right quadrant: x >= 8 and y >= 8
+                if x >= 8 and y >= 8:
+                    continue  # Skip this position, try again
+            
+            if (x, y) not in occupied_positions:
+                self.food_items.append(((x, y), 'isotope'))
+                print("Spawned isotope at ({}, {})".format(x, y))
+                return True
+        
+        print("Warning: Could not find safe location to spawn isotope")
+        return False
     
     def get_next_level_score(self):
         """Calculate the score needed to reach the next level.
@@ -1350,11 +1583,11 @@ class SnakeGame:
                 self.boss_animation_counter = 0
                 self.boss_animation_loop = False  # Emergence plays once
                 
-                # Position boss: far right but not off screen
-                # Boss is 256x256, screen is 480 wide
-                # Place it so right edge is near screen edge but fully visible
-                boss_x = SCREEN_WIDTH - 256 - 32  # 32 pixels from right edge
-                boss_y = (SCREEN_HEIGHT - 256) // 2  # Vertically centered
+                # Position boss: bottom right of screen
+                # Boss is 256x256, screen is 480 wide, 480 tall
+                # Place it so it's in the bottom right corner
+                boss_x = SCREEN_WIDTH - 256  # Right edge at screen edge
+                boss_y = SCREEN_HEIGHT - 256  # Bottom edge at screen edge
                 self.boss_position = (boss_x, boss_y)
                 
                 # Spawn 2 boss minions (hard AI CPU snakes)
@@ -1383,6 +1616,14 @@ class SnakeGame:
                                 self.boss_animation_frame = 0
                                 self.boss_animation_loop = True
                                 print("Boss emergence complete, transitioning to idle")
+                            elif self.boss_current_animation == 'wormBossAttack':
+                                # Attack animation finished, spawn spewtums and return to idle
+                                self.spawn_boss_spewtums()
+                                self.boss_current_animation = 'wormBossIdle'
+                                self.boss_animation_frame = 0
+                                self.boss_animation_loop = True
+                                self.boss_is_attacking = False
+                                print("Boss attack complete, returning to idle")
                             else:
                                 # Stay on last frame
                                 self.boss_animation_frame = len(anim_frames) - 1
@@ -1393,6 +1634,12 @@ class SnakeGame:
                 shake_x = random.randint(-self.screen_shake_intensity, self.screen_shake_intensity)
                 shake_y = random.randint(-self.screen_shake_intensity, self.screen_shake_intensity)
                 self.screen_shake_offset = (shake_x, shake_y)
+                
+                # Count down shake timer if it exists (for timed shakes like super attack)
+                if hasattr(self, 'screen_shake_timer') and self.screen_shake_timer > 0:
+                    self.screen_shake_timer -= 1
+                    if self.screen_shake_timer <= 0:
+                        self.screen_shake_intensity = 0
             else:
                 self.screen_shake_offset = (0, 0)
             
@@ -1455,6 +1702,70 @@ class SnakeGame:
                             self.boss_minion_respawn_timers[minion_idx] -= 1
                             if self.boss_minion_respawn_timers[minion_idx] <= 0:
                                 self.respawn_boss_minion(minion_idx)
+            
+            # Update boss damage flash
+            if self.boss_damage_flash > 0:
+                self.boss_damage_flash -= 1
+            
+            # Boss periodic attacks
+            if self.boss_spawned and not self.boss_is_attacking and self.boss_health > 0:
+                self.boss_attack_timer += 1
+                if self.boss_attack_timer >= self.boss_attack_interval:
+                    # Time to attack! Start attack animation
+                    self.boss_attack_timer = 0
+                    self.boss_is_attacking = True
+                    self.boss_current_animation = 'wormBossAttack'
+                    self.boss_animation_frame = 0
+                    self.boss_animation_loop = False
+                    print("Boss starting attack animation!")
+            
+            # Update spewtum projectiles
+            self.spewtums = [s for s in self.spewtums if s.alive]
+            for spewtum in self.spewtums:
+                spewtum.update()
+                
+                # Check collision with player snake
+                spewtum_pos = (spewtum.grid_x, spewtum.grid_y)
+                
+                # Check if hit player head
+                if spewtum_pos == self.snake.body[0]:
+                    # Player dies
+                    spewtum.alive = False
+                    self.sound_manager.play('die')
+                    self.lives -= 1
+                    if self.lives <= 0:
+                        self.music_manager.play_game_over_music()
+                        self.state = GameState.GAME_OVER
+                        self.game_over_timer = self.game_over_delay
+                    else:
+                        self.state = GameState.EGG_HATCHING
+                    print("Player hit by spewtum in the head!")
+                # Check if hit player body
+                elif spewtum_pos in self.snake.body[1:]:
+                    # Player loses segments from hit point to tail
+                    segment_index = self.snake.body.index(spewtum_pos)
+                    spewtum.alive = False
+                    self.sound_manager.play('eat_fruit')
+                    # Remove all segments from hit point to tail
+                    removed_count = len(self.snake.body) - segment_index
+                    self.snake.body = self.snake.body[:segment_index]
+                    # Create particles at hit location
+                    hit_x = spewtum_pos[0] * GRID_SIZE + GRID_SIZE // 2
+                    hit_y = spewtum_pos[1] * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y
+                    self.create_particles(hit_x, hit_y, RED, 10)
+                    print("Player hit by spewtum in body! Lost {} segments".format(removed_count))
+            
+            # Periodic isotope spawning for boss battles
+            if self.boss_spawned and hasattr(self, 'isotope_spawn_timer'):
+                self.isotope_spawn_timer += 1
+                if self.isotope_spawn_timer >= self.isotope_spawn_interval:
+                    # Check if there's already an isotope on the field
+                    has_isotope = any(food_type == 'isotope' for _, food_type in self.food_items)
+                    if not has_isotope:
+                        # Spawn a new isotope
+                        self.spawn_isotope()
+                    # Reset timer
+                    self.isotope_spawn_timer = 0
         
         # Handle multiplayer end timer (delay after last player dies)
         if hasattr(self, 'multiplayer_end_timer') and self.multiplayer_end_timer > 0:
@@ -1507,6 +1818,141 @@ class SnakeGame:
         self.egg_pieces = [p for p in self.egg_pieces if p.is_alive()]
         for piece in self.egg_pieces:
             piece.update()
+        
+        # Update bullets
+        self.bullets = [b for b in self.bullets if b.alive]
+        for bullet in self.bullets:
+            bullet.update()
+        
+        # Check bullet collisions with boss minions
+        if self.boss_active and hasattr(self, 'boss_minions') and self.boss_minions:
+            for bullet in self.bullets:
+                if not bullet.alive:
+                    continue
+                
+                bullet_pos = (bullet.grid_x, bullet.grid_y)
+                
+                for minion_idx, minion in enumerate(self.boss_minions):
+                    if not minion.alive:
+                        continue
+                    
+                    # Check if bullet hit minion head (instant kill)
+                    if bullet_pos == minion.body[0]:
+                        # Headshot - kill the minion
+                        minion.alive = False
+                        bullet.alive = False
+                        self.boss_minion_respawn_timers[minion_idx] = 300  # 5 seconds respawn
+                        self.sound_manager.play('die')
+                        # Create particles at hit location
+                        hit_x = bullet_pos[0] * GRID_SIZE + GRID_SIZE // 2
+                        hit_y = bullet_pos[1] * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y
+                        self.create_particles(hit_x, hit_y, RED, 15)
+                        print("Boss minion {} headshot! Respawning in 5 seconds.".format(minion_idx + 1))
+                        break
+                    
+                    # Check if bullet hit minion body (remove segment)
+                    elif bullet_pos in minion.body[1:]:
+                        # Body shot - remove the segment that was hit
+                        segment_index = minion.body.index(bullet_pos)
+                        # Remove all segments from hit point to tail
+                        minion.body = minion.body[:segment_index]
+                        bullet.alive = False
+                        self.sound_manager.play('eat_fruit')
+                        # Create particles at hit location
+                        hit_x = bullet_pos[0] * GRID_SIZE + GRID_SIZE // 2
+                        hit_y = bullet_pos[1] * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y
+                        self.create_particles(hit_x, hit_y, NEON_ORANGE, 8)
+                        print("Boss minion {} hit! Reduced to {} segments.".format(minion_idx + 1, len(minion.body)))
+                        
+                        # If minion is too small, kill it
+                        if len(minion.body) < 2:
+                            minion.alive = False
+                            self.boss_minion_respawn_timers[minion_idx] = 300
+                            self.sound_manager.play('die')
+                            print("Boss minion {} destroyed! Respawning in 5 seconds.".format(minion_idx + 1))
+                        break
+        
+        # Check bullet collisions with enemy walls (destroyable)
+        for bullet in self.bullets:
+            if not bullet.alive:
+                continue
+            
+            bullet_pos = (bullet.grid_x, bullet.grid_y)
+            
+            for enemy in self.enemies:
+                if not enemy.alive or enemy.enemy_type != 'enemy_wall':
+                    continue
+                
+                enemy_pos = (enemy.grid_x, enemy.grid_y)
+                if bullet_pos == enemy_pos:
+                    # Hit enemy wall!
+                    bullet.alive = False
+                    enemy.health -= 1
+                    self.sound_manager.play('eat_fruit')
+                    
+                    # Create particles at hit location
+                    hit_x = bullet_pos[0] * GRID_SIZE + GRID_SIZE // 2
+                    hit_y = bullet_pos[1] * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y
+                    self.create_particles(hit_x, hit_y, GRAY, 8)
+                    
+                    # Check if wall is destroyed
+                    if enemy.health <= 0:
+                        enemy.alive = False
+                        self.sound_manager.play('coin')
+                        print("Enemy wall destroyed!")
+                    else:
+                        print("Enemy wall hit! Health remaining: {}".format(enemy.health))
+                    break
+        
+        # Check bullet collisions with boss
+        if self.boss_active and self.boss_spawned and self.boss_health > 0:
+            for bullet in self.bullets:
+                if not bullet.alive:
+                    continue
+                
+                # Check if bullet hit the boss sprite area (256x256 at boss_position)
+                bullet_pixel_x = bullet.pixel_x
+                bullet_pixel_y = bullet.pixel_y - GAME_OFFSET_Y  # Adjust for HUD offset
+                
+                boss_left = self.boss_position[0]
+                boss_right = self.boss_position[0] + 256
+                boss_top = self.boss_position[1]
+                boss_bottom = self.boss_position[1] + 256
+                
+                if (boss_left <= bullet_pixel_x <= boss_right and
+                    boss_top <= bullet_pixel_y <= boss_bottom):
+                    # Boss hit!
+                    bullet.alive = False
+                    self.boss_health -= 1
+                    self.boss_damage_flash = 10  # Flash for 10 frames
+                    self.sound_manager.play('eat_fruit')
+                    
+                    # Create particles at hit location
+                    self.create_particles(int(bullet_pixel_x), int(bullet_pixel_y + GAME_OFFSET_Y), NEON_ORANGE, 15)
+                    
+                    # Update attack interval based on health (gets faster as health drops)
+                    # Linear interpolation from max interval (at full health) to min interval (at 0 health)
+                    health_percent = self.boss_health / self.boss_max_health
+                    self.boss_attack_interval = int(self.boss_attack_interval_min + 
+                                                   (self.boss_attack_interval_max - self.boss_attack_interval_min) * health_percent)
+                    
+                    print("Boss hit! Health: {}/{} - Attack interval now: {:.1f}s".format(
+                        self.boss_health, self.boss_max_health, self.boss_attack_interval / 60.0))
+                    
+                    # Check if boss should trigger super attack at health threshold
+                    for threshold in self.boss_super_attack_thresholds:
+                        if health_percent <= threshold and threshold not in self.boss_super_attacks_used:
+                            # Trigger super attack!
+                            self.boss_super_attacks_used.add(threshold)
+                            self.spawn_boss_super_attack()
+                            break  # Only one super attack per hit
+                    
+                    # Check if boss is defeated
+                    if self.boss_health <= 0:
+                        print("Boss defeated!")
+                        # TODO: Trigger boss death animation and level completion
+                    
+                    break
         
         if self.bonus_food_timer > 0:
             self.bonus_food_timer -= 1
@@ -1575,6 +2021,12 @@ class SnakeGame:
                         head = snake.body[0]
                         if head in self.level_walls:
                             hit_wall = True
+                        # Check enemy walls (destroyable walls from boss super attack)
+                        for enemy in self.enemies:
+                            if enemy.alive and enemy.enemy_type == 'enemy_wall':
+                                if head == (enemy.grid_x, enemy.grid_y):
+                                    hit_wall = True
+                                    break
                         # Check self-collision
                         if snake.body[0] in snake.body[1:]:
                             hit_wall = True
@@ -1603,6 +2055,14 @@ class SnakeGame:
                 # Check collision (wall collision and self-collision) - single player
                 head = self.snake.body[0]
                 hit_wall = False
+                
+                # Check if player entered the boss zone (lower right quadrant)
+                if hasattr(self, 'boss_active') and self.boss_active and self.boss_spawned:
+                    head_x, head_y = head
+                    # Lower right quadrant: x >= 8 and y >= 8
+                    if head_x >= 8 and head_y >= 8:
+                        hit_wall = True
+                        print("Player entered boss zone and was crushed!")
                 
                 # Check collision with boss minions (player head hitting any part of minion)
                 if self.boss_minions:
@@ -1804,6 +2264,18 @@ class SnakeGame:
                                 # Remove diamond from list
                                 self.food_items.pop(i)
                                 # Diamonds don't grow snake or count toward completion
+                            elif food_type == 'isotope':
+                                # Isotope collectible - grants shooting ability and 10 segments
+                                self.sound_manager.play('powerup')
+                                self.snake.can_shoot = True
+                                self.snake.grow(10)  # Grant 10 segments
+                                fx, fy = food_pos
+                                self.create_particles(fx * GRID_SIZE + GRID_SIZE // 2,
+                                                    fy * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y, 
+                                                    NEON_PURPLE, 15)
+                                # Remove isotope from list
+                                self.food_items.pop(i)
+                                # Isotope doesn't count toward worms collected for level completion
                             else:
                                 # Regular worm
                                 self.sound_manager.play('eat_fruit')
@@ -1815,8 +2287,13 @@ class SnakeGame:
                                 self.food_items.pop(i)
                                 self.worms_collected += 1
                                 
-                                # Check if all worms collected
-                                if self.worms_collected >= self.worms_required:
+                                # In boss battles, respawn worms to keep the fight going
+                                if hasattr(self, 'boss_active') and self.boss_active:
+                                    self.spawn_adventure_food()
+                                
+                                # Check if all worms collected (but not in boss mode)
+                                # In boss mode, level only ends when boss is defeated
+                                if self.worms_collected >= self.worms_required and not (hasattr(self, 'boss_active') and self.boss_active):
                                     self.sound_manager.play('level_up')
                                     
                                     # Calculate completion percentage for adventure mode
@@ -2254,6 +2731,23 @@ class SnakeGame:
             elif self.state == GameState.PLAYING:
                 if event.key == pygame.K_RETURN:
                     self.state = GameState.PAUSED
+                elif event.key == pygame.K_SPACE:
+                    # Shooting in adventure mode
+                    if self.game_mode == "adventure" and self.snake.can_shoot:
+                        # Check if player has enough segments (need more than 3)
+                        if len(self.snake.body) > 3:
+                            # Fire a bullet in the current direction
+                            head_x, head_y = self.snake.body[0]
+                            bullet = Bullet(head_x, head_y, self.snake.direction)
+                            self.bullets.append(bullet)
+                            # Remove a segment from the snake
+                            if self.snake.body:
+                                self.snake.body.pop()
+                            # Play shoot sound (using blip_select as placeholder)
+                            self.sound_manager.play('blip_select')
+                            # If segments are now 3 or less, lose shooting ability
+                            if len(self.snake.body) <= 3:
+                                self.snake.can_shoot = False
             elif self.state == GameState.PAUSED:
                 if event.key == pygame.K_RETURN:
                     self.state = GameState.PLAYING
@@ -2658,6 +3152,11 @@ class SnakeGame:
                 for diamond_data in self.current_level_data['diamond_positions']:
                     self.food_items.append(((diamond_data['x'], diamond_data['y']), 'diamond'))
             
+            # Spawn isotopes at specified positions (if any)
+            if 'isotope_positions' in self.current_level_data:
+                for isotope_data in self.current_level_data['isotope_positions']:
+                    self.food_items.append(((isotope_data['x'], isotope_data['y']), 'isotope'))
+            
             # Load enemies (if any)
             self.enemies = []
             if 'enemies' in self.current_level_data:
@@ -2665,13 +3164,29 @@ class SnakeGame:
                     enemy = Enemy(enemy_data['x'], enemy_data['y'], enemy_data['type'])
                     self.enemies.append(enemy)
             
+            # Clear all boss-related entities from previous attempts
+            self.boss_minions = []
+            self.boss_minion_respawn_timers = {}
+            self.spewtums = []
+            self.bullets = []
+            self.boss_damage_flash = 0
+            
             # Handle boss battle data
             if 'boss_data' in self.current_level_data and self.current_level_data['boss_data']:
                 self.boss_data = self.current_level_data['boss_data']
                 self.boss_active = True
                 self.boss_spawned = False
                 self.boss_spawn_timer = 0
+                self.boss_attack_timer = 0
+                self.boss_is_attacking = False
                 self.screen_shake_intensity = 0
+                # Reset boss health to full
+                self.boss_health = self.boss_max_health
+                # Reset attack interval to starting value
+                self.boss_attack_interval = self.boss_attack_interval_max
+                # Isotope spawning for boss battles
+                self.isotope_spawn_timer = 0
+                self.isotope_spawn_interval = 600  # Spawn every 10 seconds (60 FPS * 10)
                 
                 # If it's a wormBoss, play FinalBoss music instead of normal music
                 if self.boss_data == 'wormBoss':
@@ -2949,7 +3464,8 @@ class SnakeGame:
                     self.game_over_timer -= 1
                     if self.game_over_timer == 0:
                         # Timer expired, transition to appropriate screen
-                        if self.is_high_score(self.score):
+                        # Only check for high score in endless mode, not adventure mode
+                        if self.game_mode != "adventure" and self.is_high_score(self.score):
                             self.state = GameState.HIGH_SCORE_ENTRY
                             self.player_name = ['A', 'A', 'A']
                             self.name_index = 0
@@ -3946,6 +4462,35 @@ class SnakeGame:
                         (center_x - inner_size, center_y)
                     ]
                     pygame.draw.polygon(self.screen, WHITE, inner_points, 1)
+                elif food_type == 'isotope':
+                    # Draw isotope as a glowing purple atom symbol
+                    center_x = fx * GRID_SIZE + GRID_SIZE // 2
+                    center_y = fy * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y
+                    # Draw nucleus (central circle)
+                    pygame.draw.circle(self.screen, NEON_PURPLE, (center_x, center_y), GRID_SIZE // 6)
+                    pygame.draw.circle(self.screen, WHITE, (center_x, center_y), GRID_SIZE // 6, 2)
+                    # Draw orbiting electrons (3 circles)
+                    import math
+                    radius = GRID_SIZE // 3
+                    for i in range(3):
+                        angle = (self.move_timer * 3 + i * 120) % 360  # Rotating animation
+                        electron_x = center_x + int(radius * math.cos(math.radians(angle)))
+                        electron_y = center_y + int(radius * math.sin(math.radians(angle)))
+                        pygame.draw.circle(self.screen, NEON_CYAN, (electron_x, electron_y), 3)
+        
+        # Draw bullets
+        for bullet in self.bullets:
+            # Draw bullet as a glowing projectile
+            bullet_x = int(bullet.pixel_x + GRID_SIZE // 2)
+            bullet_y = int(bullet.pixel_y + GRID_SIZE // 2 + GAME_OFFSET_Y)
+            # Draw outer glow
+            pygame.draw.circle(self.screen, NEON_YELLOW, (bullet_x, bullet_y), 6)
+            # Draw inner bright core
+            pygame.draw.circle(self.screen, WHITE, (bullet_x, bullet_y), 3)
+        
+        # Draw spewtum projectiles
+        for spewtum in self.spewtums:
+            spewtum.draw(self.screen, GAME_OFFSET_Y)
         
         # Draw enemies in Adventure mode during PLAYING state
         if self.game_mode == "adventure" and hasattr(self, 'enemies'):
@@ -3957,46 +4502,68 @@ class SnakeGame:
                     if enemy.enemy_type.startswith('enemy_wasp'):
                         continue
                     
-                    # Draw enemy using sprite if available
-                    enemy_frames = None
-                    if enemy.enemy_type.startswith('enemy_ant') and self.ant_frames:
-                        enemy_frames = self.ant_frames
-                    elif enemy.enemy_type.startswith('enemy_spider') and self.spider_frames:
-                        enemy_frames = self.spider_frames
-                    
-                    if enemy_frames:
-                        enemy_img = enemy_frames[enemy.animation_frame]
-                        # Rotate sprite to match direction (angle: 0=right, 90=down, 180=left, 270=up)
-                        # pygame.transform.rotate rotates counter-clockwise, so negate the angle
-                        rotated_img = pygame.transform.rotate(enemy_img, -enemy.angle)
-                        # Get rect to center the rotated image on the grid position
-                        img_rect = rotated_img.get_rect(center=(int(render_x * GRID_SIZE + GRID_SIZE // 2), 
-                                                                 int(render_y * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y)))
-                        self.screen.blit(rotated_img, img_rect)
-                    else:
-                        # Fallback to circle rendering if no sprite
-                        center_x = int(render_x * GRID_SIZE + GRID_SIZE // 2)
-                        center_y = int(render_y * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y)
-                        radius = GRID_SIZE // 3
+                    # Draw enemies (ants, spiders, wasps, walls)
+                    if enemy.enemy_type == 'enemy_wall':
+                        # Draw enemy wall with visual indicator of health
+                        wall_x = enemy.grid_x * GRID_SIZE
+                        wall_y = enemy.grid_y * GRID_SIZE + GAME_OFFSET_Y
                         
-                        # Get color based on enemy type
-                        if enemy.enemy_type.startswith('enemy_spider'):
-                            enemy_color = (139, 69, 19)  # Brown for spiders
+                        if self.wall_img:
+                            # Draw the wall image
+                            self.screen.blit(self.wall_img, (wall_x, wall_y))
+                            
+                            # Add health indicator - draw small dots to show remaining health
+                            health_color = RED if enemy.health == 1 else YELLOW if enemy.health == 2 else GREEN
+                            for i in range(enemy.health):
+                                dot_x = wall_x + 2 + i * 4
+                                dot_y = wall_y + 2
+                                pygame.draw.circle(self.screen, health_color, (dot_x, dot_y), 2)
                         else:
-                            enemy_color = (165, 42, 42)  # Default ant brown
+                            # Fallback: draw colored rectangle
+                            health_color = RED if enemy.health == 1 else YELLOW if enemy.health == 2 else GREEN
+                            pygame.draw.rect(self.screen, health_color, 
+                                           (wall_x, wall_y, GRID_SIZE, GRID_SIZE))
+                    else:
+                        # Draw enemy using sprite if available
+                        enemy_frames = None
+                        if enemy.enemy_type.startswith('enemy_ant') and self.ant_frames:
+                            enemy_frames = self.ant_frames
+                        elif enemy.enemy_type.startswith('enemy_spider') and self.spider_frames:
+                            enemy_frames = self.spider_frames
                         
-                        # Draw enemy body
-                        pygame.draw.circle(self.screen, enemy_color, (center_x, center_y), radius)
-                        pygame.draw.circle(self.screen, BLACK, (center_x, center_y), radius, 2)
-                        
-                        # Draw angry face
-                        eye_offset = radius // 3
-                        eye_size = 3
-                        pygame.draw.circle(self.screen, BLACK, (center_x - eye_offset, center_y - eye_offset), eye_size)
-                        pygame.draw.circle(self.screen, BLACK, (center_x + eye_offset, center_y - eye_offset), eye_size)
-                        pygame.draw.line(self.screen, BLACK, 
-                                       (center_x - eye_offset, center_y + eye_offset),
-                                       (center_x + eye_offset, center_y + eye_offset), 2)
+                        if enemy_frames:
+                            enemy_img = enemy_frames[enemy.animation_frame]
+                            # Rotate sprite to match direction (angle: 0=right, 90=down, 180=left, 270=up)
+                            # pygame.transform.rotate rotates counter-clockwise, so negate the angle
+                            rotated_img = pygame.transform.rotate(enemy_img, -enemy.angle)
+                            # Get rect to center the rotated image on the grid position
+                            img_rect = rotated_img.get_rect(center=(int(render_x * GRID_SIZE + GRID_SIZE // 2), 
+                                                                     int(render_y * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y)))
+                            self.screen.blit(rotated_img, img_rect)
+                        else:
+                            # Fallback to circle rendering if no sprite
+                            center_x = int(render_x * GRID_SIZE + GRID_SIZE // 2)
+                            center_y = int(render_y * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y)
+                            radius = GRID_SIZE // 3
+                            
+                            # Get color based on enemy type
+                            if enemy.enemy_type.startswith('enemy_spider'):
+                                enemy_color = (139, 69, 19)  # Brown for spiders
+                            else:
+                                enemy_color = (165, 42, 42)  # Default ant brown
+                            
+                            # Draw enemy body
+                            pygame.draw.circle(self.screen, enemy_color, (center_x, center_y), radius)
+                            pygame.draw.circle(self.screen, BLACK, (center_x, center_y), radius, 2)
+                            
+                            # Draw angry face
+                            eye_offset = radius // 3
+                            eye_size = 3
+                            pygame.draw.circle(self.screen, BLACK, (center_x - eye_offset, center_y - eye_offset), eye_size)
+                            pygame.draw.circle(self.screen, BLACK, (center_x + eye_offset, center_y - eye_offset), eye_size)
+                            pygame.draw.line(self.screen, BLACK, 
+                                           (center_x - eye_offset, center_y + eye_offset),
+                                           (center_x + eye_offset, center_y + eye_offset), 2)
         
         # Draw bonus food
         if self.bonus_food_pos:
@@ -4052,7 +4619,18 @@ class SnakeGame:
             anim_frames = self.boss_animations.get(self.boss_current_animation, [])
             if anim_frames and self.boss_animation_frame < len(anim_frames):
                 boss_frame = anim_frames[self.boss_animation_frame]
-                self.screen.blit(boss_frame, self.boss_position)
+                
+                # Apply red flash if boss was recently damaged
+                if self.boss_damage_flash > 0:
+                    # Create a copy of the frame with red tint
+                    flash_frame = boss_frame.copy()
+                    # Create a red overlay surface
+                    red_overlay = pygame.Surface(flash_frame.get_size(), pygame.SRCALPHA)
+                    red_overlay.fill((255, 0, 0, 128))  # Semi-transparent red
+                    flash_frame.blit(red_overlay, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+                    self.screen.blit(flash_frame, self.boss_position)
+                else:
+                    self.screen.blit(boss_frame, self.boss_position)
         
         # Draw boss minions with interpolation
         if self.boss_minions:

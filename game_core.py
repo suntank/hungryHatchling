@@ -377,6 +377,111 @@ class SoundManager:
         if self.sound_enabled and sound_name in self.sounds and self.sounds[sound_name]:
             self.sounds[sound_name].play()
 
+class Bullet:
+    """Bullet fired by player with isotope ability"""
+    def __init__(self, x, y, direction):
+        self.grid_x = x
+        self.grid_y = y
+        self.direction = direction  # Direction enum
+        self.alive = True
+        
+        # Visual properties for smooth movement
+        self.pixel_x = x * GRID_SIZE
+        self.pixel_y = y * GRID_SIZE
+        self.speed = 8  # Pixels per frame (faster than snake movement)
+    
+    def update(self):
+        """Update bullet position"""
+        if not self.alive:
+            return
+        
+        # Move in pixel space
+        dx, dy = self.direction.value
+        self.pixel_x += dx * self.speed
+        self.pixel_y += dy * self.speed
+        
+        # Update grid position
+        self.grid_x = int(self.pixel_x / GRID_SIZE)
+        self.grid_y = int(self.pixel_y / GRID_SIZE)
+        
+        # Check if out of bounds
+        if (self.grid_x < 0 or self.grid_x >= GRID_WIDTH or 
+            self.grid_y < 0 or self.grid_y >= GRID_HEIGHT):
+            self.alive = False
+
+class Spewtum:
+    """Spewtum projectile fired by boss worm"""
+    def __init__(self, pixel_x, pixel_y, frames, velocity_x, velocity_y, angle, scale=1.0):
+        # Start position in pixels
+        self.pixel_x = pixel_x
+        self.pixel_y = pixel_y
+        self.alive = True
+        self.scale = scale  # Size scaling factor (1.0 = normal, 2.0 = double size)
+        
+        # Movement with velocity vector
+        self.velocity_x = velocity_x  # Pixels per frame
+        self.velocity_y = velocity_y  # Pixels per frame
+        self.angle = angle  # Rotation angle in degrees
+        
+        # Animation
+        self.frames = frames
+        self.frame_index = 0
+        self.frame_counter = 0
+        self.frame_speed = 3  # Frames per animation frame
+        
+        # Cached rotated and scaled frames for performance
+        self.rotated_frames = []
+        if frames:
+            import pygame
+            for frame in frames:
+                # First scale, then rotate for better quality
+                if scale != 1.0:
+                    scaled_w = int(frame.get_width() * scale)
+                    scaled_h = int(frame.get_height() * scale)
+                    scaled_frame = pygame.transform.scale(frame, (scaled_w, scaled_h))
+                    rotated = pygame.transform.rotate(scaled_frame, angle)
+                else:
+                    rotated = pygame.transform.rotate(frame, angle)
+                self.rotated_frames.append(rotated)
+        
+        # Grid position for collision detection
+        self.grid_x = int(self.pixel_x / GRID_SIZE)
+        self.grid_y = int(self.pixel_y / GRID_SIZE)
+    
+    def update(self):
+        """Update spewtum position and animation"""
+        if not self.alive:
+            return
+        
+        # Move based on velocity vector
+        self.pixel_x += self.velocity_x
+        self.pixel_y += self.velocity_y
+        
+        # Update grid position
+        self.grid_x = int(self.pixel_x / GRID_SIZE)
+        self.grid_y = int(self.pixel_y / GRID_SIZE)
+        
+        # Check if out of bounds (off any side of screen)
+        if (self.pixel_x < -GRID_SIZE or self.pixel_x > SCREEN_WIDTH + GRID_SIZE or
+            self.pixel_y < -GRID_SIZE or self.pixel_y > SCREEN_HEIGHT + GRID_SIZE):
+            self.alive = False
+        
+        # Update animation
+        if self.rotated_frames:
+            self.frame_counter += 1
+            if self.frame_counter >= self.frame_speed:
+                self.frame_counter = 0
+                self.frame_index = (self.frame_index + 1) % len(self.rotated_frames)
+    
+    def draw(self, screen, offset_y=0):
+        """Draw the spewtum"""
+        if self.alive and self.rotated_frames and self.frame_index < len(self.rotated_frames):
+            frame = self.rotated_frames[self.frame_index]
+            # Center the sprite on the position
+            offset_x = frame.get_width() // 2
+            offset_y_adjust = frame.get_height() // 2
+            screen.blit(frame, (int(self.pixel_x - offset_x), int(self.pixel_y - offset_y_adjust + offset_y)))
+
 class Snake:
     """Snake game logic"""
     def __init__(self, player_id=0):
@@ -389,6 +494,7 @@ class Snake:
         self.speed_modifier = 0  # For multiplayer: apples increase, black apples decrease
         self.move_timer = 0  # Track movement progress for interpolation
         self.last_move_interval = 16  # Track the interval used for last move
+        self.can_shoot = False  # Shooting ability from isotope pickup
         self.reset()
     
     def reset(self, spawn_pos=None, direction=None):
@@ -413,6 +519,7 @@ class Snake:
         self.alive = True
         self.move_timer = 0  # Reset move timer
         self.last_move_interval = 16
+        self.can_shoot = False  # Reset shooting ability on respawn
         # Don't reset speed_modifier - it persists across deaths in multiplayer
     
     def move(self):
@@ -538,7 +645,7 @@ class Enemy:
             self.target_y = y
             self.is_rotating = False
             self.is_moving = False
-    
+        
         # Wasp-specific properties (continuous movement, no collision with snake body)
         if enemy_type.startswith('enemy_wasp'):
             self.target_x = x
@@ -550,6 +657,12 @@ class Enemy:
             directions = [0, 90, 180, 270]  # Right, Down, Left, Up
             self.angle = random.choice(directions)
             self.target_angle = self.angle
+        
+        # Enemy wall properties (stationary, destroyable by bullets)
+        if enemy_type == 'enemy_wall':
+            self.health = 3  # Takes 3 hits to destroy
+            self.is_moving = False
+            self.is_destroyable = True  # Can be destroyed by bullets
     
     def update(self, snake_body, level_walls, collectibles):
         """Update enemy behavior based on type"""
@@ -562,6 +675,9 @@ class Enemy:
             self._update_spider(snake_body, level_walls, collectibles)
         elif self.enemy_type.startswith('enemy_wasp'):
             self._update_wasp(snake_body, level_walls, collectibles)
+        elif self.enemy_type == 'enemy_wall':
+            # Enemy walls don't move, they're stationary obstacles
+            pass
     
     def update_animation(self, total_frames, animation_speed=1):
         """Update animation frame - only animates when moving"""
