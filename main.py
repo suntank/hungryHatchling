@@ -543,8 +543,11 @@ class SnakeGame:
         self.boss_health = 50  # Boss health
         self.boss_max_health = 50  # Boss maximum health
         self.boss_damage_flash = 0  # Timer for red flash when boss is hit
+        self.boss_damage_sound_cooldown = 0  # Cooldown to prevent damage sounds from overlapping
         self.boss_super_attack_thresholds = [0.75, 0.5, 0.25]  # Health % thresholds for super attacks
         self.boss_super_attacks_used = set()  # Track which thresholds have been used
+        self.boss_defeated = False  # Whether boss has been defeated
+        self.boss_death_delay = 0  # Delay before level completion after death animation
         
         # Load UI icons for multiplayer lobby
         # Star rating icons for difficulty
@@ -884,6 +887,12 @@ class SnakeGame:
                 if minion.alive:
                     occupied_positions.update(minion.body)
         
+        # Add enemy positions (including enemy walls from super attacks)
+        if hasattr(self, 'enemies'):
+            for enemy in self.enemies:
+                if enemy.alive:
+                    occupied_positions.add((enemy.grid_x, enemy.grid_y))
+        
         # Try to find a valid spawn position
         max_attempts = 100
         for _ in range(max_attempts):
@@ -901,7 +910,14 @@ class SnakeGame:
                 print("Spawned new worm at ({}, {})".format(x, y))
                 return
         
-        print("Warning: Could not find valid position to spawn worm")
+        # Debug: Show why spawning failed
+        available_spaces = (GRID_WIDTH - 2) * (GRID_HEIGHT - 2)
+        if hasattr(self, 'boss_active') and self.boss_active and self.boss_spawned:
+            # Subtract boss zone (roughly 7x7 = 49 spaces)
+            available_spaces -= 49
+        occupied_count = len(occupied_positions)
+        print("Warning: Could not find valid position to spawn worm after 100 attempts")
+        print("  Occupied positions: {}, Available spaces (approx): {}".format(occupied_count, available_spaces))
     
     def spawn_boss_minions(self):
         """Spawn 2 hard-AI boss minion snakes for the boss battle"""
@@ -1159,6 +1175,12 @@ class SnakeGame:
         if hasattr(self, 'level_walls'):
             occupied_positions.update(self.level_walls)
         
+        # Add enemy positions (including enemy walls from super attacks)
+        if hasattr(self, 'enemies'):
+            for enemy in self.enemies:
+                if enemy.alive:
+                    occupied_positions.add((enemy.grid_x, enemy.grid_y))
+        
         # Try to spawn isotope in a safe location
         max_attempts = 100
         for _ in range(max_attempts):
@@ -1176,7 +1198,14 @@ class SnakeGame:
                 print("Spawned isotope at ({}, {})".format(x, y))
                 return True
         
-        print("Warning: Could not find safe location to spawn isotope")
+        # Debug: Show why spawning failed
+        available_spaces = (GRID_WIDTH - 4) * (GRID_HEIGHT - 4)
+        if hasattr(self, 'boss_active') and self.boss_active and self.boss_spawned:
+            # Subtract boss zone (roughly 7x7 = 49 spaces)
+            available_spaces -= 49
+        occupied_count = len(occupied_positions)
+        print("Warning: Could not find safe location to spawn isotope after 100 attempts")
+        print("  Occupied positions: {}, Available spaces (approx): {}".format(occupied_count, available_spaces))
         return False
     
     def get_next_level_score(self):
@@ -1624,6 +1653,13 @@ class SnakeGame:
                                 self.boss_animation_loop = True
                                 self.boss_is_attacking = False
                                 print("Boss attack complete, returning to idle")
+                            elif self.boss_current_animation == 'wormBossDeath':
+                                # Death animation finished - freeze on last frame
+                                self.boss_animation_frame = len(anim_frames) - 1
+                                # Start delay before level completion (3 seconds) - only set once
+                                if self.boss_death_delay == 0:
+                                    self.boss_death_delay = 180  # 3 seconds at 60 FPS
+                                    print("Boss death animation complete, freezing on last frame")
                             else:
                                 # Stay on last frame
                                 self.boss_animation_frame = len(anim_frames) - 1
@@ -1669,6 +1705,10 @@ class SnakeGame:
                                     self.game_over_timer = self.game_over_delay
                                 else:
                                     self.state = GameState.EGG_HATCHING
+                                    # Mark this as a respawn for boss battles
+                                    if hasattr(self, 'boss_active') and self.boss_active:
+                                        self.boss_egg_is_respawn = True
+                                        self.egg_timer = 0
                             elif minion.body[0] in self.snake.body[1:]:
                                 # Minion head hit player's body - minion dies
                                 minion.alive = False
@@ -1703,12 +1743,14 @@ class SnakeGame:
                             if self.boss_minion_respawn_timers[minion_idx] <= 0:
                                 self.respawn_boss_minion(minion_idx)
             
-            # Update boss damage flash
+            # Update boss damage flash and sound cooldown
             if self.boss_damage_flash > 0:
                 self.boss_damage_flash -= 1
+            if self.boss_damage_sound_cooldown > 0:
+                self.boss_damage_sound_cooldown -= 1
             
-            # Boss periodic attacks
-            if self.boss_spawned and not self.boss_is_attacking and self.boss_health > 0:
+            # Boss periodic attacks (only if not defeated)
+            if self.boss_spawned and not self.boss_is_attacking and self.boss_health > 0 and not self.boss_defeated:
                 self.boss_attack_timer += 1
                 if self.boss_attack_timer >= self.boss_attack_interval:
                     # Time to attack! Start attack animation
@@ -1718,6 +1760,19 @@ class SnakeGame:
                     self.boss_animation_frame = 0
                     self.boss_animation_loop = False
                     print("Boss starting attack animation!")
+            
+            # Handle boss death delay and level completion
+            if self.boss_defeated and self.boss_death_delay > 0:
+                self.boss_death_delay -= 1
+                # Play victory jingle at 3 seconds mark (just before completion)
+                if self.boss_death_delay == 1:
+                    print("Playing victory jingle...")
+                    self.music_manager.play_victory_jingle()
+                if self.boss_death_delay == 0:
+                    # Trigger level completion
+                    print("Boss battle complete! Transitioning to level complete screen")
+                    self.sound_manager.play('level_up')
+                    self.state = GameState.LEVEL_COMPLETE
             
             # Update spewtum projectiles
             self.spewtums = [s for s in self.spewtums if s.alive]
@@ -1739,6 +1794,10 @@ class SnakeGame:
                         self.game_over_timer = self.game_over_delay
                     else:
                         self.state = GameState.EGG_HATCHING
+                        # Mark this as a respawn for boss battles
+                        if hasattr(self, 'boss_active') and self.boss_active:
+                            self.boss_egg_is_respawn = True
+                            self.egg_timer = 0
                     print("Player hit by spewtum in the head!")
                 # Check if hit player body
                 elif spewtum_pos in self.snake.body[1:]:
@@ -1925,7 +1984,11 @@ class SnakeGame:
                     bullet.alive = False
                     self.boss_health -= 1
                     self.boss_damage_flash = 10  # Flash for 10 frames
-                    self.sound_manager.play('eat_fruit')
+                    
+                    # Play damage sound if not on cooldown
+                    if self.boss_damage_sound_cooldown == 0:
+                        self.sound_manager.play('bossWormDamage')
+                        self.boss_damage_sound_cooldown = 15  # 15 frames (~0.25s) cooldown between damage sounds
                     
                     # Create particles at hit location
                     self.create_particles(int(bullet_pixel_x), int(bullet_pixel_y + GAME_OFFSET_Y), NEON_ORANGE, 15)
@@ -1948,9 +2011,41 @@ class SnakeGame:
                             break  # Only one super attack per hit
                     
                     # Check if boss is defeated
-                    if self.boss_health <= 0:
-                        print("Boss defeated!")
-                        # TODO: Trigger boss death animation and level completion
+                    if self.boss_health <= 0 and not self.boss_defeated:
+                        print("Boss defeated! Starting death animation...")
+                        self.boss_defeated = True
+                        # Start death animation
+                        self.boss_current_animation = 'wormBossDeath'
+                        self.boss_animation_frame = 0
+                        self.boss_animation_loop = False  # Play once
+                        # Stop attacking
+                        self.boss_is_attacking = False
+                        # Kill all boss minions
+                        if hasattr(self, 'boss_minions') and self.boss_minions:
+                            for minion in self.boss_minions:
+                                if minion.alive:
+                                    minion.alive = False
+                                    # Create death particles for each minion
+                                    for segment_x, segment_y in minion.body:
+                                        self.create_particles(segment_x * GRID_SIZE + GRID_SIZE // 2,
+                                                            segment_y * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y,
+                                                            None, None, particle_type='white')
+                            # Clear respawn timers
+                            self.boss_minion_respawn_timers.clear()
+                            print("All boss minions eliminated!")
+                        # Destroy all enemy walls immediately
+                        if hasattr(self, 'enemies') and self.enemies:
+                            for enemy in self.enemies:
+                                if enemy.alive and enemy.enemy_type == 'enemy_wall':
+                                    enemy.alive = False
+                                    # Create particles where wall was
+                                    self.create_particles(enemy.grid_x * GRID_SIZE + GRID_SIZE // 2,
+                                                        enemy.grid_y * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y,
+                                                        GRAY, 12)
+                            print("All enemy walls destroyed!")
+                        # Play both death sounds simultaneously
+                        self.sound_manager.play('bossWormDeath')
+                        self.sound_manager.play('bossWormDeath2')
                     
                     break
         
@@ -2101,6 +2196,10 @@ class SnakeGame:
                     else:
                         # Go to egg hatching state for respawn
                         self.state = GameState.EGG_HATCHING
+                        # Mark this as a respawn for boss battles
+                        if hasattr(self, 'boss_active') and self.boss_active:
+                            self.boss_egg_is_respawn = True
+                            self.egg_timer = 0
                 
                 # Update enemies in adventure mode
                 if self.game_mode == "adventure" and hasattr(self, 'enemies'):
@@ -2141,6 +2240,10 @@ class SnakeGame:
                                 else:
                                     # Go to egg hatching state for respawn
                                     self.state = GameState.EGG_HATCHING
+                                    # Mark this as a respawn for boss battles
+                                    if hasattr(self, 'boss_active') and self.boss_active:
+                                        self.boss_egg_is_respawn = True
+                                        self.egg_timer = 0
                                 break  # Don't check more enemies this frame
                             
                             elif collision_type == 'body':
@@ -2287,9 +2390,10 @@ class SnakeGame:
                                 self.food_items.pop(i)
                                 self.worms_collected += 1
                                 
-                                # In boss battles, respawn worms to keep the fight going
+                                # In boss battles, respawn worms less frequently (30% chance)
                                 if hasattr(self, 'boss_active') and self.boss_active:
-                                    self.spawn_adventure_food()
+                                    if random.random() < 0.3:  # 30% chance to spawn worm
+                                        self.spawn_adventure_food()
                                 
                                 # Check if all worms collected (but not in boss mode)
                                 # In boss mode, level only ends when boss is defeated
@@ -3112,6 +3216,17 @@ class SnakeGame:
             self.bonus_fruits_collected = 0
             self.total_bonus_fruits = len(self.current_level_data.get('bonus_fruit_positions', []))
             
+            # Load level-specific background image if specified
+            if 'background_image' in self.current_level_data and self.current_level_data['background_image']:
+                try:
+                    bg_filename = self.current_level_data['background_image']
+                    bg_path = os.path.join(SCRIPT_DIR, 'img', 'bg', bg_filename)
+                    self.background = pygame.image.load(bg_path).convert()
+                    self.background = pygame.transform.scale(self.background, (SCREEN_WIDTH, SCREEN_HEIGHT))
+                    print("Loaded level background: {}".format(bg_filename))
+                except Exception as e:
+                    print("Warning: Could not load level background '{}': {}".format(self.current_level_data['background_image'], e))
+            
             # Set up starting position
             start_pos = self.current_level_data['starting_position']
             start_dir_str = self.current_level_data['starting_direction']
@@ -3170,6 +3285,7 @@ class SnakeGame:
             self.spewtums = []
             self.bullets = []
             self.boss_damage_flash = 0
+            self.boss_damage_sound_cooldown = 0
             
             # Handle boss battle data
             if 'boss_data' in self.current_level_data and self.current_level_data['boss_data']:
@@ -3186,7 +3302,15 @@ class SnakeGame:
                 self.boss_attack_interval = self.boss_attack_interval_max
                 # Isotope spawning for boss battles
                 self.isotope_spawn_timer = 0
-                self.isotope_spawn_interval = 600  # Spawn every 10 seconds (60 FPS * 10)
+                self.isotope_spawn_interval = 300  # Spawn every 5 seconds (60 FPS * 5)
+                # Egg respawn flag (False for initial spawn, True for respawns after death)
+                self.boss_egg_is_respawn = False
+                self.egg_timer = 0
+                # Reset boss defeated state
+                self.boss_defeated = False
+                self.boss_death_delay = 0
+                # Reset super attack tracking
+                self.boss_super_attacks_used = set()
                 
                 # If it's a wormBoss, play FinalBoss music instead of normal music
                 if self.boss_data == 'wormBoss':
@@ -3393,6 +3517,11 @@ class SnakeGame:
                 piece = EggPiece(center_x, center_y, self.egg_piece_imgs[i], (vx, vy))
                 self.egg_pieces.append(piece)
         
+        # Reset boss egg respawn flag and timer
+        if hasattr(self, 'boss_egg_is_respawn'):
+            self.boss_egg_is_respawn = False
+        self.egg_timer = 0
+        
         # Transition to playing - start gameplay music
         self.state = GameState.PLAYING
         # Switch from theme music to gameplay music
@@ -3431,9 +3560,22 @@ class SnakeGame:
                     self.state = GameState.MENU
             
             if self.state == GameState.EGG_HATCHING:
-                # In boss mode, immediately hatch facing right
+                # In boss mode, give player 5 seconds to choose direction (after death, not initial spawn)
                 if hasattr(self, 'boss_active') and self.boss_active:
-                    self.hatch_egg(Direction.RIGHT)
+                    # Check if this is a respawn (not the initial spawn)
+                    is_respawn = hasattr(self, 'boss_egg_is_respawn') and self.boss_egg_is_respawn
+                    
+                    if is_respawn:
+                        # Give player 5 seconds to choose a direction
+                        self.egg_timer = getattr(self, 'egg_timer', 0) + 1
+                        if self.egg_timer >= 300:  # 5 seconds at 60 FPS
+                            # Auto-hatch facing right after 5 seconds
+                            self.hatch_egg(Direction.RIGHT)
+                            self.boss_egg_is_respawn = False
+                            self.egg_timer = 0
+                    else:
+                        # Initial spawn - immediately hatch facing right
+                        self.hatch_egg(Direction.RIGHT)
                 
                 # Update particles (death particles from previous life)
                 self.particles = [p for p in self.particles if p.is_alive()]
@@ -4183,11 +4325,17 @@ class SnakeGame:
         lives_value = self.font_small.render("{}".format(self.lives), True, WHITE)
         self.screen.blit(lives_value, (83, SCREEN_HEIGHT - 21))
 
-        # Draw instruction text
-        instruction = self.font_medium.render("Press a direction to hatch!", True, BLACK)
+        # Draw instruction text (with timer if in boss mode respawn)
+        instruction_text = "Press a direction to hatch!"
+        if hasattr(self, 'boss_active') and self.boss_active and hasattr(self, 'boss_egg_is_respawn') and self.boss_egg_is_respawn:
+            # Show countdown timer (5 seconds = 300 frames)
+            time_left = max(0, (300 - getattr(self, 'egg_timer', 0)) // 60)
+            instruction_text = "Choose direction! Auto-hatch in {}s".format(time_left)
+        
+        instruction = self.font_medium.render(instruction_text, True, BLACK)
         instruction_rect = instruction.get_rect(center=((SCREEN_WIDTH // 2)+3, SCREEN_HEIGHT - 37))
         self.screen.blit(instruction, instruction_rect)
-        instruction = self.font_medium.render("Press a direction to hatch!", True, NEON_YELLOW)
+        instruction = self.font_medium.render(instruction_text, True, NEON_YELLOW)
         instruction_rect = instruction.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT - 40))
         self.screen.blit(instruction, instruction_rect)
     
@@ -4614,7 +4762,14 @@ class SnakeGame:
                 timer_rect = timer_text.get_rect(center=(pixel_x + GRID_SIZE // 2, pixel_y + GRID_SIZE + 6))
                 self.screen.blit(timer_text, timer_rect)
         
-        # Draw boss if spawned
+        # Draw boss minions FIRST (so they render behind the boss)
+        if self.boss_minions:
+            for minion in self.boss_minions:
+                if minion.alive:
+                    # Use draw_snake for smooth interpolation
+                    self.draw_snake(minion, minion.player_id)
+        
+        # Draw boss on top of minions
         if self.boss_spawned and self.boss_current_animation:
             anim_frames = self.boss_animations.get(self.boss_current_animation, [])
             if anim_frames and self.boss_animation_frame < len(anim_frames):
@@ -4631,13 +4786,48 @@ class SnakeGame:
                     self.screen.blit(flash_frame, self.boss_position)
                 else:
                     self.screen.blit(boss_frame, self.boss_position)
-        
-        # Draw boss minions with interpolation
-        if self.boss_minions:
-            for minion in self.boss_minions:
-                if minion.alive:
-                    # Use draw_snake for smooth interpolation
-                    self.draw_snake(minion, minion.player_id)
+            
+            # Draw boss health bar (top-right corner) - hidden during egg hatching
+            if hasattr(self, 'boss_health') and hasattr(self, 'boss_max_health') and self.state != GameState.EGG_HATCHING:
+                # Health bar dimensions and position
+                bar_width = 200
+                bar_height = 20
+                bar_x = SCREEN_WIDTH - bar_width - 10  # 10px from right edge
+                bar_y = 10  # 10px from top
+                
+                # Background (dark gray)
+                bg_rect = pygame.Rect(bar_x - 2, bar_y - 2, bar_width + 4, bar_height + 4)
+                pygame.draw.rect(self.screen, DARK_GRAY, bg_rect)
+                pygame.draw.rect(self.screen, BLACK, bg_rect, 2)
+                
+                # Health bar fill (changes color based on health percentage)
+                health_percent = max(0, self.boss_health / self.boss_max_health)
+                fill_width = int(bar_width * health_percent)
+                
+                # Color changes: green -> yellow -> red
+                if health_percent > 0.5:
+                    bar_color = GREEN
+                elif health_percent > 0.25:
+                    bar_color = YELLOW
+                else:
+                    bar_color = RED
+                
+                if fill_width > 0:
+                    fill_rect = pygame.Rect(bar_x, bar_y, fill_width, bar_height)
+                    pygame.draw.rect(self.screen, bar_color, fill_rect)
+                
+                # Health bar outline
+                outline_rect = pygame.Rect(bar_x, bar_y, bar_width, bar_height)
+                pygame.draw.rect(self.screen, WHITE, outline_rect, 2)
+                
+                # Boss health text
+                health_text = self.font_small.render("BOSS: {}/{}".format(max(0, self.boss_health), self.boss_max_health), True, WHITE)
+                text_rect = health_text.get_rect(center=(bar_x + bar_width // 2, bar_y + bar_height // 2))
+                # Draw text shadow
+                shadow_text = self.font_small.render("BOSS: {}/{}".format(max(0, self.boss_health), self.boss_max_health), True, BLACK)
+                shadow_rect = shadow_text.get_rect(center=(bar_x + bar_width // 2 + 1, bar_y + bar_height // 2 + 1))
+                self.screen.blit(shadow_text, shadow_rect)
+                self.screen.blit(health_text, text_rect)
         
         # Draw snakes
         if self.is_multiplayer:
@@ -4726,18 +4916,19 @@ class SnakeGame:
                 
                 y_start += 22
         else:
-            # Single player score - Left side: Score with label
-            score_label = self.font_small.render("SCORE:", True, BLACK)
-            self.screen.blit(score_label, (10, 4))
-            score_label = self.font_small.render("SCORE:", True, NEON_YELLOW)
-            self.screen.blit(score_label, (8, 2))
-            score_value = self.font_small.render("{}".format(self.score), True, BLACK)
-            self.screen.blit(score_value, (100, 4))
-            score_value = self.font_small.render("{}".format(self.score), True, WHITE)
-            self.screen.blit(score_value, (98, 2))
+            # Single player score - Left side: Score with label (hidden during boss battles)
+            if not (hasattr(self, 'boss_active') and self.boss_active and self.boss_spawned):
+                score_label = self.font_small.render("SCORE:", True, BLACK)
+                self.screen.blit(score_label, (10, 4))
+                score_label = self.font_small.render("SCORE:", True, NEON_YELLOW)
+                self.screen.blit(score_label, (8, 2))
+                score_value = self.font_small.render("{}".format(self.score), True, BLACK)
+                self.screen.blit(score_value, (100, 4))
+                score_value = self.font_small.render("{}".format(self.score), True, WHITE)
+                self.screen.blit(score_value, (98, 2))
         
-        # Single player HUD elements (level, worms counter)
-        if not self.is_multiplayer:
+        # Single player HUD elements (level, worms counter) - hidden during boss battles
+        if not self.is_multiplayer and not (hasattr(self, 'boss_active') and self.boss_active and self.boss_spawned):
             # Center-left: Level
             level_label = self.font_small.render("LEVEL:", True, BLACK)
             level_value = self.font_small.render("{}".format(self.level), True, BLACK)
@@ -4788,16 +4979,22 @@ class SnakeGame:
                 coins_value_rect = coins_value.get_rect(center=(SCREEN_WIDTH - 12, 14))
                 self.screen.blit(coins_value, coins_value_rect)
         
-        # Lives with label (only in single player)
+        # Lives with label (only in single player) - hidden during egg hatching in boss mode
         if not self.is_multiplayer:
-            lives_label = self.font_small.render("LIVES:", True, BLACK)
-            self.screen.blit(lives_label, (10, SCREEN_HEIGHT - 19))
-            lives_label = self.font_small.render("LIVES:", True, NEON_YELLOW)
-            self.screen.blit(lives_label, (8, SCREEN_HEIGHT - 21))
-            lives_value = self.font_small.render("{}".format(self.lives), True, BLACK)
-            self.screen.blit(lives_value, (85, SCREEN_HEIGHT - 19))
-            lives_value = self.font_small.render("{}".format(self.lives), True, WHITE)
-            self.screen.blit(lives_value, (83, SCREEN_HEIGHT - 21))
+            # Hide lives HUD during egg hatching in boss battles
+            show_lives = True
+            if hasattr(self, 'boss_active') and self.boss_active and self.state == GameState.EGG_HATCHING:
+                show_lives = False
+            
+            if show_lives:
+                lives_label = self.font_small.render("LIVES:", True, BLACK)
+                self.screen.blit(lives_label, (10, SCREEN_HEIGHT - 19))
+                lives_label = self.font_small.render("LIVES:", True, NEON_YELLOW)
+                self.screen.blit(lives_label, (8, SCREEN_HEIGHT - 21))
+                lives_value = self.font_small.render("{}".format(self.lives), True, BLACK)
+                self.screen.blit(lives_value, (85, SCREEN_HEIGHT - 19))
+                lives_value = self.font_small.render("{}".format(self.lives), True, WHITE)
+                self.screen.blit(lives_value, (83, SCREEN_HEIGHT - 21))
 
     def draw_pause(self):
         overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
