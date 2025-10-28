@@ -1839,6 +1839,8 @@ class SnakeGame:
                                 self.boss_current_animation = 'bossWormDeath4'
                                 self.boss_animation_frame = 0
                                 self.boss_animation_counter = 0
+                                self.boss_animation_loop = False  # Static image
+                            # Otherwise keep idle looping
                             self.boss_death_delay = 60
                 
                 # Phase 3: Spawn particles during animation
@@ -2118,10 +2120,10 @@ class SnakeGame:
                             self.boss_current_animation = 'bossWormDeath1'
                             self.boss_animation_loop = False  # Play once
                         else:
-                            # Fallback: keep showing idle animation frozen on last frame
-                            print("Warning: bossWormDeath1 not found, using fallback")
-                            # Don't change animation, just freeze current one
-                            self.boss_animation_loop = False
+                            # Fallback: switch to idle animation and keep looping
+                            print("Warning: bossWormDeath1 not found, using looping idle fallback")
+                            self.boss_current_animation = 'wormBossIdle'
+                            self.boss_animation_loop = True  # Keep looping so it doesn't freeze
                         self.boss_animation_frame = 0
                         self.boss_animation_counter = 0  # Reset animation counter for smooth playback
                         # Stop attacking
