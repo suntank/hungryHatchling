@@ -454,7 +454,7 @@ class SnakeGame:
         
         # Load boss animations
         self.boss_animations = {}
-        boss_anim_names = ['wormBossEmerges', 'wormBossIdle', 'wormBossAttack', 'bossWormDeath1', 'bossWormDeath3']
+        boss_anim_names = ['wormBossEmerges', 'wormBossIdle', 'wormBossAttack', 'wormBossDeath1', 'wormBossDeath3']
         for anim_name in boss_anim_names:
             try:
                 from PIL import Image
@@ -561,9 +561,12 @@ class SnakeGame:
         self.boss_super_attacks_used = set()  # Track which thresholds have been used
         self.boss_defeated = False  # Whether boss has been defeated
         self.boss_death_delay = 0  # Delay before level completion after death animation
-        self.boss_death_phase = 0  # Current death animation phase (0=not started, 1-4=phases)
+        self.boss_death_phase = 0  # Current death animation phase (0=not started, 1-5=phases)
+        self.player_frozen = False  # Whether player is frozen (during boss death sequence)
         self.boss_death_timer = 0  # Timer for death phase 2 (static image hold)
         self.boss_death_particle_timer = 0  # Timer for spawning particles during phase 3
+        self.boss_slide_offset_y = 0  # Vertical offset for boss sliding during death
+        self.boss_slide_timer = 0  # Timer for boss slide (4 seconds = 240 frames)
         
         # Load UI icons for multiplayer lobby
         # Star rating icons for difficulty
@@ -1620,7 +1623,7 @@ class SnakeGame:
                 self.screen_shake_intensity = 8  # Shake intensity in pixels
             
             # At 28 seconds, spawn the boss
-            if self.boss_spawn_timer >= 28.0 and not self.boss_spawned:
+            if self.boss_spawn_timer >= 2.0 and not self.boss_spawned:
                 self.boss_spawned = True
                 self.screen_shake_intensity = 0  # Stop shaking when boss appears
                 self.boss_current_animation = 'wormBossEmerges'
@@ -1640,67 +1643,51 @@ class SnakeGame:
                 
                 print("Boss spawning at {} seconds at position {}".format(self.boss_spawn_timer, self.boss_position))
             
-            # Update boss animation
+            # Update boss animation (but not during slide phase)
             if self.boss_spawned and self.boss_current_animation:
-                self.boss_animation_counter += 1
-                if self.boss_animation_counter >= self.boss_animation_speed:
-                    self.boss_animation_counter = 0
-                    self.boss_animation_frame += 1
-                    
-                    # Check if animation finished
-                    anim_frames = self.boss_animations.get(self.boss_current_animation, [])
-                    if anim_frames and self.boss_animation_frame >= len(anim_frames):
-                        if self.boss_animation_loop:
-                            # Loop the animation
-                            self.boss_animation_frame = 0
-                        else:
-                            # Animation finished, transition to next
-                            if self.boss_current_animation == 'wormBossEmerges':
-                                # After emergence, play idle
-                                self.boss_current_animation = 'wormBossIdle'
-                                self.boss_animation_frame = 0
-                                self.boss_animation_loop = True
-                                print("Boss emergence complete, transitioning to idle")
-                            elif self.boss_current_animation == 'wormBossAttack':
-                                # Attack animation finished, spawn spewtums and return to idle
-                                self.spawn_boss_spewtums()
-                                self.boss_current_animation = 'wormBossIdle'
-                                self.boss_animation_frame = 0
-                                self.boss_animation_loop = True
-                                self.boss_is_attacking = False
-                                print("Boss attack complete, returning to idle")
-                            elif self.boss_current_animation == 'bossWormDeath1':
-                                # Phase 1 finished - move to phase 2 (static image)
-                                print("Death phase 1 complete, moving to phase 2 (static hold)")
-                                self.boss_death_phase = 2
-                                # Try to use bossWormDeath2, fallback to keeping current frame if not available
-                                if 'bossWormDeath2' in self.boss_animations and self.boss_animations['bossWormDeath2']:
-                                    self.boss_current_animation = 'bossWormDeath2'
-                                    self.boss_animation_frame = 0
-                                    self.boss_animation_counter = 0
-                                else:
-                                    # Fallback: keep last frame of phase 1
-                                    self.boss_animation_frame = len(anim_frames) - 1
-                                self.boss_death_timer = 180  # Hold for 3 seconds at 60 FPS
-                            elif self.boss_current_animation == 'bossWormDeath3':
-                                # Phase 3 finished - move to phase 4 (final static image)
-                                print("Death phase 3 complete, moving to phase 4 (final freeze)")
-                                self.boss_death_phase = 4
-                                # Try to use bossWormDeath4, fallback to keeping current frame if not available
-                                if 'bossWormDeath4' in self.boss_animations and self.boss_animations['bossWormDeath4']:
-                                    self.boss_current_animation = 'bossWormDeath4'
-                                    self.boss_animation_frame = 0
-                                else:
-                                    # Fallback: keep last frame of phase 3
-                                    self.boss_animation_frame = len(anim_frames) - 1
-                                # Start delay before level completion
-                                self.boss_death_delay = 60  # Wait 1 second before victory
-                            elif self.boss_current_animation == 'bossWormDeath2' or self.boss_current_animation == 'bossWormDeath4':
-                                # Static images - stay on frame 0
+                # Don't update animation during phase 2 (slide) - it's frozen on last frame
+                should_update_animation = not (self.boss_defeated and self.boss_death_phase == 2)
+                
+                if should_update_animation:
+                    self.boss_animation_counter += 1
+                    if self.boss_animation_counter >= self.boss_animation_speed:
+                        self.boss_animation_counter = 0
+                        self.boss_animation_frame += 1
+                        
+                        # Check if animation finished
+                        anim_frames = self.boss_animations.get(self.boss_current_animation, [])
+                        if anim_frames and self.boss_animation_frame >= len(anim_frames):
+                            if self.boss_animation_loop:
+                                # Loop the animation
                                 self.boss_animation_frame = 0
                             else:
-                                # Stay on last frame
-                                self.boss_animation_frame = len(anim_frames) - 1
+                                # Animation finished, transition to next
+                                if self.boss_current_animation == 'wormBossEmerges':
+                                    # After emergence, play idle
+                                    self.boss_current_animation = 'wormBossIdle'
+                                    self.boss_animation_frame = 0
+                                    self.boss_animation_loop = True
+                                    print("Boss emergence complete, transitioning to idle")
+                                elif self.boss_current_animation == 'wormBossAttack':
+                                    # Attack animation finished, spawn spewtums and return to idle
+                                    self.spawn_boss_spewtums()
+                                    self.boss_current_animation = 'wormBossIdle'
+                                    self.boss_animation_frame = 0
+                                    self.boss_animation_loop = True
+                                    self.boss_is_attacking = False
+                                    print("Boss attack complete, returning to idle")
+                                elif self.boss_current_animation == 'wormBossDeath1':
+                                    # Phase 1 finished - move to phase 2 (slide down with explosions)
+                                    # Only transition if we're actually in phase 1 (prevent reset loop)
+                                    if self.boss_death_phase == 1:
+                                        print("Death phase 1 complete, moving to phase 2 (slide with explosions)")
+                                        self.boss_death_phase = 2
+                                        # Freeze on last frame of death animation
+                                        self.boss_animation_frame = len(anim_frames) - 1
+                                        self.boss_animation_loop = False
+                                        # Initialize slide timer (320 frames = ~5.3 seconds at 60 FPS, 25% slower than before)
+                                        self.boss_slide_timer = 640
+                                        self.boss_slide_offset_y = 0
             
             # Update screen shake
             if self.screen_shake_intensity > 0:
@@ -1801,9 +1788,11 @@ class SnakeGame:
             
             # Handle boss death phase timers
             if self.boss_defeated:
-                # Phase 1: If death animation 1 doesn't exist, auto-advance after short delay
+                # Phase 1: If death animation 1 doesn't exist or failed to load, auto-advance after short delay
                 if self.boss_death_phase == 1:
-                    if not ('bossWormDeath1' in self.boss_animations and self.boss_animations['bossWormDeath1']):
+                    # Check if animation exists and has frames
+                    has_death_anim = 'wormBossDeath1' in self.boss_animations and len(self.boss_animations['wormBossDeath1']) > 0
+                    if not has_death_anim:
                         # No phase 1 animation, use a timer instead
                         if not hasattr(self, 'boss_death_phase1_timer'):
                             self.boss_death_phase1_timer = 60  # 1 second
@@ -1811,67 +1800,43 @@ class SnakeGame:
                             self.boss_death_phase1_timer -= 1
                         else:
                             # Auto-advance to phase 2
-                            print("Phase 1 fallback timer complete, moving to phase 2")
+                            print("Phase 1 fallback timer complete, moving to phase 2 (slide with explosions)")
                             self.boss_death_phase = 2
-                            if 'bossWormDeath2' in self.boss_animations and self.boss_animations['bossWormDeath2']:
-                                self.boss_current_animation = 'bossWormDeath2'
-                                self.boss_animation_frame = 0
-                            self.boss_death_timer = 180
+                            self.boss_slide_timer = 240  # 4 seconds
+                            self.boss_slide_offset_y = 0
                 
-                # Phase 2: Hold static image for 3 seconds
-                if self.boss_death_phase == 2 and self.boss_death_timer > 0:
-                    self.boss_death_timer -= 1
-                    if self.boss_death_timer == 0:
-                        # Move to phase 3
-                        print("Death phase 2 complete, moving to phase 3 (particle effects)")
-                        self.boss_death_phase = 3
-                        # Try to use phase 3 animation, fallback to keeping current if not available
-                        if 'bossWormDeath3' in self.boss_animations and self.boss_animations['bossWormDeath3']:
-                            self.boss_current_animation = 'bossWormDeath3'
-                            self.boss_animation_frame = 0
-                            self.boss_animation_counter = 0
-                            self.boss_animation_loop = False
-                        else:
-                            print("Warning: bossWormDeath3 not found, skipping to phase 4")
-                            # Skip directly to phase 4
-                            self.boss_death_phase = 4
-                            if 'bossWormDeath4' in self.boss_animations and self.boss_animations['bossWormDeath4']:
-                                self.boss_current_animation = 'bossWormDeath4'
-                                self.boss_animation_frame = 0
-                                self.boss_animation_counter = 0
-                                self.boss_animation_loop = False  # Static image
-                            # Otherwise keep idle looping
-                            self.boss_death_delay = 60
-                
-                # Phase 3: Spawn particles during animation
-                if self.boss_death_phase == 3:
-                    self.boss_death_particle_timer += 1
-                    # Spawn particles every 3 frames
-                    if self.boss_death_particle_timer % 3 == 0:
-                        # Spawn white and red particles randomly on boss sprite
+                # Phase 2: Slide down off-screen with continuous white explosions
+                if self.boss_death_phase == 2 and self.boss_slide_timer > 0:
+                    self.boss_slide_timer -= 1
+                    self.screen_shake_intensity = 2
+                    # Calculate slide speed: need to move boss fully off screen (256px height + screen height)
+                    # Over 320 frames (~5.3 seconds), slide down (25% slower than before)
+                    # Total distance: SCREEN_HEIGHT (480) + boss height (256) = 736 pixels
+                    slide_speed = (SCREEN_HEIGHT + 256) / 640.0  # ~2.30 pixels per frame
+                    self.boss_slide_offset_y += slide_speed
+                    
+                    # Spawn white explosion particles continuously
+                    # Spawn particles every 2 frames for lots of explosions
+                    if self.boss_slide_timer % 2 == 0:
+                        # Spawn white particles randomly on boss sprite
                         boss_x = self.boss_position[0]
-                        boss_y = self.boss_position[1]
+                        boss_y = self.boss_position[1] + self.boss_slide_offset_y
                         # Random position within boss sprite (256x256)
-                        rand_x = boss_x + random.randint(20, 236)
-                        rand_y = boss_y + random.randint(20, 236)
-                        # Alternate between white and red particles
-                        if random.random() < 0.5:
-                            self.create_particles(rand_x, rand_y, None, None, particle_type='white')
-                        else:
-                            self.create_particles(rand_x, rand_y, RED, 8)
-                
-                # Phase 4: Wait before level completion
-                if self.boss_death_phase == 4 and self.boss_death_delay > 0:
-                    self.boss_death_delay -= 1
-                    # Play victory jingle at 1 second mark (just before completion)
-                    if self.boss_death_delay == 1:
-                        print("Playing victory jingle...")
-                        self.music_manager.play_victory_jingle()
-                    if self.boss_death_delay == 0:
-                        # Trigger level completion
-                        print("Boss battle complete! Transitioning to level complete screen")
-                        self.sound_manager.play('level_up')
-                        self.state = GameState.LEVEL_COMPLETE
+                        rand_x = boss_x + random.randint(30, 226)
+                        rand_y = boss_y + random.randint(30, 226)
+                        # Create white explosion particles
+                        self.create_particles(rand_x, rand_y, None, None, particle_type='white')
+                    
+                    # When slide timer reaches 0, transition to victory delay
+                    if self.boss_slide_timer < 320:
+                        print("Boss slide complete, waiting a few seconds before victory jingle")
+                        self.boss_death_phase = 3
+                        self.screen_shake_intensity = 0
+                        # Stop rendering the boss and deactivate boss logic
+                        self.boss_spawned = False
+                        self.boss_current_animation = None
+                        self.boss_active = False  # Prevent boss from respawning
+                        self.boss_death_delay = 120  # 2 seconds wait before victory jingle
             
             # Update spewtum projectiles
             self.spewtums = [s for s in self.spewtums if s.alive]
@@ -1933,6 +1898,32 @@ class SnakeGame:
                 self.music_manager.play_game_over_music()
                 self.state = GameState.GAME_OVER
                 self.game_over_timer = self.game_over_delay
+        
+        # Handle boss death phases 3-4 (outside boss_active block)
+        # These need to continue after boss_active is set to False
+        if self.boss_defeated and self.boss_death_phase >= 3:
+            # Phase 3: Wait a few seconds, then play victory jingle
+            if self.boss_death_phase == 3 and self.boss_death_delay > 0:
+                self.boss_death_delay -= 1
+                # Play victory jingle after waiting
+                if self.boss_death_delay == 60:
+                    print("Playing victory jingle...")
+                    self.music_manager.play_victory_jingle()
+                if self.boss_death_delay == 0:
+                    # Move to phase 4: wait for jingle to finish
+                    print("Victory jingle playing, waiting for it to finish...")
+                    self.boss_death_phase = 4
+                    self.boss_death_delay = 360  # 4 seconds for victory jingle to finish
+            
+            # Phase 4: Wait before transitioning to credits
+            if self.boss_death_phase == 4 and self.boss_death_delay > 0:
+                self.boss_death_delay -= 1
+                if self.boss_death_delay == 0:
+                    # Trigger credits screen
+                    print("Boss battle complete! Transitioning to credits screen")
+                    self.state = GameState.CREDITS
+                    # Play the Final song
+                    self.music_manager.play_final_song()
         
         # Update snake head animation
         if self.snake_head_frames:
@@ -2113,23 +2104,26 @@ class SnakeGame:
                     if self.boss_health <= 0 and not self.boss_defeated:
                         print("Boss defeated! Starting death animation phase 1...")
                         self.boss_defeated = True
+                        # Freeze the player snake to prevent accidental death
+                        self.player_frozen = True
                         # Start death animation phase 1
                         self.boss_death_phase = 1
                         # Try to use death animation, fallback to idle if not available
-                        if 'bossWormDeath1' in self.boss_animations and self.boss_animations['bossWormDeath1']:
-                            self.boss_current_animation = 'bossWormDeath1'
+                        if 'wormBossDeath1' in self.boss_animations and self.boss_animations['wormBossDeath1']:
+                            self.boss_current_animation = 'wormBossDeath1'
                             self.boss_animation_loop = False  # Play once
                         else:
                             # Fallback: switch to idle animation and keep looping
-                            print("Warning: bossWormDeath1 not found, using looping idle fallback")
+                            print("Warning: wormBossDeath1 not found, using looping idle fallback")
                             self.boss_current_animation = 'wormBossIdle'
                             self.boss_animation_loop = True  # Keep looping so it doesn't freeze
                         self.boss_animation_frame = 0
                         self.boss_animation_counter = 0  # Reset animation counter for smooth playback
                         # Stop attacking
                         self.boss_is_attacking = False
-                        # Fade out music over 2 seconds
+                        # Fade out music over 2 seconds and enable silent mode
                         pygame.mixer.music.fadeout(2000)  # 2000ms = 2 seconds
+                        self.music_manager.silent_mode = True  # Prevent auto-play during death sequence
                         # Kill all boss minions
                         if hasattr(self, 'boss_minions') and self.boss_minions:
                             for minion in self.boss_minions:
@@ -2253,7 +2247,8 @@ class SnakeGame:
             # Single player mode - speed based on level
             move_interval = max(1, 16 - self.level // 2)
             
-            if self.move_timer >= move_interval:
+            # Don't move if player is frozen (during boss death sequence)
+            if self.move_timer >= move_interval and not self.player_frozen:
                 self.move_timer = 0
                 self.snake.move()
                 
@@ -2997,6 +2992,13 @@ class SnakeGame:
                             self.music_manager.play_theme()
                     else:
                         self.next_level()
+            elif self.state == GameState.CREDITS:
+                if event.key == pygame.K_RETURN:
+                    # Return to level select menu after credits
+                    self.reset_game()
+                    self.state = GameState.ADVENTURE_LEVEL_SELECT
+                    # Play theme music
+                    self.music_manager.play_theme()
             elif self.state == GameState.HIGH_SCORE_ENTRY:
                 self.handle_high_score_keyboard(event)
             elif self.state == GameState.HIGH_SCORES:
@@ -3124,6 +3126,13 @@ class SnakeGame:
                         self.state = GameState.ADVENTURE_LEVEL_SELECT
                     else:
                         self.next_level()
+            elif self.state == GameState.CREDITS:
+                if button == GamepadButton.BTN_START:
+                    # Return to level select menu after credits
+                    self.reset_game()
+                    self.state = GameState.ADVENTURE_LEVEL_SELECT
+                    # Play theme music
+                    self.music_manager.play_theme()
             elif self.state == GameState.HIGH_SCORE_ENTRY:
                 if button == GamepadButton.BTN_A:
                     self.use_onscreen_keyboard()
@@ -3427,6 +3436,8 @@ class SnakeGame:
                 self.boss_death_phase = 0
                 self.boss_death_timer = 0
                 self.boss_death_particle_timer = 0
+                self.boss_slide_offset_y = 0
+                self.boss_slide_timer = 0
                 if hasattr(self, 'boss_death_phase1_timer'):
                     del self.boss_death_phase1_timer
                 # Reset super attack tracking
@@ -3776,6 +3787,8 @@ class SnakeGame:
         elif self.state == GameState.LEVEL_COMPLETE:
             self.draw_game()
             self.draw_level_complete()
+        elif self.state == GameState.CREDITS:
+            self.draw_credits()
         elif self.state == GameState.DIFFICULTY_SELECT:
             self.draw_difficulty_select()
         
@@ -4897,6 +4910,12 @@ class SnakeGame:
                 frame_index = min(self.boss_animation_frame, len(anim_frames) - 1)
                 boss_frame = anim_frames[frame_index]
                 
+                # Calculate render position (apply slide offset during death phase 2)
+                render_x = self.boss_position[0]
+                render_y = self.boss_position[1]
+                if self.boss_defeated and self.boss_death_phase == 2:
+                    render_y += self.boss_slide_offset_y
+                
                 # Apply red flash if boss was recently damaged (not during death)
                 if self.boss_damage_flash > 0 and not self.boss_defeated:
                     # Create a copy of the frame with red tint
@@ -4905,14 +4924,14 @@ class SnakeGame:
                     red_overlay = pygame.Surface(flash_frame.get_size(), pygame.SRCALPHA)
                     red_overlay.fill((255, 0, 0, 128))  # Semi-transparent red
                     flash_frame.blit(red_overlay, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
-                    self.screen.blit(flash_frame, self.boss_position)
+                    self.screen.blit(flash_frame, (render_x, render_y))
                 else:
-                    self.screen.blit(boss_frame, self.boss_position)
+                    self.screen.blit(boss_frame, (render_x, render_y))
             
             # Draw boss health bar (top-right corner) - hidden during egg hatching and final death phase
             show_health_bar = self.state != GameState.EGG_HATCHING
-            if self.boss_defeated and self.boss_death_phase >= 4:
-                show_health_bar = False  # Hide in final death phase
+            if self.boss_defeated and self.boss_death_phase >= 2:
+                show_health_bar = False  # Hide during slide and completion phases
             
             if hasattr(self, 'boss_health') and hasattr(self, 'boss_max_health') and show_health_bar:
                 # Health bar dimensions and position
@@ -5360,6 +5379,44 @@ class SnakeGame:
             hint_text = self.font_small.render("Start to continue", True, NEON_YELLOW)
             hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 50))
             self.screen.blit(hint_text, hint_rect)
+    
+    def draw_credits(self):
+        """Draw the credits screen after boss battle victory."""
+        # Fill screen with dark background
+        self.screen.fill(BLACK)
+
+        # Credits
+        y_pos = 180
+        credits_lines = [
+            ("GAME DEVELOPED BY", NEON_CYAN),
+            ("", WHITE),
+            ("Austin Morgan Studios", NEON_PINK),
+            ("", WHITE),
+            ("SPECIAL THANKS", NEON_CYAN),
+            ("", WHITE),
+            ("All the players", WHITE),
+            ("who tested this game", WHITE),
+            ("", WHITE),
+            ("And all the GAME BIRD enthusiasts", WHITE),
+        ]
+        
+        for line_text, color in credits_lines:
+            if line_text:  # Skip empty lines for spacing
+                text = self.font_small.render(line_text, True, BLACK)
+                text_rect = text.get_rect(center=((SCREEN_WIDTH // 2) + 2, y_pos + 2))
+                self.screen.blit(text, text_rect)
+                text = self.font_small.render(line_text, True, color)
+                text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, y_pos))
+                self.screen.blit(text, text_rect)
+            y_pos += 30
+        
+        # Bottom hint
+        hint_text = self.font_small.render("Press Start to return to menu", True, BLACK)
+        hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2) + 2, SCREEN_HEIGHT - 42))
+        self.screen.blit(hint_text, hint_rect)
+        hint_text = self.font_small.render("Press Start to return to menu", True, NEON_YELLOW)
+        hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT - 40))
+        self.screen.blit(hint_text, hint_rect)
     
     def draw_high_score_entry(self):
         # Draw high score screen image as background

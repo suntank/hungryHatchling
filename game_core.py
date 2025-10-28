@@ -72,6 +72,7 @@ class GameState(Enum):
     MULTIPLAYER_LOBBY = 11
     SINGLE_PLAYER_MENU = 12
     ADVENTURE_LEVEL_SELECT = 13
+    CREDITS = 14
 
 # Difficulty modes
 class Difficulty(Enum):
@@ -245,6 +246,7 @@ class MusicManager:
         self.game_over_mode = False
         self.theme_mode = False  # True when playing theme music for menus
         self.victory_jingle_playing = False  # Track when victory jingle is playing
+        self.silent_mode = False  # Suppress auto-play during special sequences
         
     def play_theme(self):
         """Play the theme music on loop for menu states"""
@@ -304,6 +306,7 @@ class MusicManager:
     
     def play_victory_jingle(self):
         """Play the victory jingle once (after level completion)"""
+        self.silent_mode = False  # Re-enable music system for jingle
         self.victory_jingle_playing = True
         try:
             victory_path = os.path.join(SCRIPT_DIR, 'sound', 'music', 'victoryJingle.mp3')
@@ -317,13 +320,27 @@ class MusicManager:
             # If jingle can't load, resume theme music for menus
             self.play_theme()
     
+    def play_final_song(self):
+        """Play the Final song on loop for credits screen"""
+        self.victory_jingle_playing = False
+        self.theme_mode = False
+        self.game_over_mode = False
+        try:
+            final_path = os.path.join(SCRIPT_DIR, 'sound', 'music', 'Final.mp3')
+            pygame.mixer.music.load(final_path)
+            pygame.mixer.music.set_volume(0.9)
+            pygame.mixer.music.play(-1)  # Loop indefinitely
+            print("Playing Final song for credits...")
+        except:
+            print("Warning: Could not load Final.mp3")
+    
     def update(self, in_menu=False):
         """Check if music finished and play next track
         
         Args:
             in_menu: True if currently in a menu state, False if in gameplay
         """
-        if not self.music_enabled or self.game_over_mode:
+        if not self.music_enabled or self.game_over_mode or self.silent_mode:
             return
         
         if not pygame.mixer.music.get_busy():
