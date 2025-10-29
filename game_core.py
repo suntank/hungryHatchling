@@ -499,6 +499,69 @@ class Spewtum:
             offset_y_adjust = frame.get_height() // 2
             screen.blit(frame, (int(self.pixel_x - offset_x), int(self.pixel_y - offset_y_adjust + offset_y)))
 
+class ScorpionStinger:
+    """Stinger projectile fired by scorpion - travels in a straight line across the entire level"""
+    def __init__(self, grid_x, grid_y, direction, frames):
+        self.grid_x = grid_x
+        self.grid_y = grid_y
+        self.direction = direction  # Direction enum (UP, DOWN, LEFT, RIGHT)
+        self.alive = True
+        
+        # Visual properties for smooth movement
+        self.pixel_x = grid_x * GRID_SIZE
+        self.pixel_y = grid_y * GRID_SIZE
+        self.speed = 12  # Pixels per frame (very fast projectile)
+        
+        # Animation
+        self.frames = frames if frames else []
+        self.frame_index = 0
+        self.frame_counter = 0
+        self.frame_speed = 2  # Frames per animation frame
+    
+    def update(self):
+        """Update stinger position"""
+        if not self.alive:
+            return
+        
+        # Move in pixel space
+        dx, dy = self.direction.value
+        self.pixel_x += dx * self.speed
+        self.pixel_y += dy * self.speed
+        
+        # Update grid position
+        self.grid_x = int(self.pixel_x / GRID_SIZE)
+        self.grid_y = int(self.pixel_y / GRID_SIZE)
+        
+        # Check if out of bounds
+        if (self.grid_x < 0 or self.grid_x >= GRID_WIDTH or 
+            self.grid_y < 0 or self.grid_y >= GRID_HEIGHT):
+            self.alive = False
+        
+        # Update animation
+        if self.frames:
+            self.frame_counter += 1
+            if self.frame_counter >= self.frame_speed:
+                self.frame_counter = 0
+                self.frame_index = (self.frame_index + 1) % len(self.frames)
+    
+    def draw(self, screen, offset_y=0):
+        """Draw the stinger"""
+        if self.alive and self.frames and self.frame_index < len(self.frames):
+            frame = self.frames[self.frame_index]
+            # Rotate frame based on direction
+            if self.direction == Direction.UP:
+                frame = pygame.transform.rotate(frame, 90)
+            elif self.direction == Direction.DOWN:
+                frame = pygame.transform.rotate(frame, -90)
+            elif self.direction == Direction.LEFT:
+                frame = pygame.transform.rotate(frame, 180)
+            # Direction.RIGHT needs no rotation (default)
+            
+            # Center the sprite on the position
+            offset_x = frame.get_width() // 2
+            offset_y_adjust = frame.get_height() // 2
+            screen.blit(frame, (int(self.pixel_x - offset_x), int(self.pixel_y - offset_y_adjust + offset_y)))
+
 class Snake:
     """Snake game logic"""
     def __init__(self, player_id=0):
@@ -633,11 +696,14 @@ class Enemy:
         self.enemy_type = enemy_type
         self.alive = True
         
-        # Movement properties
+        # Movement properties (default for all enemies)
         self.previous_x = x
         self.previous_y = y
         self.move_timer = 0  # For interpolation
         self.angle = 0  # Direction the enemy is facing (0=right, 90=down, 180=left, 270=up)
+        self.is_moving = False  # Default to stationary
+        self.target_x = x
+        self.target_y = y
         
         # Animation properties
         self.animation_frame = 0  # Current frame of animation
@@ -680,6 +746,22 @@ class Enemy:
             self.health = 3  # Takes 3 hits to destroy
             self.is_moving = False
             self.is_destroyable = True  # Can be destroyed by bullets
+        
+        # Scorpion-specific properties (large 64x64 enemy with ranged attack)
+        if enemy_type.startswith('enemy_scorpion'):
+            self.move_cooldown = 0  # Counts turns until next move (moves every 4-5 turns, slower than ants)
+            self.rotation_delay = 0  # Delay before actual movement
+            self.target_angle = 0  # The angle to rotate to before moving
+            self.target_x = x
+            self.target_y = y
+            self.is_rotating = False
+            self.is_moving = False
+            self.size = 2  # 2x2 grid cells (64x64 pixels)
+            # Attack properties
+            self.attack_cooldown = 0  # Cooldown between attacks
+            self.attack_charge_time = 0  # Time spent charging attack
+            self.is_attacking = False  # Currently in attack animation
+            self.attack_direction = Direction.RIGHT  # Direction to fire stinger
     
     def update(self, snake_body, level_walls, collectibles):
         """Update enemy behavior based on type"""
@@ -690,6 +772,8 @@ class Enemy:
             self._update_ant(snake_body, level_walls, collectibles)
         elif self.enemy_type.startswith('enemy_spider'):
             self._update_spider(snake_body, level_walls, collectibles)
+        elif self.enemy_type.startswith('enemy_scorpion'):
+            self._update_scorpion(snake_body, level_walls, collectibles)
         elif self.enemy_type.startswith('enemy_wasp'):
             self._update_wasp(snake_body, level_walls, collectibles)
         elif self.enemy_type == 'enemy_wall':
@@ -892,6 +976,150 @@ class Enemy:
         self.is_rotating = True
         self.rotation_delay = 1  # Very fast rotation (1 frame, faster than ants)
     
+    def _update_scorpion(self, snake_body, level_walls, collectibles):
+        """Scorpion AI: large 64x64 enemy that moves slowly and fires ranged stinger attacks
+        The scorpion detects the player and fires a stinger in the direction it's facing"""
+        snake_head = snake_body[0] if snake_body else None
+        
+        # Handle attack charging
+        if self.is_attacking:
+            self.attack_charge_time += 1
+            # Attack animation lasts 30 frames (0.5 seconds at 60 FPS)
+            if self.attack_charge_time >= 30:
+                self.is_attacking = False
+                self.attack_charge_time = 0
+                self.attack_cooldown = random.randint(180, 300)  # 3-5 seconds between attacks
+            return
+        
+        # Handle rotation delay
+        if self.is_rotating:
+            if self.rotation_delay > 0:
+                self.rotation_delay -= 1
+                # Smoothly rotate to target angle
+                angle_diff = self.target_angle - self.angle
+                if abs(angle_diff) > 180:
+                    if angle_diff > 0:
+                        angle_diff -= 360
+                    else:
+                        angle_diff += 360
+                self.angle += angle_diff * 0.2  # Slow rotation
+                self.angle = self.angle % 360
+            else:
+                # Rotation complete, start moving
+                self.angle = self.target_angle
+                self.is_rotating = False
+                self.is_moving = True
+                self.move_timer = 0
+                self.previous_x = self.grid_x
+                self.previous_y = self.grid_y
+            return
+        
+        # Handle movement interpolation (slower than ants - 15 frames)
+        if self.is_moving:
+            self.move_timer += 1
+            if self.move_timer >= 15:  # Full movement complete in 15 frames (slower than ants)
+                self.grid_x = self.target_x
+                self.grid_y = self.target_y
+                self.move_timer = 0
+                self.is_moving = False
+                self.move_cooldown = random.randint(4, 5)  # Reset cooldown (4-5 turns, slower than ants)
+                # Stop animation and return to frame 0
+                self.animation_frame = 0
+                self.animation_counter = 0
+            return
+        
+        # Check if can attack (cooldown finished and player is visible)
+        if self.attack_cooldown <= 0 and snake_head:
+            # Check if player is in line of sight (same row or column)
+            can_see_player = False
+            attack_dir = None
+            
+            if self.grid_y == snake_head[1]:  # Same row
+                if snake_head[0] > self.grid_x:
+                    can_see_player = True
+                    attack_dir = Direction.RIGHT
+                elif snake_head[0] < self.grid_x:
+                    can_see_player = True
+                    attack_dir = Direction.LEFT
+            elif self.grid_x == snake_head[0]:  # Same column
+                if snake_head[1] > self.grid_y:
+                    can_see_player = True
+                    attack_dir = Direction.DOWN
+                elif snake_head[1] < self.grid_y:
+                    can_see_player = True
+                    attack_dir = Direction.UP
+            
+            # Attack if player is visible
+            if can_see_player and attack_dir:
+                self.is_attacking = True
+                self.attack_charge_time = 0
+                self.attack_direction = attack_dir
+                # Update angle to face attack direction
+                angle_map = {Direction.RIGHT: 0, Direction.DOWN: 90, Direction.LEFT: 180, Direction.UP: 270}
+                self.angle = angle_map[attack_dir]
+                return  # Don't move while attacking
+        
+        # Count down cooldowns
+        if self.attack_cooldown > 0:
+            self.attack_cooldown -= 1
+        
+        if self.move_cooldown > 0:
+            self.move_cooldown -= 1
+            return
+        
+        # Time to choose a new direction and move
+        self._choose_scorpion_move(snake_body, level_walls, collectibles)
+    
+    def _choose_scorpion_move(self, snake_body, level_walls, collectibles):
+        """Choose a random adjacent square for scorpion to move to"""
+        # Get all adjacent positions
+        adjacent = [
+            (self.grid_x, self.grid_y - 1, 270),  # Up
+            (self.grid_x, self.grid_y + 1, 90),   # Down
+            (self.grid_x - 1, self.grid_y, 180),  # Left
+            (self.grid_x + 1, self.grid_y, 0)     # Right
+        ]
+        
+        # Filter out invalid moves (walls, collectibles, out of bounds)
+        valid_moves = []
+        for new_x, new_y, angle in adjacent:
+            # Check bounds (scorpion is 2x2, so need extra space)
+            if new_x < 0 or new_x >= GRID_WIDTH - 1 or new_y < 0 or new_y >= GRID_HEIGHT - 1:
+                continue
+            
+            # Check walls (scorpion occupies 2x2 grid)
+            blocked = False
+            for dx in range(2):
+                for dy in range(2):
+                    check_pos = (new_x + dx, new_y + dy)
+                    if check_pos in level_walls:
+                        blocked = True
+                        break
+                    # Check collectibles
+                    if any(pos == check_pos for pos, _ in collectibles):
+                        blocked = True
+                        break
+                if blocked:
+                    break
+            
+            if blocked:
+                continue
+            
+            # This position is valid (even if snake is there)
+            valid_moves.append((new_x, new_y, angle))
+        
+        # If no valid moves, stay in place
+        if not valid_moves:
+            self.move_cooldown = random.randint(4, 5)
+            return
+        
+        # Choose a random valid move
+        self.target_x, self.target_y, self.target_angle = random.choice(valid_moves)
+        
+        # Start rotation phase
+        self.is_rotating = True
+        self.rotation_delay = 5  # Slow rotation (5 frames)
+    
     def _update_wasp(self, snake_body, level_walls, collectibles):
         """Wasp AI: continuously moves in a direction, only turns when hitting walls
         Faster than spiders, ignores player body, cannot be killed, always drawn on top"""
@@ -999,11 +1227,13 @@ class Enemy:
     def get_render_position(self):
         """Get interpolated position for rendering"""
         if self.is_moving:
-            # Wasps move in 3 frames, spiders in 5 frames, ants in 10 frames
+            # Wasps move in 3 frames, spiders in 5 frames, ants in 10 frames, scorpions in 15 frames
             if self.enemy_type.startswith('enemy_wasp'):
                 progress = self.move_timer / 3.0
             elif self.enemy_type.startswith('enemy_spider'):
                 progress = self.move_timer / 5.0
+            elif self.enemy_type.startswith('enemy_scorpion'):
+                progress = self.move_timer / 15.0
             else:
                 progress = self.move_timer / 10.0  # Ants and other enemies
             render_x = self.previous_x + (self.target_x - self.previous_x) * progress
@@ -1021,20 +1251,33 @@ class Enemy:
         # When moving, check collision with target position (early detection)
         # This prevents the ant from completing its full movement animation before dying
         if self.is_moving:
-            check_pos = (self.target_x, self.target_y)
+            base_x, base_y = self.target_x, self.target_y
         else:
-            check_pos = (self.grid_x, self.grid_y)
+            base_x, base_y = self.grid_x, self.grid_y
+        
+        # For scorpions (2x2), check all 4 grid cells
+        if self.enemy_type.startswith('enemy_scorpion'):
+            check_positions = [
+                (base_x, base_y),
+                (base_x + 1, base_y),
+                (base_x, base_y + 1),
+                (base_x + 1, base_y + 1)
+            ]
+        else:
+            check_positions = [(base_x, base_y)]
         
         # Check collision with snake head
-        if check_pos == snake_head:
-            return 'head'
+        for check_pos in check_positions:
+            if check_pos == snake_head:
+                return 'head'
         
         # Wasps ignore snake body (they fly over it) and cannot be killed
         if self.enemy_type.startswith('enemy_wasp'):
             return None  # Wasp only collides with head, never with body
         
         # Check collision with snake body (excluding head) for non-wasp enemies
-        if check_pos in snake_body[1:]:
-            return 'body'
+        for check_pos in check_positions:
+            if check_pos in snake_body[1:]:
+                return 'body'
         
         return None

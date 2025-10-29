@@ -452,6 +452,67 @@ class SnakeGame:
             self.wasp_frames = []
             print("Warning: wasp.gif not found or could not be loaded: {}".format(e))
         
+        # Load scorpion enemy animation (GIF) - 64x64 size for large enemy
+        try:
+            from PIL import Image
+            scorpion_path = os.path.join(SCRIPT_DIR, 'img', 'scorpion.gif')
+            self.scorpion_frames = []
+            
+            # Load GIF frames using PIL
+            gif = Image.open(scorpion_path)
+            frame_count = 0
+            try:
+                while True:
+                    # Convert PIL image to pygame surface
+                    frame = gif.copy().convert('RGBA')
+                    pygame_frame = pygame.image.frombytes(
+                        frame.tobytes(), frame.size, frame.mode
+                    ).convert_alpha()
+                    # Scale to 64x64 (2x grid size for large enemy)
+                    pygame_frame = pygame.transform.scale(pygame_frame, (GRID_SIZE * 2, GRID_SIZE * 2))
+                    self.scorpion_frames.append(pygame_frame)
+                    frame_count += 1
+                    gif.seek(frame_count)
+            except EOFError:
+                pass  # End of frames
+            
+            self.scorpion_frame_index = 0
+            self.scorpion_animation_speed = 1  # Change frame every N game frames
+            self.scorpion_animation_counter = 0
+            print("Loaded {} frames for scorpion animation".format(len(self.scorpion_frames)))
+        except Exception as e:
+            self.scorpion_frames = []
+            print("Warning: scorpion.gif not found or could not be loaded: {}".format(e))
+        
+        # Load scorpion attack animation (GIF) - projectile stinger
+        try:
+            from PIL import Image
+            scorpion_attack_path = os.path.join(SCRIPT_DIR, 'img', 'scorpionAttack.gif')
+            self.scorpion_attack_frames = []
+            
+            # Load GIF frames using PIL
+            gif = Image.open(scorpion_attack_path)
+            frame_count = 0
+            try:
+                while True:
+                    # Convert PIL image to pygame surface
+                    frame = gif.copy().convert('RGBA')
+                    pygame_frame = pygame.image.frombytes(
+                        frame.tobytes(), frame.size, frame.mode
+                    ).convert_alpha()
+                    # Scale to fit grid size (projectile is normal sized)
+                    pygame_frame = pygame.transform.scale(pygame_frame, (GRID_SIZE, GRID_SIZE))
+                    self.scorpion_attack_frames.append(pygame_frame)
+                    frame_count += 1
+                    gif.seek(frame_count)
+            except EOFError:
+                pass  # End of frames
+            
+            print("Loaded {} frames for scorpion attack animation".format(len(self.scorpion_attack_frames)))
+        except Exception as e:
+            self.scorpion_attack_frames = []
+            print("Warning: scorpionAttack.gif not found or could not be loaded: {}".format(e))
+        
         # Load boss animations
         self.boss_animations = {}
         boss_anim_names = ['wormBossEmerges', 'wormBossIdle', 'wormBossAttack', 'wormBossDeath1', 'wormBossDeath3']
@@ -661,6 +722,7 @@ class SnakeGame:
         self.particles = []
         self.egg_pieces = []  # Track flying egg shell pieces
         self.bullets = []  # Track player bullets from isotope ability
+        self.scorpion_stingers = []  # Track scorpion projectiles
         self.game_over_timer = 0
         self.game_over_delay = 180  # 3 seconds at 60 FPS
         self.multiplayer_end_timer = 0  # Timer for delay after last player dies in multiplayer
@@ -1973,6 +2035,41 @@ class SnakeGame:
         for bullet in self.bullets:
             bullet.update()
         
+        # Update scorpion stingers
+        self.scorpion_stingers = [s for s in self.scorpion_stingers if s.alive]
+        for stinger in self.scorpion_stingers:
+            stinger.update()
+        
+        # Check scorpion stinger collisions with player
+        for stinger in self.scorpion_stingers:
+            if not stinger.alive:
+                continue
+            
+            stinger_pos = (stinger.grid_x, stinger.grid_y)
+            
+            # Check if stinger hit player snake
+            if stinger_pos in self.snake.body:
+                # Player hit by stinger - dies
+                stinger.alive = False
+                self.sound_manager.play('die')
+                self.lives -= 1
+                
+                # Spawn white particles on all snake body segments
+                for segment_x, segment_y in self.snake.body:
+                    self.create_particles(segment_x * GRID_SIZE + GRID_SIZE // 2,
+                                        segment_y * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y, 
+                                        None, None, particle_type='white')
+                
+                if self.lives < 0:
+                    self.sound_manager.play('no_lives')
+                    self.music_manager.play_game_over_music()
+                    self.state = GameState.GAME_OVER
+                    self.game_over_timer = self.game_over_delay
+                else:
+                    # Go to egg hatching state for respawn
+                    self.state = GameState.EGG_HATCHING
+                break  # Don't check more stingers this frame
+        
         # Check bullet collisions with boss minions
         if self.boss_active and hasattr(self, 'boss_minions') and self.boss_minions:
             for bullet in self.bullets:
@@ -2319,9 +2416,24 @@ class SnakeGame:
                             elif enemy.enemy_type.startswith('enemy_spider') and self.spider_frames:
                                 # Spiders only animate when moving
                                 enemy.update_animation(len(self.spider_frames), self.spider_animation_speed)
+                            elif enemy.enemy_type.startswith('enemy_scorpion') and self.scorpion_frames:
+                                # Scorpions only animate when moving
+                                enemy.update_animation(len(self.scorpion_frames), self.scorpion_animation_speed)
                             elif enemy.enemy_type.startswith('enemy_wasp') and self.wasp_frames:
                                 # Wasps animate freely every frame (rapid wing flapping)
                                 enemy.animation_frame = (enemy.animation_frame + 1) % len(self.wasp_frames)
+                            
+                            # Check if scorpion should fire stinger (when attack_charge_time hits 15, halfway through attack)
+                            if enemy.enemy_type.startswith('enemy_scorpion') and enemy.is_attacking and enemy.attack_charge_time == 15:
+                                # Spawn stinger projectile from scorpion's center
+                                from game_core import ScorpionStinger
+                                stinger = ScorpionStinger(
+                                    enemy.grid_x + 1,  # Center of 2x2 scorpion
+                                    enemy.grid_y + 1,
+                                    enemy.attack_direction,
+                                    self.scorpion_attack_frames
+                                )
+                                self.scorpion_stingers.append(stinger)
                             
                             # Check collision with snake
                             collision_type = enemy.check_collision_with_snake(self.snake.body[0], self.snake.body)
@@ -3403,6 +3515,7 @@ class SnakeGame:
             self.boss_minion_respawn_timers = {}
             self.spewtums = []
             self.bullets = []
+            self.scorpion_stingers = []
             self.boss_damage_flash = 0
             self.boss_damage_sound_cooldown = 0
             self.boss_death_phase = 0
@@ -4769,6 +4882,10 @@ class SnakeGame:
             # Draw inner bright core
             pygame.draw.circle(self.screen, WHITE, (bullet_x, bullet_y), 3)
         
+        # Draw scorpion stingers
+        for stinger in self.scorpion_stingers:
+            stinger.draw(self.screen, GAME_OFFSET_Y)
+        
         # Draw spewtum projectiles
         for spewtum in self.spewtums:
             spewtum.draw(self.screen, GAME_OFFSET_Y)
@@ -4807,19 +4924,33 @@ class SnakeGame:
                     else:
                         # Draw enemy using sprite if available
                         enemy_frames = None
+                        is_scorpion = False
                         if enemy.enemy_type.startswith('enemy_ant') and self.ant_frames:
                             enemy_frames = self.ant_frames
                         elif enemy.enemy_type.startswith('enemy_spider') and self.spider_frames:
                             enemy_frames = self.spider_frames
+                        elif enemy.enemy_type.startswith('enemy_scorpion') and self.scorpion_frames:
+                            # Scorpion is 2x2 grid (64x64 pixels), use attack animation if attacking
+                            if enemy.is_attacking:
+                                enemy_frames = self.scorpion_frames  # Can switch to attack frames later if desired
+                            else:
+                                enemy_frames = self.scorpion_frames
+                            is_scorpion = True
                         
                         if enemy_frames:
                             enemy_img = enemy_frames[enemy.animation_frame]
                             # Rotate sprite to match direction (angle: 0=right, 90=down, 180=left, 270=up)
                             # pygame.transform.rotate rotates counter-clockwise, so negate the angle
                             rotated_img = pygame.transform.rotate(enemy_img, -enemy.angle)
+                            
                             # Get rect to center the rotated image on the grid position
-                            img_rect = rotated_img.get_rect(center=(int(render_x * GRID_SIZE + GRID_SIZE // 2), 
-                                                                     int(render_y * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y)))
+                            # Scorpions are 2x2 grid (64x64), so center at (x+1, y+1)
+                            if is_scorpion:
+                                img_rect = rotated_img.get_rect(center=(int(render_x * GRID_SIZE + GRID_SIZE), 
+                                                                         int(render_y * GRID_SIZE + GRID_SIZE + GAME_OFFSET_Y)))
+                            else:
+                                img_rect = rotated_img.get_rect(center=(int(render_x * GRID_SIZE + GRID_SIZE // 2), 
+                                                                         int(render_y * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y)))
                             self.screen.blit(rotated_img, img_rect)
                         else:
                             # Fallback to circle rendering if no sprite
