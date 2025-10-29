@@ -73,6 +73,10 @@ class GameState(Enum):
     SINGLE_PLAYER_MENU = 12
     ADVENTURE_LEVEL_SELECT = 13
     CREDITS = 14
+    EXTRAS_MENU = 15
+    ACHIEVEMENTS = 16
+    MUSIC_PLAYER = 17
+    LEVEL_EDITOR_MENU = 18
 
 # Difficulty modes
 class Difficulty(Enum):
@@ -263,6 +267,13 @@ class MusicManager:
                 pygame.mixer.music.play(-1)  # Loop indefinitely
             except:
                 print("Warning: Could not load Theme.mp3")
+    
+    def stop_theme(self):
+        """Stop the theme music"""
+        if self.theme_mode:
+            pygame.mixer.music.stop()
+            self.theme_mode = False
+            self.current_track = None
     
     def play_next(self):
         """Play a random track that's different from the last one"""

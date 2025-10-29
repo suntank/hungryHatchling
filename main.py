@@ -129,6 +129,24 @@ class SnakeGame:
             self.tweetrix_logo = None
             print("Warning: Tweetrix.png not found")
         
+        # Load lock icon for locked content
+        try:
+            lock_path = os.path.join(SCRIPT_DIR, 'img', 'lock.png')
+            self.lock_icon = pygame.image.load(lock_path).convert_alpha()
+            self.lock_icon = pygame.transform.scale(self.lock_icon, (20, 20))
+        except:
+            self.lock_icon = None
+            print("Warning: lock.png not found")
+        
+        # Load hatchling head icon for selected music tracks
+        try:
+            hatchling_path = os.path.join(SCRIPT_DIR, 'img', 'HatchlingHead1.gif')
+            self.hatchling_head_icon = pygame.image.load(hatchling_path).convert_alpha()
+            self.hatchling_head_icon = pygame.transform.scale(self.hatchling_head_icon, (20, 20))
+        except:
+            self.hatchling_head_icon = None
+            print("Warning: HatchlingHead1.gif not found")
+        
         # Load multiplayer setup background
         try:
             multi_bg_path = os.path.join(SCRIPT_DIR, 'img', 'bg', 'multiBG.png')
@@ -762,11 +780,26 @@ class SnakeGame:
         ]
         
         self.menu_selection = 0
-        self.menu_options = ["Single Player", "Multiplayer", "High Scores", "Quit"]
+        self.menu_options = ["Single Player", "Multiplayer", "Extras", "Quit"]
         
         # Single player submenu
         self.single_player_selection = 0
         self.single_player_options = ["Adventure", "Endless", "Back"]
+        
+        # Extras menu
+        self.extras_menu_selection = 0
+        self.extras_menu_options = ["Achievements", "Music Player", "Level Editor", "Credits", "Back"]
+        
+        # Music Player
+        self.music_player_tracks = []
+        self.music_player_selection = 0
+        self.music_player_playing = False
+        self.music_player_current_track = None
+        self.load_music_tracks()
+        
+        # Game Unlocks (for music, achievements, etc.)
+        self.game_unlocks = {}
+        self.load_game_unlocks()
         
         # Adventure mode
         self.game_mode = "endless"  # "endless" or "adventure"
@@ -803,6 +836,73 @@ class SnakeGame:
                 json.dump(self.high_scores, f)
         except:
             pass
+    
+    def load_music_tracks(self):
+        """Load all music tracks from the sound/music directory."""
+        music_dir = os.path.join(SCRIPT_DIR, 'sound', 'music')
+        if os.path.exists(music_dir):
+            # Get all mp3 files
+            files = [f for f in os.listdir(music_dir) if f.endswith('.mp3')]
+            # Sort them alphabetically
+            files.sort()
+            # Store as tuples of (display_name, full_path, filename)
+            for filename in files:
+                # Remove .mp3 extension for display
+                display_name = filename[:-4]
+                full_path = os.path.join(music_dir, filename)
+                self.music_player_tracks.append((display_name, full_path, filename))
+    
+    def load_game_unlocks(self):
+        """Load game unlocks from JSON file."""
+        try:
+            unlocks_path = os.path.join(SCRIPT_DIR, 'game_unlocks.json')
+            if os.path.exists(unlocks_path):
+                with open(unlocks_path, 'r') as f:
+                    self.game_unlocks = json.load(f)
+            else:
+                # Create default unlocks if file doesn't exist
+                self.game_unlocks = {"music": {}}
+                self.save_game_unlocks()
+        except Exception as e:
+            print(f"Warning: Could not load game_unlocks.json: {e}")
+            self.game_unlocks = {"music": {}}
+    
+    def save_game_unlocks(self):
+        """Save game unlocks to JSON file."""
+        try:
+            unlocks_path = os.path.join(SCRIPT_DIR, 'game_unlocks.json')
+            with open(unlocks_path, 'w') as f:
+                json.dump(self.game_unlocks, f, indent=2)
+        except Exception as e:
+            print(f"Warning: Could not save game_unlocks.json: {e}")
+    
+    def is_music_unlocked(self, filename):
+        """Check if a music track is unlocked."""
+        if 'music' not in self.game_unlocks:
+            return True
+        if filename not in self.game_unlocks['music']:
+            return True
+        return self.game_unlocks['music'][filename].get('unlocked', True)
+    
+    def get_music_cost(self, filename):
+        """Get the coin cost of a music track."""
+        if 'music' not in self.game_unlocks:
+            return 0
+        if filename not in self.game_unlocks['music']:
+            return 0
+        return self.game_unlocks['music'][filename].get('cost', 0)
+    
+    def unlock_music(self, filename):
+        """Unlock a music track by spending coins."""
+        cost = self.get_music_cost(filename)
+        if self.total_coins >= cost:
+            self.total_coins -= cost
+            if 'music' in self.game_unlocks and filename in self.game_unlocks['music']:
+                self.game_unlocks['music'][filename]['unlocked'] = True
+                self.save_game_unlocks()
+                self.save_unlocked_levels()  # Save updated coin count
+                return True
+        return False
     
     def add_high_score(self, name, score):
         self.high_scores.append({'name': name, 'score': score})
@@ -2925,6 +3025,28 @@ class SnakeGame:
                             self.sound_manager.play('blip_select')
                             self.axis_was_neutral = False
                 
+                elif self.state == GameState.EXTRAS_MENU:
+                    if self.axis_was_neutral and abs(axis_y) > threshold:
+                        if axis_y < -threshold:
+                            self.extras_menu_selection = (self.extras_menu_selection - 1) % len(self.extras_menu_options)
+                            self.sound_manager.play('blip_select')
+                            self.axis_was_neutral = False
+                        elif axis_y > threshold:
+                            self.extras_menu_selection = (self.extras_menu_selection + 1) % len(self.extras_menu_options)
+                            self.sound_manager.play('blip_select')
+                            self.axis_was_neutral = False
+                
+                elif self.state == GameState.MUSIC_PLAYER:
+                    if self.axis_was_neutral and abs(axis_y) > threshold:
+                        if axis_y < -threshold:
+                            self.music_player_selection = (self.music_player_selection - 1) % len(self.music_player_tracks)
+                            self.sound_manager.play('blip_select')
+                            self.axis_was_neutral = False
+                        elif axis_y > threshold:
+                            self.music_player_selection = (self.music_player_selection + 1) % len(self.music_player_tracks)
+                            self.sound_manager.play('blip_select')
+                            self.axis_was_neutral = False
+                
                 elif self.state == GameState.ADVENTURE_LEVEL_SELECT:
                     if self.axis_was_neutral:
                         # Grid navigation (8 columns)
@@ -3018,6 +3140,18 @@ class SnakeGame:
                 elif event.key == pygame.K_ESCAPE:
                     self.sound_manager.play('blip_select')
                     self.state = GameState.MENU
+            elif self.state == GameState.EXTRAS_MENU:
+                if event.key == pygame.K_UP:
+                    self.extras_menu_selection = (self.extras_menu_selection - 1) % len(self.extras_menu_options)
+                    self.sound_manager.play('blip_select')
+                elif event.key == pygame.K_DOWN:
+                    self.extras_menu_selection = (self.extras_menu_selection + 1) % len(self.extras_menu_options)
+                    self.sound_manager.play('blip_select')
+                elif event.key == pygame.K_RETURN:
+                    self.select_extras_option()
+                elif event.key == pygame.K_ESCAPE:
+                    self.sound_manager.play('blip_select')
+                    self.state = GameState.MENU
             elif self.state == GameState.ADVENTURE_LEVEL_SELECT:
                 cols = 8
                 if event.key == pygame.K_LEFT:
@@ -3105,12 +3239,43 @@ class SnakeGame:
                     else:
                         self.next_level()
             elif self.state == GameState.CREDITS:
-                if event.key == pygame.K_RETURN:
-                    # Return to level select menu after credits
-                    self.reset_game()
-                    self.state = GameState.ADVENTURE_LEVEL_SELECT
+                if event.key == pygame.K_RETURN or event.key == pygame.K_ESCAPE:
+                    # Return to extras menu if accessed from there
+                    self.sound_manager.play('blip_select')
+                    self.state = GameState.EXTRAS_MENU
                     # Play theme music
+                    if not self.music_manager.theme_mode:
+                        self.music_manager.play_theme()
+            elif self.state == GameState.ACHIEVEMENTS:
+                if event.key == pygame.K_RETURN or event.key == pygame.K_ESCAPE:
+                    self.sound_manager.play('blip_select')
+                    self.state = GameState.EXTRAS_MENU
+            elif self.state == GameState.MUSIC_PLAYER:
+                if event.key == pygame.K_UP:
+                    self.music_player_selection = (self.music_player_selection - 1) % len(self.music_player_tracks)
+                    self.sound_manager.play('blip_select')
+                elif event.key == pygame.K_DOWN:
+                    self.music_player_selection = (self.music_player_selection + 1) % len(self.music_player_tracks)
+                    self.sound_manager.play('blip_select')
+                elif event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
+                    # Play/Pause or select track
+                    self.toggle_music_player_track()
+                elif event.key == pygame.K_LEFT:
+                    # Previous track
+                    self.music_player_previous_track()
+                elif event.key == pygame.K_RIGHT:
+                    # Next track
+                    self.music_player_next_track()
+                elif event.key == pygame.K_ESCAPE:
+                    self.sound_manager.play('blip_select')
+                    self.state = GameState.EXTRAS_MENU
+                    # Stop music player and resume theme
+                    self.music_player_stop()
                     self.music_manager.play_theme()
+            elif self.state == GameState.LEVEL_EDITOR_MENU:
+                if event.key == pygame.K_RETURN or event.key == pygame.K_ESCAPE:
+                    self.sound_manager.play('blip_select')
+                    self.state = GameState.EXTRAS_MENU
             elif self.state == GameState.HIGH_SCORE_ENTRY:
                 self.handle_high_score_keyboard(event)
             elif self.state == GameState.HIGH_SCORES:
@@ -3192,6 +3357,12 @@ class SnakeGame:
                 elif button == GamepadButton.BTN_B:
                     self.sound_manager.play('blip_select')
                     self.state = GameState.MENU
+            elif self.state == GameState.EXTRAS_MENU:
+                if button == GamepadButton.BTN_START or button == GamepadButton.BTN_A:
+                    self.select_extras_option()
+                elif button == GamepadButton.BTN_B:
+                    self.sound_manager.play('blip_select')
+                    self.state = GameState.MENU
             elif self.state == GameState.ADVENTURE_LEVEL_SELECT:
                 if button == GamepadButton.BTN_START or button == GamepadButton.BTN_A:
                     level_num = self.adventure_level_selection + 1
@@ -3239,12 +3410,37 @@ class SnakeGame:
                     else:
                         self.next_level()
             elif self.state == GameState.CREDITS:
-                if button == GamepadButton.BTN_START:
-                    # Return to level select menu after credits
-                    self.reset_game()
-                    self.state = GameState.ADVENTURE_LEVEL_SELECT
+                if button == GamepadButton.BTN_START or button == GamepadButton.BTN_B:
+                    # Return to extras menu
+                    self.sound_manager.play('blip_select')
+                    self.state = GameState.EXTRAS_MENU
                     # Play theme music
+                    if not self.music_manager.theme_mode:
+                        self.music_manager.play_theme()
+            elif self.state == GameState.ACHIEVEMENTS:
+                if button == GamepadButton.BTN_START or button == GamepadButton.BTN_B:
+                    self.sound_manager.play('blip_select')
+                    self.state = GameState.EXTRAS_MENU
+            elif self.state == GameState.MUSIC_PLAYER:
+                if button == GamepadButton.BTN_A:
+                    # Play/Pause or select track
+                    self.toggle_music_player_track()
+                elif button == GamepadButton.BTN_L:
+                    # Previous track
+                    self.music_player_previous_track()
+                elif button == GamepadButton.BTN_R:
+                    # Next track
+                    self.music_player_next_track()
+                elif button == GamepadButton.BTN_START or button == GamepadButton.BTN_B:
+                    self.sound_manager.play('blip_select')
+                    self.state = GameState.EXTRAS_MENU
+                    # Stop music player and resume theme
+                    self.music_player_stop()
                     self.music_manager.play_theme()
+            elif self.state == GameState.LEVEL_EDITOR_MENU:
+                if button == GamepadButton.BTN_START or button == GamepadButton.BTN_B:
+                    self.sound_manager.play('blip_select')
+                    self.state = GameState.EXTRAS_MENU
             elif self.state == GameState.HIGH_SCORE_ENTRY:
                 if button == GamepadButton.BTN_A:
                     self.use_onscreen_keyboard()
@@ -3403,8 +3599,10 @@ class SnakeGame:
             self.state = GameState.MULTIPLAYER_MENU
             self.multiplayer_menu_selection = 0
         elif self.menu_selection == 2:
-            # High Scores
-            self.state = GameState.HIGH_SCORES
+            # Extras - Go to extras menu
+            self.sound_manager.play('blip_select')
+            self.state = GameState.EXTRAS_MENU
+            self.extras_menu_selection = 0
         elif self.menu_selection == 3:
             # Quit
             pygame.quit()
@@ -3429,6 +3627,141 @@ class SnakeGame:
             # Back to main menu
             self.sound_manager.play('blip_select')
             self.state = GameState.MENU
+    
+    def select_extras_option(self):
+        """Handle extras submenu selection"""
+        if self.extras_menu_selection == 0:
+            # Achievements
+            self.sound_manager.play('blip_select')
+            self.state = GameState.ACHIEVEMENTS
+        elif self.extras_menu_selection == 1:
+            # Music Player
+            self.sound_manager.play('blip_select')
+            self.state = GameState.MUSIC_PLAYER
+            # Stop theme music when entering music player
+            self.music_manager.stop_theme()
+        elif self.extras_menu_selection == 2:
+            # Level Editor
+            self.sound_manager.play('blip_select')
+            self.state = GameState.LEVEL_EDITOR_MENU
+        elif self.extras_menu_selection == 3:
+            # Credits
+            self.sound_manager.play('blip_select')
+            self.state = GameState.CREDITS
+        elif self.extras_menu_selection == 4:
+            # Back to main menu
+            self.sound_manager.play('blip_select')
+            self.state = GameState.MENU
+    
+    def toggle_music_player_track(self):
+        """Play or pause the selected track in the music player, or purchase if locked."""
+        if len(self.music_player_tracks) == 0:
+            return
+        
+        selected_track = self.music_player_tracks[self.music_player_selection]
+        track_name, track_path, filename = selected_track
+        
+        # Check if track is locked
+        if not self.is_music_unlocked(filename):
+            # Try to purchase
+            if self.unlock_music(filename):
+                self.sound_manager.play('pickupCoin')
+                # Now play the newly unlocked track
+                pygame.mixer.music.load(track_path)
+                pygame.mixer.music.play()
+                self.music_player_current_track = self.music_player_selection
+                self.music_player_playing = True
+            else:
+                # Not enough coins
+                self.sound_manager.play('blip_select')
+            return
+        
+        # If currently playing
+        if self.music_player_playing:
+            # If clicking the same track, pause it
+            if self.music_player_current_track == self.music_player_selection:
+                pygame.mixer.music.pause()
+                self.music_player_playing = False
+                self.sound_manager.play('blip_select')
+            else:
+                # Different track selected, play it
+                pygame.mixer.music.load(track_path)
+                pygame.mixer.music.play()  # Play once (will auto-advance)
+                self.music_player_current_track = self.music_player_selection
+                self.music_player_playing = True
+                self.sound_manager.play('blip_select')
+        else:
+            # Not playing - check if we're resuming or starting new
+            if self.music_player_current_track == self.music_player_selection:
+                # Resume the paused track
+                pygame.mixer.music.unpause()
+                self.music_player_playing = True
+                self.sound_manager.play('blip_select')
+            else:
+                # Start playing the selected track
+                pygame.mixer.music.load(track_path)
+                pygame.mixer.music.play()  # Play once (will auto-advance)
+                self.music_player_current_track = self.music_player_selection
+                self.music_player_playing = True
+                self.sound_manager.play('blip_select')
+    
+    def music_player_previous_track(self):
+        """Skip to the previous track."""
+        if len(self.music_player_tracks) == 0:
+            return
+        
+        self.music_player_selection = (self.music_player_selection - 1) % len(self.music_player_tracks)
+        self.sound_manager.play('blip_select')
+        
+        # If music is playing, auto-play the new track (only if unlocked)
+        if self.music_player_playing:
+            track_name, track_path, filename = self.music_player_tracks[self.music_player_selection]
+            if self.is_music_unlocked(filename):
+                pygame.mixer.music.load(track_path)
+                pygame.mixer.music.play()  # Play once (will auto-advance)
+                self.music_player_current_track = self.music_player_selection
+            else:
+                # Track is locked, stop playing
+                self.music_player_playing = False
+                pygame.mixer.music.stop()
+    
+    def music_player_next_track(self):
+        """Skip to the next track, finding the next unlocked track if auto-advancing."""
+        if len(self.music_player_tracks) == 0:
+            return
+        
+        # If music is playing (auto-advance), find next unlocked track
+        if self.music_player_playing:
+            start_idx = self.music_player_selection
+            attempts = 0
+            while attempts < len(self.music_player_tracks):
+                self.music_player_selection = (self.music_player_selection + 1) % len(self.music_player_tracks)
+                track_name, track_path, filename = self.music_player_tracks[self.music_player_selection]
+                
+                if self.is_music_unlocked(filename):
+                    # Found an unlocked track, play it
+                    pygame.mixer.music.load(track_path)
+                    pygame.mixer.music.play()  # Play once (will auto-advance)
+                    self.music_player_current_track = self.music_player_selection
+                    self.sound_manager.play('blip_select')
+                    return
+                
+                attempts += 1
+            
+            # No unlocked tracks found, stop playing
+            self.music_player_playing = False
+            pygame.mixer.music.stop()
+        else:
+            # Manual skip, just move selection
+            self.music_player_selection = (self.music_player_selection + 1) % len(self.music_player_tracks)
+            self.sound_manager.play('blip_select')
+    
+    def music_player_stop(self):
+        """Stop the music player."""
+        if self.music_player_playing:
+            pygame.mixer.music.stop()
+            self.music_player_playing = False
+            self.music_player_current_track = None
     
     def load_level(self, level_number):
         """Load a level from JSON file"""
@@ -3840,6 +4173,11 @@ class SnakeGame:
                 
                 # Update music - LEVEL_COMPLETE is a menu state (returning to menus)
                 self.music_manager.update(in_menu=True)
+            elif self.state == GameState.MUSIC_PLAYER:
+                # Auto-advance to next track when current track finishes
+                if self.music_player_playing and not pygame.mixer.music.get_busy():
+                    # Track finished, advance to next
+                    self.music_player_next_track()
             elif self.state == GameState.PLAYING:
                 self.update_game()
             elif self.state == GameState.GAME_OVER:
@@ -3902,6 +4240,14 @@ class SnakeGame:
         elif self.state == GameState.LEVEL_COMPLETE:
             self.draw_game()
             self.draw_level_complete()
+        elif self.state == GameState.EXTRAS_MENU:
+            self.draw_extras_menu()
+        elif self.state == GameState.ACHIEVEMENTS:
+            self.draw_achievements()
+        elif self.state == GameState.MUSIC_PLAYER:
+            self.draw_music_player()
+        elif self.state == GameState.LEVEL_EDITOR_MENU:
+            self.draw_level_editor_menu()
         elif self.state == GameState.CREDITS:
             self.draw_credits()
         elif self.state == GameState.DIFFICULTY_SELECT:
@@ -4115,6 +4461,44 @@ class SnakeGame:
             
             text = self.font_medium.render(option, True, color)
             text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, 277 + i * 55))
+            self.screen.blit(text, text_rect)
+        
+        # Hint text
+        hint_text = self.font_small.render("Press B to go back", True, BLACK)
+        hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+2, 452))
+        self.screen.blit(hint_text, hint_rect)
+        hint_text = self.font_small.render("Press B to go back", True, NEON_PURPLE)
+        hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 450))
+        self.screen.blit(hint_text, hint_rect)
+    
+    def draw_extras_menu(self):
+        """Draw the extras menu."""
+        # Use title screen or background
+        if self.title_screen:
+            self.screen.blit(self.title_screen, (0, 0))
+        elif self.background:
+            self.screen.blit(self.background, (0, 0))
+        else:
+            self.screen.fill(DARK_BG)
+        
+        # Title
+        title = self.font_large.render("EXTRAS", True, BLACK)
+        title_rect = title.get_rect(center=((SCREEN_WIDTH // 2)+3, 78))
+        self.screen.blit(title, title_rect)
+        title = self.font_large.render("EXTRAS", True, NEON_YELLOW)
+        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 75))
+        self.screen.blit(title, title_rect)
+        
+        # Render menu options
+        for i, option in enumerate(self.extras_menu_options):
+            color = NEON_YELLOW if i == self.extras_menu_selection else NEON_CYAN
+            
+            text = self.font_medium.render(option, True, BLACK)
+            text_rect = text.get_rect(center=((SCREEN_WIDTH // 2)+3, 230 + i * 50))
+            self.screen.blit(text, text_rect)
+            
+            text = self.font_medium.render(option, True, color)
+            text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, 227 + i * 50))
             self.screen.blit(text, text_rect)
         
         # Hint text
@@ -5344,6 +5728,284 @@ class SnakeGame:
             hint_text = self.font_small.render("Start to continue", True, NEON_YELLOW)
             hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 + 50))
             self.screen.blit(hint_text, hint_rect)
+    
+    def draw_achievements(self):
+        """Draw the achievements screen."""
+        # Use background
+        if self.background:
+            self.screen.blit(self.background, (0, 0))
+        else:
+            self.screen.fill(DARK_BG)
+        
+        # Title
+        title = self.font_large.render("ACHIEVEMENTS", True, BLACK)
+        title_rect = title.get_rect(center=((SCREEN_WIDTH // 2)+3, 53))
+        self.screen.blit(title, title_rect)
+        title = self.font_large.render("ACHIEVEMENTS", True, NEON_YELLOW)
+        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 50))
+        self.screen.blit(title, title_rect)
+        
+        # Coming soon message
+        msg = self.font_medium.render("Coming Soon!", True, BLACK)
+        msg_rect = msg.get_rect(center=((SCREEN_WIDTH // 2)+2, 242))
+        self.screen.blit(msg, msg_rect)
+        msg = self.font_medium.render("Coming Soon!", True, NEON_CYAN)
+        msg_rect = msg.get_rect(center=(SCREEN_WIDTH // 2, 240))
+        self.screen.blit(msg, msg_rect)
+        
+        # Hint text
+        hint_text = self.font_small.render("Press Start to go back", True, BLACK)
+        hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+2, 452))
+        self.screen.blit(hint_text, hint_rect)
+        hint_text = self.font_small.render("Press Start to go back", True, NEON_PURPLE)
+        hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 450))
+        self.screen.blit(hint_text, hint_rect)
+    
+    def draw_music_player(self):
+        """Draw the music player screen."""
+        # Use background
+        if self.background:
+            self.screen.blit(self.background, (0, 0))
+        else:
+            self.screen.fill(DARK_BG)
+        
+        # Title
+        title = self.font_medium.render("MUSIC PLAYER", True, BLACK)
+        title_rect = title.get_rect(center=((SCREEN_WIDTH // 2)+3, 33))
+        self.screen.blit(title, title_rect)
+        title = self.font_medium.render("MUSIC PLAYER", True, NEON_YELLOW)
+        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 30))
+        self.screen.blit(title, title_rect)
+        
+        # Display total coins at top right
+        coin_display_x = SCREEN_WIDTH - 80
+        coin_display_y = 35
+        
+        # Draw coin icon
+        coin_radius = 10
+        pygame.draw.circle(self.screen, YELLOW, (coin_display_x, coin_display_y), coin_radius)
+        pygame.draw.circle(self.screen, (255, 165, 0), (coin_display_x, coin_display_y), coin_radius, 2)
+        pygame.draw.circle(self.screen, (255, 165, 0), (coin_display_x, coin_display_y), coin_radius - 4, 1)
+        
+        # Draw coin count
+        coins_text = self.font_medium.render(str(getattr(self, 'total_coins', 0)), True, BLACK)
+        coins_rect = coins_text.get_rect(left=coin_display_x + 15, centery=coin_display_y + 2)
+        self.screen.blit(coins_text, coins_rect)
+        
+        coins_text = self.font_medium.render(str(getattr(self, 'total_coins', 0)), True, YELLOW)
+        coins_rect = coins_text.get_rect(left=coin_display_x + 14, centery=coin_display_y)
+        self.screen.blit(coins_text, coins_rect)
+        
+        # Track list
+        if len(self.music_player_tracks) == 0:
+            no_tracks = self.font_medium.render("No tracks found", True, NEON_CYAN)
+            no_tracks_rect = no_tracks.get_rect(center=(SCREEN_WIDTH // 2, 200))
+            self.screen.blit(no_tracks, no_tracks_rect)
+        else:
+            # Display up to 8 tracks at a time
+            start_y = 75
+            spacing = 32
+            visible_tracks = 8
+            
+            # Calculate which tracks to show (center the selection)
+            start_idx = max(0, self.music_player_selection - visible_tracks // 2)
+            end_idx = min(len(self.music_player_tracks), start_idx + visible_tracks)
+            
+            # Adjust start_idx if we're near the end
+            if end_idx - start_idx < visible_tracks:
+                start_idx = max(0, end_idx - visible_tracks)
+            
+            for i in range(start_idx, end_idx):
+                track_name, track_path, filename = self.music_player_tracks[i]
+                y = start_y + (i - start_idx) * spacing
+                is_unlocked = self.is_music_unlocked(filename)
+                cost = self.get_music_cost(filename)
+                
+                # Determine color based on state
+                if not is_unlocked:
+                    # Locked track - gray
+                    color = DARK_GRAY if i != self.music_player_selection else GRAY
+                    prefix = "  "
+                elif i == self.music_player_current_track and self.music_player_playing:
+                    # Currently playing - bright green with play indicator
+                    color = NEON_GREEN
+                    prefix = "► "
+                elif i == self.music_player_current_track and not self.music_player_playing:
+                    # Paused track - orange with pause indicator
+                    color = NEON_ORANGE
+                    prefix = "❚❚ "
+                elif i == self.music_player_selection:
+                    # Selected but not playing - yellow
+                    color = NEON_YELLOW
+                    prefix = "  "
+                else:
+                    # Not selected - cyan
+                    color = NEON_CYAN
+                    prefix = "  "
+                
+                # Draw lock icon for locked tracks
+                if not is_unlocked and self.lock_icon:
+                    self.screen.blit(self.lock_icon, (30, y + 4))
+                # Draw hatchling head icon for selected track
+                elif i == self.music_player_selection and self.hatchling_head_icon:
+                    self.screen.blit(self.hatchling_head_icon, (30, y + 4))
+                
+                # Truncate long track names to make room for cost
+                display_name = track_name
+                max_length = 15 if not is_unlocked else 20
+                if len(display_name) > max_length:
+                    display_name = display_name[:max_length-3] + "..."
+                
+                text = self.font_small.render(prefix + display_name, True, BLACK)
+                text_rect = text.get_rect(left=57, top=y+2)
+                self.screen.blit(text, text_rect)
+                
+                text = self.font_small.render(prefix + display_name, True, color)
+                text_rect = text.get_rect(left=55, top=y)
+                self.screen.blit(text, text_rect)
+                
+                # Draw coin cost for locked tracks
+                if not is_unlocked:
+                    # Draw coin icon
+                    coin_x = SCREEN_WIDTH - 85
+                    coin_y = y + 12
+                    coin_radius = 8
+                    pygame.draw.circle(self.screen, YELLOW, (coin_x, coin_y), coin_radius)
+                    pygame.draw.circle(self.screen, (255, 165, 0), (coin_x, coin_y), coin_radius, 2)
+                    pygame.draw.circle(self.screen, (255, 165, 0), (coin_x, coin_y), coin_radius - 3, 1)
+                    
+                    # Draw cost
+                    cost_text = self.font_small.render(str(cost), True, BLACK)
+                    cost_rect = cost_text.get_rect(left=coin_x + 13, centery=coin_y + 2)
+                    self.screen.blit(cost_text, cost_rect)
+                    
+                    cost_text = self.font_small.render(str(cost), True, YELLOW)
+                    cost_rect = cost_text.get_rect(left=coin_x + 12, centery=coin_y)
+                    self.screen.blit(cost_text, cost_rect)
+        
+        # Control section at bottom
+        controls_y = 350
+        
+        # Current track info
+        if self.music_player_current_track is not None and self.music_player_current_track < len(self.music_player_tracks):
+            current_name = self.music_player_tracks[self.music_player_current_track][0]
+            if len(current_name) > 25:
+                current_name = current_name[:22] + "..."
+            
+            status = "Playing" if self.music_player_playing else "Paused"
+            info_text = f"{status}: {current_name}"
+            
+            info = self.font_small.render(info_text, True, BLACK)
+            info_rect = info.get_rect(center=((SCREEN_WIDTH // 2)+2, controls_y+2))
+            self.screen.blit(info, info_rect)
+            
+            info = self.font_small.render(info_text, True, NEON_GREEN if self.music_player_playing else NEON_ORANGE)
+            info_rect = info.get_rect(center=(SCREEN_WIDTH // 2, controls_y))
+            self.screen.blit(info, info_rect)
+        
+        # Control buttons
+        button_y = 385
+        button_size = 30
+        center_x = SCREEN_WIDTH // 2
+        
+        # Previous button (◄)
+        prev_x = center_x - 80
+        pygame.draw.polygon(self.screen, BLACK, [
+            (prev_x + 3, button_y + button_size // 2 + 3),
+            (prev_x + button_size - 7, button_y + 3),
+            (prev_x + button_size - 7, button_y + button_size + 3)
+        ])
+        pygame.draw.rect(self.screen, NEON_CYAN, (prev_x, button_y, 3, button_size))
+        pygame.draw.polygon(self.screen, NEON_CYAN, [
+            (prev_x + 3, button_y + button_size // 2),
+            (prev_x + button_size - 7, button_y ),
+            (prev_x + button_size - 7, button_y + button_size)
+        ])
+        
+        # Play/Pause button (center)
+        if self.music_player_playing:
+            # Pause button (❚❚)
+            bar_width = 8
+            bar_spacing = 6
+            bar_height = button_size
+            pygame.draw.rect(self.screen, BLACK, (center_x - bar_spacing // 2 - bar_width + 3, button_y + 3, bar_width, bar_height))
+            pygame.draw.rect(self.screen, BLACK, (center_x + bar_spacing // 2 + 3, button_y + 3, bar_width, bar_height))
+            pygame.draw.rect(self.screen, NEON_YELLOW, (center_x - bar_spacing // 2 - bar_width, button_y, bar_width, bar_height))
+            pygame.draw.rect(self.screen, NEON_YELLOW, (center_x + bar_spacing // 2, button_y, bar_width, bar_height))
+        else:
+            # Play button (►)
+            pygame.draw.polygon(self.screen, BLACK, [
+                (center_x - 10 + 3, button_y + 3),
+                (center_x + 15 + 3, button_y + button_size // 2 + 3),
+                (center_x - 10 + 3, button_y + button_size + 3)
+            ])
+            pygame.draw.polygon(self.screen, NEON_GREEN, [
+                (center_x - 10, button_y),
+                (center_x + 15, button_y + button_size // 2),
+                (center_x - 10, button_y + button_size)
+            ])
+        
+        # Next button (►)
+        next_x = center_x + 50
+        pygame.draw.polygon(self.screen, BLACK, [
+            (next_x + button_size - 7, button_y + button_size // 2 + 3),
+            (next_x + 3, button_y + 3),
+            (next_x + 3, button_y + button_size + 3)
+        ])
+        pygame.draw.polygon(self.screen, NEON_CYAN, [
+            (next_x + button_size - 7, button_y + button_size // 2),
+            (next_x + 3, button_y),
+            (next_x + 3, button_y + button_size)
+        ])
+        pygame.draw.rect(self.screen, NEON_CYAN, (next_x + button_size - 7, button_y, 3, button_size))
+        
+        # Control hints
+        hint_y = 435
+        hint_text = self.font_small.render("A: Play/Pause  |  L/R: Skip  |  B: Back", True, BLACK)
+        hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+2, hint_y+2))
+        self.screen.blit(hint_text, hint_rect)
+        hint_text = self.font_small.render("A: Play/Pause  |  L/R: Skip  |  B: Back", True, NEON_PURPLE)
+        hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, hint_y))
+        self.screen.blit(hint_text, hint_rect)
+    
+    def draw_level_editor_menu(self):
+        """Draw the level editor menu screen."""
+        # Use background
+        if self.background:
+            self.screen.blit(self.background, (0, 0))
+        else:
+            self.screen.fill(DARK_BG)
+        
+        # Title
+        title = self.font_large.render("LEVEL EDITOR", True, BLACK)
+        title_rect = title.get_rect(center=((SCREEN_WIDTH // 2)+3, 53))
+        self.screen.blit(title, title_rect)
+        title = self.font_large.render("LEVEL EDITOR", True, NEON_YELLOW)
+        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 50))
+        self.screen.blit(title, title_rect)
+        
+        # Info message
+        msg1 = self.font_medium.render("Use runEditor.sh to", True, BLACK)
+        msg1_rect = msg1.get_rect(center=((SCREEN_WIDTH // 2)+2, 212))
+        self.screen.blit(msg1, msg1_rect)
+        msg1 = self.font_medium.render("Use runEditor.sh to", True, NEON_CYAN)
+        msg1_rect = msg1.get_rect(center=(SCREEN_WIDTH // 2, 210))
+        self.screen.blit(msg1, msg1_rect)
+        
+        msg2 = self.font_medium.render("launch the Level Editor", True, BLACK)
+        msg2_rect = msg2.get_rect(center=((SCREEN_WIDTH // 2)+2, 262))
+        self.screen.blit(msg2, msg2_rect)
+        msg2 = self.font_medium.render("launch the Level Editor", True, NEON_CYAN)
+        msg2_rect = msg2.get_rect(center=(SCREEN_WIDTH // 2, 260))
+        self.screen.blit(msg2, msg2_rect)
+        
+        # Hint text
+        hint_text = self.font_small.render("Press Start to go back", True, BLACK)
+        hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+2, 452))
+        self.screen.blit(hint_text, hint_rect)
+        hint_text = self.font_small.render("Press Start to go back", True, NEON_PURPLE)
+        hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 450))
+        self.screen.blit(hint_text, hint_rect)
     
     def draw_credits(self):
         """Draw the credits screen after boss battle victory."""
