@@ -3885,7 +3885,9 @@ class SnakeGame:
         elif self.state == GameState.MULTIPLAYER_LOBBY:
             self.draw_multiplayer_lobby()
         elif self.state == GameState.EGG_HATCHING:
-            self.draw_egg_hatching()
+            # Draw the live game world, then overlay egg hatching UI
+            self.draw_game()
+            self.draw_egg_hatching_overlay()
         elif self.state == GameState.PLAYING:
             self.draw_game()
         elif self.state == GameState.PAUSED:
@@ -4388,106 +4390,8 @@ class SnakeGame:
 
 
     
-    def draw_egg_hatching(self):
-        # Draw background
-        if self.background:
-            self.screen.blit(self.background, (0, 0))
-        else:
-            self.screen.fill(DARK_BG)
-        
-        # Draw walls in Adventure mode
-        if self.game_mode == "adventure" and self.level_walls:
-            for wx, wy in self.level_walls:
-                if self.wall_img:
-                    self.screen.blit(self.wall_img, (wx * GRID_SIZE, wy * GRID_SIZE + GAME_OFFSET_Y))
-                else:
-                    # Fallback to colored rectangles
-                    wall_rect = pygame.Rect(wx * GRID_SIZE, wy * GRID_SIZE + GAME_OFFSET_Y, GRID_SIZE, GRID_SIZE)
-                    pygame.draw.rect(self.screen, NEON_PURPLE, wall_rect)
-                    pygame.draw.rect(self.screen, (100, 50, 150), wall_rect, 2)
-        
-        # Draw food
-        if self.game_mode == "adventure" and self.food_items:
-            # Draw worms and bonus fruits from food_items in Adventure mode
-            for food_pos, food_type in self.food_items:
-                fx, fy = food_pos
-                if food_type == 'worm' and self.worm_frames:
-                    worm_img = self.worm_frames[self.worm_frame_index]
-                    self.screen.blit(worm_img, (fx * GRID_SIZE, fy * GRID_SIZE + GAME_OFFSET_Y))
-                elif food_type == 'bonus' and self.bonus_img:
-                    self.screen.blit(self.bonus_img, (fx * GRID_SIZE, fy * GRID_SIZE + GAME_OFFSET_Y))
-            
-            # Draw enemies in Adventure mode
-            if hasattr(self, 'enemies'):
-                for enemy in self.enemies:
-                    if enemy.alive:
-                        render_x, render_y = enemy.get_render_position()
-                        
-                        # Skip wasps here - they're drawn on top later
-                        if enemy.enemy_type.startswith('enemy_wasp'):
-                            continue
-                        
-                        # Draw enemy using sprite if available
-                        enemy_frames = None
-                        if enemy.enemy_type.startswith('enemy_ant') and self.ant_frames:
-                            enemy_frames = self.ant_frames
-                        elif enemy.enemy_type.startswith('enemy_spider') and self.spider_frames:
-                            enemy_frames = self.spider_frames
-                        
-                        if enemy_frames:
-                            enemy_img = enemy_frames[enemy.animation_frame]
-                            # Rotate sprite to match direction (angle: 0=right, 90=down, 180=left, 270=up)
-                            # pygame.transform.rotate rotates counter-clockwise, so negate the angle
-                            rotated_img = pygame.transform.rotate(enemy_img, -enemy.angle)
-                            # Get rect to center the rotated image on the grid position
-                            img_rect = rotated_img.get_rect(center=(int(render_x * GRID_SIZE + GRID_SIZE // 2), 
-                                                                     int(render_y * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y)))
-                            self.screen.blit(rotated_img, img_rect)
-                        else:
-                            # Fallback to circle rendering if no sprite
-                            center_x = int(render_x * GRID_SIZE + GRID_SIZE // 2)
-                            center_y = int(render_y * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y)
-                            radius = GRID_SIZE // 3
-                            
-                            # Get color based on enemy type
-                            if enemy.enemy_type.startswith('enemy_spider'):
-                                enemy_color = (139, 69, 19)  # Brown for spiders
-                            else:
-                                enemy_color = (165, 42, 42)  # Default ant brown
-                            
-                            # Draw enemy body
-                            pygame.draw.circle(self.screen, enemy_color, (center_x, center_y), radius)
-                            pygame.draw.circle(self.screen, BLACK, (center_x, center_y), radius, 2)
-                            
-                            # Draw angry face
-                            eye_offset = radius // 3
-                            eye_size = 3
-                            pygame.draw.circle(self.screen, BLACK, (center_x - eye_offset, center_y - eye_offset), eye_size)
-                            pygame.draw.circle(self.screen, BLACK, (center_x + eye_offset, center_y - eye_offset), eye_size)
-                            pygame.draw.line(self.screen, BLACK, 
-                                           (center_x - eye_offset, center_y + eye_offset),
-                                           (center_x + eye_offset, center_y + eye_offset), 2)
-        elif self.food_pos:
-            # Draw single food in Endless mode
-            fx, fy = self.food_pos
-            if self.worm_frames:
-                worm_img = self.worm_frames[self.worm_frame_index]
-                self.screen.blit(worm_img, (fx * GRID_SIZE, fy * GRID_SIZE + GAME_OFFSET_Y))
-        
-        # Draw bonus food if present
-        if self.bonus_food_pos:
-            bx, by = self.bonus_food_pos
-            if self.bonus_img:
-                self.screen.blit(self.bonus_img, (bx * GRID_SIZE, by * GRID_SIZE + GAME_OFFSET_Y))
-        
-        # Draw death particles (from previous life)
-        for particle in self.particles:
-            particle.draw(self.screen)
-        
-        # Draw flying egg pieces
-        for piece in self.egg_pieces:
-            piece.draw(self.screen)
-        
+    def draw_egg_hatching_overlay(self):
+        """Draw egg and instruction text overlay on top of the live game world"""
         # Draw egg at starting position (adventure mode) or center (endless mode)
         if self.egg_img:
             if self.game_mode == "adventure" and hasattr(self, 'current_level_data'):
@@ -4501,76 +4405,6 @@ class SnakeGame:
                 egg_pixel_y = SCREEN_HEIGHT // 2 - GRID_SIZE
             self.screen.blit(self.egg_img, (egg_pixel_x, egg_pixel_y))
         
-        # Draw HUD
-        # Draw HUD text (background now part of bg.png)
-        # Left side: Score with label
-        score_label = self.font_small.render("SCORE:", True, BLACK)
-        self.screen.blit(score_label, (10, 4))
-        score_label = self.font_small.render("SCORE:", True, NEON_YELLOW)
-        self.screen.blit(score_label, (8, 2))
-        score_value = self.font_small.render("{}".format(self.score), True, BLACK)
-        self.screen.blit(score_value, (100, 4))
-        score_value = self.font_small.render("{}".format(self.score), True, WHITE)
-        self.screen.blit(score_value, (98, 2))
-        
-        level_label = self.font_small.render("LEVEL:", True, BLACK)
-        level_value = self.font_small.render("{}".format(self.level), True, BLACK)
-        level_label_rect = level_label.get_rect(center=(SCREEN_WIDTH // 2 + 62, SCREEN_HEIGHT - 7))
-        level_value_rect = level_value.get_rect(center=(SCREEN_WIDTH // 2 + 125, SCREEN_HEIGHT - 6))
-        self.screen.blit(level_label, level_label_rect)
-        self.screen.blit(level_value, level_value_rect)
-        level_label = self.font_small.render("LEVEL:", True, NEON_YELLOW)
-        level_value = self.font_small.render("{}".format(self.level), True, WHITE)
-        level_label_rect = level_label.get_rect(center=(SCREEN_WIDTH // 2 + 60, SCREEN_HEIGHT - 9))
-        level_value_rect = level_value.get_rect(center=(SCREEN_WIDTH // 2 + 123, SCREEN_HEIGHT - 8))
-        self.screen.blit(level_label, level_label_rect)
-        self.screen.blit(level_value, level_value_rect)
-        
-        fruits_label = self.font_small.render("WORMS:", True, BLACK)
-        fruits_label_rect = fruits_label.get_rect(center=(SCREEN_WIDTH // 2 + 62, 16))
-        self.screen.blit(fruits_label, fruits_label_rect)
-        fruits_label = self.font_small.render("WORMS:", True, NEON_YELLOW)
-        fruits_label_rect = fruits_label.get_rect(center=(SCREEN_WIDTH // 2 + 60, 14))
-        self.screen.blit(fruits_label, fruits_label_rect)
-
-        # Show correct count based on game mode
-        if self.game_mode == "adventure":
-            worm_count_text = "{}/{}".format(self.worms_collected, self.worms_required)
-        else:
-            worm_count_text = "{}/12".format(self.fruits_eaten_this_level)
-        
-        fruits_value = self.font_small.render(worm_count_text, True, BLACK)
-        fruits_value_rect = fruits_value.get_rect(center=(SCREEN_WIDTH // 2 + 135, 16))
-        self.screen.blit(fruits_value, fruits_value_rect)
-        fruits_value = self.font_small.render(worm_count_text, True, WHITE)
-        fruits_value_rect = fruits_value.get_rect(center=(SCREEN_WIDTH // 2 + 133, 14))
-        self.screen.blit(fruits_value, fruits_value_rect)
-        
-        
-        # Lives with label
-        lives_label = self.font_medium.render("LIVES", True, BLACK)
-        lives_label_rect = lives_label.get_rect(center=((SCREEN_WIDTH // 2)+3, 63))
-        self.screen.blit(lives_label, lives_label_rect)
-        lives_label = self.font_medium.render("LIVES", True, NEON_YELLOW)
-        lives_label_rect = lives_label.get_rect(center=(SCREEN_WIDTH // 2, 60))
-        self.screen.blit(lives_label, lives_label_rect)
-        lives_value = self.font_medium.render("{}".format(self.lives), True, BLACK)
-        lives_value_rect = lives_value.get_rect(center=((SCREEN_WIDTH // 2)+3, 99))
-        self.screen.blit(lives_value, lives_value_rect)
-        lives_value = self.font_medium.render("{}".format(self.lives), True, WHITE)
-        lives_value_rect = lives_value.get_rect(center=(SCREEN_WIDTH // 2, 96))
-        self.screen.blit(lives_value, lives_value_rect)
-        
-        # Lives with label
-        lives_label = self.font_small.render("LIVES:", True, BLACK)
-        self.screen.blit(lives_label, (10, SCREEN_HEIGHT - 19))
-        lives_label = self.font_small.render("LIVES:", True, NEON_YELLOW)
-        self.screen.blit(lives_label, (8, SCREEN_HEIGHT - 21))
-        lives_value = self.font_small.render("{}".format(self.lives), True, BLACK)
-        self.screen.blit(lives_value, (85, SCREEN_HEIGHT - 19))
-        lives_value = self.font_small.render("{}".format(self.lives), True, WHITE)
-        self.screen.blit(lives_value, (83, SCREEN_HEIGHT - 21))
-
         # Draw instruction text (with timer if in boss mode respawn)
         instruction_text = "Press a direction to hatch!"
         if hasattr(self, 'boss_active') and self.boss_active and hasattr(self, 'boss_egg_is_respawn') and self.boss_egg_is_respawn:
