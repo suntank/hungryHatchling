@@ -100,12 +100,12 @@ class SnakeGame:
         
         # Load difficulty selection screen image
         try:
-            difficulty_path = os.path.join(SCRIPT_DIR, 'img', 'bg', 'difficulty.png')
+            difficulty_path = os.path.join(SCRIPT_DIR, 'img', 'bg', 'notitle.png')
             self.difficulty_screen = pygame.image.load(difficulty_path).convert()
             self.difficulty_screen = pygame.transform.scale(self.difficulty_screen, (SCREEN_WIDTH, SCREEN_HEIGHT))
         except:
             self.difficulty_screen = None
-            print("Warning: difficulty.png not found, using default difficulty screen")
+            print("Warning: notitle.png not found, using default difficulty screen")
         
         # Load splash screen image
         try:
@@ -164,6 +164,18 @@ class SnakeGame:
         except:
             self.egg_img = None
             print("Warning: egg.png not found")
+        
+        # Load player-colored egg icons for lives display (small 20x20 icons)
+        self.player_egg_icons = []
+        for player_num in range(1, 5):
+            try:
+                egg_icon_path = os.path.join(SCRIPT_DIR, 'img', 'egg{}.png'.format(player_num))
+                egg_icon = pygame.image.load(egg_icon_path).convert_alpha()
+                egg_icon = pygame.transform.scale(egg_icon, (20, 20))
+                self.player_egg_icons.append(egg_icon)
+            except:
+                self.player_egg_icons.append(None)
+                print("Warning: egg{}.png not found".format(player_num))
         
         # Load egg piece images
         self.egg_piece_imgs = []
@@ -2427,8 +2439,8 @@ class SnakeGame:
                         if snake.body[0] in snake.body[1:]:
                             hit_wall = True
                     else:
-                        # Endless/multiplayer mode - check boundary walls
-                        hit_wall = snake.check_collision(wrap_around=False)
+                        # Multiplayer mode - enable wrap around like adventure mode
+                        hit_wall = snake.check_collision(wrap_around=True)
                     
                     if hit_wall:
                         self.handle_player_death(snake)
@@ -5382,7 +5394,7 @@ class SnakeGame:
         
         # Draw HUD text (background now part of bg.png)
         if self.is_multiplayer:
-            # Draw multiplayer player info - show each player's lives
+            # Draw multiplayer player info - show each player's lives with colored egg icons
             y_start = 2
             for snake in self.snakes:
                 player_color = self.player_colors[snake.player_id] if snake.player_id < len(self.player_colors) else WHITE
@@ -5397,9 +5409,8 @@ class SnakeGame:
                 else:
                     status_text = ""
                 
-                # Player name and lives with hearts
-                hearts = "♥" * snake.lives if snake.lives > 0 else "X"
-                player_text = "P{}: {}{}".format(snake.player_id + 1, hearts, status_text)
+                # Player name
+                player_text = "P{}:{}".format(snake.player_id + 1, status_text)
                 
                 # Shadow
                 text = self.font_small.render(player_text, True, BLACK)
@@ -5407,6 +5418,22 @@ class SnakeGame:
                 # Main text with player color
                 text = self.font_small.render(player_text, True, player_color)
                 self.screen.blit(text, (8, y_start))
+                
+                # Draw egg icons for lives
+                text_width = text.get_width()
+                egg_x_start = 10 + text_width + 5  # Start drawing eggs after the player name
+                egg_icon = self.player_egg_icons[snake.player_id] if snake.player_id < len(self.player_egg_icons) else None
+                
+                if snake.lives > 0 and egg_icon:
+                    for i in range(snake.lives):
+                        egg_x = egg_x_start + i * 22  # Space eggs 22 pixels apart
+                        self.screen.blit(egg_icon, (egg_x, y_start))
+                elif snake.lives <= 0:
+                    # Draw X for eliminated players
+                    x_text = self.font_small.render("X", True, BLACK)
+                    self.screen.blit(x_text, (egg_x_start + 2, y_start + 2))
+                    x_text = self.font_small.render("X", True, RED)
+                    self.screen.blit(x_text, (egg_x_start, y_start))
                 
                 y_start += 22
         else:
@@ -5505,30 +5532,31 @@ class SnakeGame:
         self.screen.blit(hint_text, hint_rect)
     
     def draw_game_over(self):
-        # Draw game over screen image (includes "GAME OVER" text)
-        if self.gameover_screen:
-            self.screen.blit(self.gameover_screen, (0, 0))
+        # Draw game over screen - use multiBG.png for all modes
+        if self.multi_bg:
+            self.screen.blit(self.multi_bg, (0, 0))
         elif self.background:
             self.screen.blit(self.background, (0, 0))
         else:
             self.screen.fill(DARK_BG)
         
-        # During the 3-second timer, only show the game over image
+        # Draw "GAME OVER" text
         if self.game_over_timer > 0:
-            # Just show the image, no additional text needed during timer
-            if not self.gameover_screen:
-                # Fallback if image not loaded
-                over_text = self.font_large.render("GAME OVER", True, NEON_PINK)
-                over_rect = over_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2))
-                self.screen.blit(over_text, over_rect)
+            # During the 3-second timer, center the text
+            over_text = self.font_large.render("GAME OVER", True, BLACK)
+            over_rect = over_text.get_rect(center=((SCREEN_WIDTH // 2) + 3, (SCREEN_HEIGHT // 2) + 3))
+            self.screen.blit(over_text, over_rect)
+            over_text = self.font_large.render("GAME OVER", True, NEON_PINK)
+            over_rect = over_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2))
+            self.screen.blit(over_text, over_rect)
         else:
-            # After timer expires, show score and level info
-            # No "GAME OVER" text needed - it's in the background image
-            if not self.gameover_screen:
-                # Fallback if image not loaded
-                over_text = self.font_large.render("GAME OVER", True, NEON_PINK)
-                over_rect = over_text.get_rect(center=(SCREEN_WIDTH // 2, 60))
-                self.screen.blit(over_text, over_rect)
+            # After timer expires, show "GAME OVER" at top and score/level info
+            over_text = self.font_large.render("GAME OVER", True, BLACK)
+            over_rect = over_text.get_rect(center=((SCREEN_WIDTH // 2) + 3, 63))
+            self.screen.blit(over_text, over_rect)
+            over_text = self.font_large.render("GAME OVER", True, NEON_PINK)
+            over_rect = over_text.get_rect(center=(SCREEN_WIDTH // 2, 60))
+            self.screen.blit(over_text, over_rect)
             
             if self.is_multiplayer:
                 # Show winner (player with lives remaining)
@@ -5967,7 +5995,7 @@ class SnakeGame:
         hint_text = self.font_medium.render("A: Play/Pause  |  L/R: Skip", True, NEON_PURPLE)
         hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, hint_y))
         self.screen.blit(hint_text, hint_rect)
-        hint_y = 460
+        hint_y = 470
         hint_text = self.font_medium.render("B: Back", True, BLACK)
         hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+2, hint_y+2))
         self.screen.blit(hint_text, hint_rect)
@@ -6020,18 +6048,19 @@ class SnakeGame:
         self.screen.fill(BLACK)
 
         # Credits
-        y_pos = 180
+        y_pos = 50
         credits_lines = [
-            ("GAME DEVELOPED BY", NEON_CYAN),
+            ("Game Designed By", NEON_CYAN),
             ("", WHITE),
-            ("Austin Morgan Studios", NEON_PINK),
+            ("Austin Morgan", NEON_PINK),
             ("", WHITE),
-            ("SPECIAL THANKS", NEON_CYAN),
-            ("", WHITE),
-            ("All the players", WHITE),
-            ("who tested this game", WHITE),
-            ("", WHITE),
-            ("And all the GAME BIRD enthusiasts", WHITE),
+            ("Coding: Claude Sonnet 4.5 Thinking", WHITE),
+            ("Graphics: GPT 5", WHITE),
+            ("Animations: Austin Morgan", WHITE),
+            ("Music: Suno AI Music", WHITE),
+            ("Sound Effects: Austin Morgan", WHITE),
+            ("This was just an example of what you can do with AI", WHITE),
+            ("Now go make your own games!", WHITE),
         ]
         
         for line_text, color in credits_lines:

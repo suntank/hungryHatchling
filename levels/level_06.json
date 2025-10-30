@@ -2,10 +2,10 @@
   "level_number": 1,
   "name": "New Level",
   "description": "A new level",
-  "background_image": "bg.png",
+  "background_image": "BG3.png",
   "grid_width": 15,
   "grid_height": 15,
-  "worms_required": 27,
+  "worms_required": 28,
   "starting_position": [
     7,
     7
@@ -233,6 +233,10 @@
     {
       "x": 8,
       "y": 10
+    },
+    {
+      "x": 12,
+      "y": 1
     }
   ],
   "bonus_fruit_positions": [
@@ -242,10 +246,6 @@
     },
     {
       "x": 3,
-      "y": 1
-    },
-    {
-      "x": 12,
       "y": 1
     },
     {
