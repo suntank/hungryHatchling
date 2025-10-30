@@ -5960,11 +5960,18 @@ class SnakeGame:
         pygame.draw.rect(self.screen, NEON_CYAN, (next_x + button_size - 7, button_y, 3, button_size))
         
         # Control hints
-        hint_y = 435
-        hint_text = self.font_small.render("A: Play/Pause  |  L/R: Skip  |  B: Back", True, BLACK)
+        hint_y = 440
+        hint_text = self.font_medium.render("A: Play/Pause  |  L/R: Skip", True, BLACK)
         hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+2, hint_y+2))
         self.screen.blit(hint_text, hint_rect)
-        hint_text = self.font_small.render("A: Play/Pause  |  L/R: Skip  |  B: Back", True, NEON_PURPLE)
+        hint_text = self.font_medium.render("A: Play/Pause  |  L/R: Skip", True, NEON_PURPLE)
+        hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, hint_y))
+        self.screen.blit(hint_text, hint_rect)
+        hint_y = 460
+        hint_text = self.font_medium.render("B: Back", True, BLACK)
+        hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+2, hint_y+2))
+        self.screen.blit(hint_text, hint_rect)
+        hint_text = self.font_medium.render("B: Back", True, NEON_PURPLE)
         hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, hint_y))
         self.screen.blit(hint_text, hint_rect)
     
