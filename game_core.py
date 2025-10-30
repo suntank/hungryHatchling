@@ -573,6 +573,60 @@ class ScorpionStinger:
             offset_y_adjust = frame.get_height() // 2
             screen.blit(frame, (int(self.pixel_x - offset_x), int(self.pixel_y - offset_y_adjust + offset_y)))
 
+class BeetleLarvae:
+    """Larvae projectile fired by beetle - travels in a straight line in one of four cardinal directions"""
+    def __init__(self, grid_x, grid_y, direction, frames):
+        self.grid_x = grid_x
+        self.grid_y = grid_y
+        self.direction = direction  # Direction enum (UP, DOWN, LEFT, RIGHT)
+        self.alive = True
+        
+        # Visual properties for smooth movement
+        self.pixel_x = grid_x * GRID_SIZE
+        self.pixel_y = grid_y * GRID_SIZE
+        self.speed = 8  # Pixels per frame (medium speed projectile)
+        
+        # Animation - larvae uses a static image
+        self.frames = frames if frames else []
+        self.frame_index = 0
+    
+    def update(self):
+        """Update larvae position"""
+        if not self.alive:
+            return
+        
+        # Move in pixel space
+        dx, dy = self.direction.value
+        self.pixel_x += dx * self.speed
+        self.pixel_y += dy * self.speed
+        
+        # Update grid position
+        self.grid_x = int(self.pixel_x / GRID_SIZE)
+        self.grid_y = int(self.pixel_y / GRID_SIZE)
+        
+        # Check if out of bounds
+        if (self.grid_x < 0 or self.grid_x >= GRID_WIDTH or 
+            self.grid_y < 0 or self.grid_y >= GRID_HEIGHT):
+            self.alive = False
+    
+    def draw(self, screen, offset_y=0):
+        """Draw the larvae"""
+        if self.alive and self.frames and self.frame_index < len(self.frames):
+            frame = self.frames[self.frame_index]
+            # Rotate frame based on direction
+            if self.direction == Direction.UP:
+                frame = pygame.transform.rotate(frame, 90)
+            elif self.direction == Direction.DOWN:
+                frame = pygame.transform.rotate(frame, -90)
+            elif self.direction == Direction.LEFT:
+                frame = pygame.transform.rotate(frame, 180)
+            # Direction.RIGHT needs no rotation (default)
+            
+            # Center the sprite on the position
+            offset_x = frame.get_width() // 2
+            offset_y_adjust = frame.get_height() // 2
+            screen.blit(frame, (int(self.pixel_x - offset_x), int(self.pixel_y - offset_y_adjust + offset_y)))
+
 class Snake:
     """Snake game logic"""
     def __init__(self, player_id=0):
@@ -774,6 +828,31 @@ class Enemy:
             self.is_attacking = False  # Currently in attack animation
             self.attack_direction = Direction.RIGHT  # Direction to fire stinger
     
+        # Beetle-specific properties (charges at player, launches larvae)
+        if enemy_type.startswith('enemy_beetle'):
+            self.attack_cooldown = 600  # Start with 10 second cooldown (first attack at 10s)
+            self.attack_charge_time = 0  # Time spent in attack animation
+            self.is_attacking = False  # Currently in attack animation
+            self.is_moving = False  # Charging state
+            self.target_x = x
+            self.target_y = y
+            self.previous_x = x  # For smooth rendering
+            self.previous_y = y
+            self.charge_cooldown = 0  # Cooldown after charging (prevents immediate re-charge)
+            self.charge_dx = 0  # Direction of charge (per step)
+            self.charge_dy = 0
+            self.charge_steps_remaining = 0
+            self.charge_target_x = x  # Final charge destination
+            self.charge_target_y = y
+            self.is_rotating = False  # Rotation state for scanning
+            self.rotation_delay = 0  # Frames remaining in rotation
+            self.target_angle = angle  # Target angle for rotation
+            self.scan_timer = 120  # Timer for idle scanning behavior
+
+        # Animation properties
+        self.animation_frame = 0  # Current frame of animation
+        self.animation_counter = 0  # Counter for animation timing
+        
     def update(self, snake_body, level_walls, collectibles):
         """Update enemy behavior based on type"""
         if not self.alive:
@@ -787,6 +866,8 @@ class Enemy:
             self._update_scorpion(snake_body, level_walls, collectibles)
         elif self.enemy_type.startswith('enemy_wasp'):
             self._update_wasp(snake_body, level_walls, collectibles)
+        elif self.enemy_type.startswith('enemy_beetle'):
+            self._update_beetle(snake_body, level_walls, collectibles)
         elif self.enemy_type == 'enemy_wall':
             # Enemy walls don't move, they're stationary obstacles
             pass
@@ -1234,17 +1315,225 @@ class Enemy:
         self.target_y = next_y
         self.is_moving = True
         self.move_timer = 0
+        
+        # Start rotation phase
+        self.is_rotating = True
+        self.rotation_delay = 5  # Slow rotation (5 frames)
+    
+    def _update_wasp(self, snake_body, level_walls, collectibles):
+        """Wasp AI: continuously moves in a direction, only turns when hitting walls.
+        Faster than spiders, ignores player body, cannot be killed."""
+        
+        if self.is_moving:
+            self.move_timer += 1
+            if self.move_timer >= 3:  # Wasps traverse a tile in 3 frames
+                self.grid_x = self.target_x
+                self.grid_y = self.target_y
+                self.move_timer = 0
+                self.previous_x = self.grid_x
+                self.previous_y = self.grid_y
+                self._choose_wasp_move(level_walls)
+            return
+        
+        # If not currently moving, pick the next move immediately
+        self._choose_wasp_move(level_walls)
+    
+    def _choose_wasp_move(self, level_walls):
+        """Choose next move for wasp - continue forward if possible, otherwise turn."""
+        # Determine the preferred forward move based on current heading
+        direction_vectors = {
+            0: (1, 0),    # Right
+            90: (0, 1),   # Down
+            180: (-1, 0), # Left
+            270: (0, -1), # Up
+        }
+        
+        dx, dy = direction_vectors.get(self.angle, (1, 0))
+        forward_x = self.grid_x + dx
+        forward_y = self.grid_y + dy
+        
+        candidates = []
+        
+        def add_candidate(angle):
+            vx, vy = direction_vectors[angle]
+            cx = self.grid_x + vx
+            cy = self.grid_y + vy
+            if 0 <= cx < GRID_WIDTH and 0 <= cy < GRID_HEIGHT and (cx, cy) not in level_walls:
+                candidates.append((angle, cx, cy))
+        
+        # Try forward direction first
+        add_candidate(self.angle)
+        
+        # If forward is blocked, try perpendicular directions
+        if not candidates:
+            if self.angle in (0, 180):
+                for angle in (270, 90):
+                    add_candidate(angle)
+            else:
+                for angle in (0, 180):
+                    add_candidate(angle)
+        
+        # If still no path, attempt to turn around
+        if not candidates:
+            add_candidate((self.angle + 180) % 360)
+        
+        if not candidates:
+            return  # No valid moves available
+        
+        self.angle, self.target_x, self.target_y = random.choice(candidates)
+        self.target_angle = self.angle
+        self.is_moving = True
+        self.move_timer = 0
+        self.previous_x = self.grid_x
+        self.previous_y = self.grid_y
+    
+    def _update_beetle(self, snake_body, level_walls, collectibles):
+        """Beetle AI: charges at player if in same row/column, or launches larvae projectiles.
+        Beetle attacks with larvae every 20 seconds."""
+        snake_head = snake_body[0] if snake_body else None
+        
+        # Handle rotation (scanning for player)
+        if self.is_rotating:
+            if self.rotation_delay > 0:
+                self.rotation_delay -= 1
+                # Smoothly rotate to target angle
+                angle_diff = self.target_angle - self.angle
+                if abs(angle_diff) > 180:
+                    if angle_diff > 0:
+                        angle_diff -= 360
+                    else:
+                        angle_diff += 360
+                self.angle += angle_diff * 0.2  # Smooth rotation
+                self.angle = self.angle % 360
+            else:
+                # Rotation complete
+                self.angle = self.target_angle
+                self.is_rotating = False
+            return
+        
+        # Handle active charge movement first (continuous interpolation similar to wasps)
+        if self.is_moving:
+            self.move_timer += 1
+            if self.move_timer >= 8:  # Advance one grid cell every 8 frames
+                self.move_timer = 0
+                
+                # Complete movement to the current target cell
+                self.grid_x = self.target_x
+                self.grid_y = self.target_y
+                
+                if self.charge_steps_remaining > 0:
+                    self.charge_steps_remaining -= 1
+                    
+                    if self.charge_steps_remaining > 0:
+                        # Prepare interpolation for the next step in the charge
+                        self.previous_x = self.grid_x
+                        self.previous_y = self.grid_y
+                        self.target_x = self.grid_x + self.charge_dx
+                        self.target_y = self.grid_y + self.charge_dy
+                    else:
+                        # Charge complete - snap to final destination and set cooldown
+                        self.grid_x = self.charge_target_x
+                        self.grid_y = self.charge_target_y
+                        self.target_x = self.grid_x
+                        self.target_y = self.grid_y
+                        self.previous_x = self.grid_x
+                        self.previous_y = self.grid_y
+                        self.is_moving = False
+                        self.charge_cooldown = 180  # 3 second cooldown before next charge
+                        print("Beetle finished charging at ({}, {})".format(self.grid_x, self.grid_y))
+                else:
+                    # Safety fallback - stop charging if no steps remain
+                    self.is_moving = False
+                    self.charge_cooldown = 180
+            return
+        
+        # Handle larvae attack animation (beetle stays stationary during attack)
+        if self.is_attacking:
+            self.attack_charge_time += 1
+            if self.attack_charge_time >= 60:
+                self.is_attacking = False
+                self.attack_charge_time = 0
+                self.attack_cooldown = 1200
+            return
+        
+        # Count down attack cooldown (but don't return - allow charging)
+        if self.attack_cooldown > 0:
+            self.attack_cooldown -= 1
+            if self.attack_cooldown == 0:
+                self.is_attacking = True
+                self.attack_charge_time = 0
+                print("Beetle starting larvae attack!")
+                return
+        
+        # Count down charge cooldown
+        if self.charge_cooldown > 0:
+            self.charge_cooldown -= 1
+            return
+        
+        # Check if beetle should initiate a charge
+        if snake_head:
+            head_x, head_y = snake_head
+            same_row = self.grid_y == head_y
+            same_col = self.grid_x == head_x
+            
+            if same_row or same_col:
+                if same_row:
+                    direction = 1 if head_x > self.grid_x else -1
+                    charge_dx, charge_dy = direction, 0
+                    steps = abs(head_x - self.grid_x)
+                    target_x, target_y = head_x, self.grid_y
+                    step_range = range(self.grid_x + direction, head_x, direction)
+                    path_clear = all((x, self.grid_y) not in level_walls for x in step_range)
+                else:
+                    direction = 1 if head_y > self.grid_y else -1
+                    charge_dx, charge_dy = 0, direction
+                    steps = abs(head_y - self.grid_y)
+                    target_x, target_y = self.grid_x, head_y
+                    step_range = range(self.grid_y + direction, head_y, direction)
+                    path_clear = all((self.grid_x, y) not in level_walls for y in step_range)
+                
+                if path_clear and steps > 0:
+                    self.charge_dx = charge_dx
+                    self.charge_dy = charge_dy
+                    self.charge_steps_remaining = steps
+                    self.charge_target_x = target_x
+                    self.charge_target_y = target_y
+                    self.previous_x = self.grid_x
+                    self.previous_y = self.grid_y
+                    self.target_x = self.grid_x + self.charge_dx
+                    self.target_y = self.grid_y + self.charge_dy
+                    self.move_timer = 0
+                    self.is_moving = True
+                    self.angle = 0 if charge_dx > 0 else (180 if charge_dx < 0 else (90 if charge_dy > 0 else 270))
+                    print("Beetle charging at player from ({}, {}) to ({}, {})!".format(
+                        self.grid_x, self.grid_y, self.charge_target_x, self.charge_target_y))
+                    return
+        
+        # Idle behavior: rotate periodically to scan for player
+        # Initialize scan timer if not set
+        if not hasattr(self, 'scan_timer'):
+            self.scan_timer = 120  # Start scanning after 2 seconds
+        
+        self.scan_timer -= 1
+        if self.scan_timer <= 0:
+            # Time to scan - rotate 90 degrees clockwise
+            self.target_angle = (self.angle + 90) % 360
+            self.is_rotating = True
+            self.rotation_delay = 15  # Slower rotation for scanning (15 frames)
+            self.scan_timer = 120  # Scan every 2 seconds
     
     def get_render_position(self):
         """Get interpolated position for rendering"""
         if self.is_moving:
-            # Wasps move in 3 frames, spiders in 5 frames, ants in 10 frames, scorpions in 15 frames
+            # Different enemies move at different speeds
             if self.enemy_type.startswith('enemy_wasp'):
                 progress = self.move_timer / 3.0
             elif self.enemy_type.startswith('enemy_spider'):
                 progress = self.move_timer / 5.0
             elif self.enemy_type.startswith('enemy_scorpion'):
                 progress = self.move_timer / 15.0
+            elif self.enemy_type.startswith('enemy_beetle'):
+                progress = self.move_timer / 8.0
             else:
                 progress = self.move_timer / 10.0  # Ants and other enemies
             render_x = self.previous_x + (self.target_x - self.previous_x) * progress
@@ -1261,7 +1550,8 @@ class Enemy:
         
         # When moving, check collision with target position (early detection)
         # This prevents the ant from completing its full movement animation before dying
-        if self.is_moving:
+        # Exception: Beetles use current position since they charge across multiple cells
+        if self.is_moving and not self.enemy_type.startswith('enemy_beetle'):
             base_x, base_y = self.target_x, self.target_y
         else:
             base_x, base_y = self.grid_x, self.grid_y
@@ -1286,7 +1576,14 @@ class Enemy:
         if self.enemy_type.startswith('enemy_wasp'):
             return None  # Wasp only collides with head, never with body
         
-        # Check collision with snake body (excluding head) for non-wasp enemies
+        # Beetles only kill on head collision, but die when hitting snake body
+        if self.enemy_type.startswith('enemy_beetle'):
+            for check_pos in check_positions:
+                if check_pos in snake_body[1:]:
+                    return 'body'  # Beetle dies, player doesn't
+            return None  # No collision
+        
+        # Check collision with snake body (excluding head) for non-wasp/non-beetle enemies
         for check_pos in check_positions:
             if check_pos in snake_body[1:]:
                 return 'body'

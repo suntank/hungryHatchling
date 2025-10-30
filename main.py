@@ -543,6 +543,105 @@ class SnakeGame:
             self.scorpion_attack_frames = []
             print("Warning: scorpionAttack.gif not found or could not be loaded: {}".format(e))
         
+        # Load beetle animations
+        try:
+            from PIL import Image
+            beetle_path = os.path.join(SCRIPT_DIR, 'img', 'beetle.gif')
+            self.beetle_frames = []
+            
+            # Load GIF frames using PIL
+            gif = Image.open(beetle_path)
+            frame_count = 0
+            try:
+                while True:
+                    # Convert PIL image to pygame surface
+                    frame = gif.copy().convert('RGBA')
+                    pygame_frame = pygame.image.frombytes(
+                        frame.tobytes(), frame.size, frame.mode
+                    ).convert_alpha()
+                    # Scale to fit grid size
+                    pygame_frame = pygame.transform.scale(pygame_frame, (GRID_SIZE, GRID_SIZE))
+                    self.beetle_frames.append(pygame_frame)
+                    frame_count += 1
+                    gif.seek(frame_count)
+            except EOFError:
+                pass  # End of frames
+            
+            print("Loaded {} frames for beetle animation".format(len(self.beetle_frames)))
+        except Exception as e:
+            self.beetle_frames = []
+            print("Warning: beetle.gif not found or could not be loaded: {}".format(e))
+        
+        # Load beetle attack animation
+        try:
+            from PIL import Image
+            beetle_attack_path = os.path.join(SCRIPT_DIR, 'img', 'beetleAttack.gif')
+            self.beetle_attack_frames = []
+            
+            # Load GIF frames using PIL
+            gif = Image.open(beetle_attack_path)
+            frame_count = 0
+            try:
+                while True:
+                    # Convert PIL image to pygame surface
+                    frame = gif.copy().convert('RGBA')
+                    pygame_frame = pygame.image.frombytes(
+                        frame.tobytes(), frame.size, frame.mode
+                    ).convert_alpha()
+                    # Scale to fit grid size
+                    pygame_frame = pygame.transform.scale(pygame_frame, (GRID_SIZE, GRID_SIZE))
+                    self.beetle_attack_frames.append(pygame_frame)
+                    frame_count += 1
+                    gif.seek(frame_count)
+            except EOFError:
+                pass  # End of frames
+            
+            print("Loaded {} frames for beetle attack animation".format(len(self.beetle_attack_frames)))
+        except Exception as e:
+            self.beetle_attack_frames = []
+            print("Warning: beetleAttack.gif not found or could not be loaded: {}".format(e))
+        
+        # Load beetle vulnerable/open animation
+        try:
+            from PIL import Image
+            beetle_open_path = os.path.join(SCRIPT_DIR, 'img', 'beetleOpen.gif')
+            self.beetle_open_frames = []
+            
+            # Load GIF frames using PIL
+            gif = Image.open(beetle_open_path)
+            frame_count = 0
+            try:
+                while True:
+                    # Convert PIL image to pygame surface
+                    frame = gif.copy().convert('RGBA')
+                    pygame_frame = pygame.image.frombytes(
+                        frame.tobytes(), frame.size, frame.mode
+                    ).convert_alpha()
+                    # Scale to fit grid size
+                    pygame_frame = pygame.transform.scale(pygame_frame, (GRID_SIZE, GRID_SIZE))
+                    self.beetle_open_frames.append(pygame_frame)
+                    frame_count += 1
+                    gif.seek(frame_count)
+            except EOFError:
+                pass  # End of frames
+            
+            print("Loaded {} frames for beetle open animation".format(len(self.beetle_open_frames)))
+        except Exception as e:
+            self.beetle_open_frames = []
+            print("Warning: beetleOpen.gif not found or could not be loaded: {}".format(e))
+        
+        # Load larvae projectile image
+        try:
+            larvae_path = os.path.join(SCRIPT_DIR, 'img', 'larvae.png')
+            larvae_img = pygame.image.load(larvae_path).convert_alpha()
+            # Scale to fit grid size
+            larvae_img = pygame.transform.scale(larvae_img, (GRID_SIZE, GRID_SIZE))
+            self.beetle_larvae_frames = [larvae_img]  # Single frame, stored as list for consistency
+            print("Loaded larvae projectile image")
+        except Exception as e:
+            self.beetle_larvae_frames = []
+            print("Warning: larvae.png not found or could not be loaded: {}".format(e))
+        
         # Load boss animations
         self.boss_animations = {}
         boss_anim_names = ['wormBossEmerges', 'wormBossIdle', 'wormBossAttack', 'wormBossDeath1', 'wormBossDeath3']
@@ -753,6 +852,7 @@ class SnakeGame:
         self.egg_pieces = []  # Track flying egg shell pieces
         self.bullets = []  # Track player bullets from isotope ability
         self.scorpion_stingers = []  # Track scorpion projectiles
+        self.beetle_larvae = []  # Track beetle larvae projectiles
         self.game_over_timer = 0
         self.game_over_delay = 180  # 3 seconds at 60 FPS
         self.multiplayer_end_timer = 0  # Timer for delay after last player dies in multiplayer
@@ -2178,6 +2278,40 @@ class SnakeGame:
                     self.state = GameState.GAME_OVER
                     self.game_over_timer = self.game_over_delay
                 else:
+                    self.reset_level()
+                    return
+        
+        # Update beetle larvae
+        self.beetle_larvae = [l for l in self.beetle_larvae if l.alive]
+        for larvae in self.beetle_larvae:
+            larvae.update()
+        
+        # Check beetle larvae collisions with player
+        for larvae in self.beetle_larvae:
+            if not larvae.alive:
+                continue
+            
+            larvae_pos = (larvae.grid_x, larvae.grid_y)
+            
+            # Check if larvae hit player snake
+            if larvae_pos in self.snake.body:
+                # Player hit by larvae - dies
+                larvae.alive = False
+                self.sound_manager.play('die')
+                self.lives -= 1
+                
+                # Spawn white particles on all snake body segments
+                for segment_x, segment_y in self.snake.body:
+                    self.create_particles(segment_x * GRID_SIZE + GRID_SIZE // 2,
+                                        segment_y * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y, 
+                                        None, None, particle_type='white')
+                
+                if self.lives < 0:
+                    self.sound_manager.play('no_lives')
+                    self.music_manager.play_game_over_music()
+                    self.state = GameState.GAME_OVER
+                    self.game_over_timer = self.game_over_delay
+                else:
                     # Go to egg hatching state for respawn
                     self.state = GameState.EGG_HATCHING
                 break  # Don't check more stingers this frame
@@ -2546,6 +2680,20 @@ class SnakeGame:
                                     self.scorpion_attack_frames
                                 )
                                 self.scorpion_stingers.append(stinger)
+                            
+                            # Check if beetle should launch larvae (when attack_charge_time hits 30, halfway through attack)
+                            if enemy.enemy_type.startswith('enemy_beetle') and enemy.is_attacking and enemy.attack_charge_time == 30:
+                                # Spawn larvae projectiles in 4 cardinal directions
+                                from game_core import BeetleLarvae, Direction
+                                for direction in [Direction.UP, Direction.DOWN, Direction.LEFT, Direction.RIGHT]:
+                                    larvae = BeetleLarvae(
+                                        enemy.grid_x,
+                                        enemy.grid_y,
+                                        direction,
+                                        self.beetle_larvae_frames
+                                    )
+                                    self.beetle_larvae.append(larvae)
+                                print("Beetle launched 4 larvae projectiles!")
                             
                             # Check collision with snake
                             collision_type = enemy.check_collision_with_snake(self.snake.body[0], self.snake.body)
@@ -3861,6 +4009,7 @@ class SnakeGame:
             self.spewtums = []
             self.bullets = []
             self.scorpion_stingers = []
+            self.beetle_larvae = []
             self.boss_damage_flash = 0
             self.boss_damage_sound_cooldown = 0
             self.boss_death_phase = 0
@@ -5116,6 +5265,10 @@ class SnakeGame:
         for stinger in self.scorpion_stingers:
             stinger.draw(self.screen, GAME_OFFSET_Y)
         
+        # Draw beetle larvae
+        for larvae in self.beetle_larvae:
+            larvae.draw(self.screen, GAME_OFFSET_Y)
+        
         # Draw spewtum projectiles
         for spewtum in self.spewtums:
             spewtum.draw(self.screen, GAME_OFFSET_Y)
@@ -5166,6 +5319,17 @@ class SnakeGame:
                             else:
                                 enemy_frames = self.scorpion_frames
                             is_scorpion = True
+                        elif enemy.enemy_type.startswith('enemy_beetle'):
+                            # Beetle uses different animations based on state
+                            if enemy.is_attacking and self.beetle_attack_frames:
+                                # Use attack animation when launching larvae
+                                enemy_frames = self.beetle_attack_frames
+                            elif enemy.is_attacking and enemy.attack_charge_time > 30 and self.beetle_open_frames:
+                                # Use vulnerable/open animation after launching larvae
+                                enemy_frames = self.beetle_open_frames
+                            elif self.beetle_frames:
+                                # Normal idle animation
+                                enemy_frames = self.beetle_frames
                         
                         if enemy_frames:
                             enemy_img = enemy_frames[enemy.animation_frame]
@@ -6059,7 +6223,7 @@ class SnakeGame:
             ("Animations: Austin Morgan", WHITE),
             ("Music: Suno AI Music", WHITE),
             ("Sound Effects: Austin Morgan", WHITE),
-            ("This was just an example of what you can do with AI", WHITE),
+            ("", WHITE),
             ("Now go make your own games!", WHITE),
         ]
         

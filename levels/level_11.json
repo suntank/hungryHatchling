@@ -1,5 +1,5 @@
 {
-  "level_number": 2,
+  "level_number": 1,
   "name": "New Level",
   "description": "A new level",
   "background_image": "bg.png",
@@ -35,14 +35,19 @@
   "diamond_positions": [],
   "enemies": [
     {
-      "x": 5,
-      "y": 10,
-      "type": "enemy_scorpion"
+      "x": 6,
+      "y": 6,
+      "type": "enemy_beetle"
     },
     {
-      "x": 9,
-      "y": 3,
-      "type": "enemy_scorpion"
+      "x": 3,
+      "y": 10,
+      "type": "enemy_beetle"
+    },
+    {
+      "x": 5,
+      "y": 2,
+      "type": "enemy_beetle"
     }
   ],
   "boss_data": null
