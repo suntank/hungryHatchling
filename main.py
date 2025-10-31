@@ -856,6 +856,8 @@ class SnakeGame:
         self.game_over_timer = 0
         self.game_over_delay = 180  # 3 seconds at 60 FPS
         self.multiplayer_end_timer = 0  # Timer for delay after last player dies in multiplayer
+        self.respawn_timer = 0  # Timer for delay before respawning in adventure mode
+        self.respawn_delay = 60  # 1 second at 60 FPS
         
         self.joystick = None
         self.joystick_has_hat = False
@@ -1993,27 +1995,34 @@ class SnakeGame:
                             minion.last_move_interval = move_interval  # Track for interpolation
                             minion.move()
                             
-                            # Check collision with player snake
-                            if minion.body[0] == self.snake.body[0]:
-                                # Minion head hit player head - player dies
-                                self.sound_manager.play('die')
-                                self.lives -= 1
-                                if self.lives <= 0:
-                                    self.music_manager.play_game_over_music()
-                                    self.state = GameState.GAME_OVER
-                                    self.game_over_timer = self.game_over_delay
-                                else:
-                                    self.state = GameState.EGG_HATCHING
-                                    # Mark this as a respawn for boss battles
-                                    if hasattr(self, 'boss_active') and self.boss_active:
-                                        self.boss_egg_is_respawn = True
-                                        self.egg_timer = 0
-                            elif minion.body[0] in self.snake.body[1:]:
-                                # Minion head hit player's body - minion dies
-                                minion.alive = False
-                                self.boss_minion_respawn_timers[minion_idx] = 300  # 5 seconds at 60 FPS
-                                self.sound_manager.play('eat')
-                                print("Boss minion {} killed, will respawn in 5 seconds".format(minion_idx + 1))
+                            # Check collision with player snake (only if snake has a body)
+                            if len(self.snake.body) > 0:
+                                if minion.body[0] == self.snake.body[0]:
+                                    # Minion head hit player head - player dies
+                                    self.sound_manager.play('die')
+                                    self.lives -= 1
+                                    if self.lives <= 0:
+                                        self.music_manager.play_game_over_music()
+                                        self.state = GameState.GAME_OVER
+                                        self.game_over_timer = self.game_over_delay
+                                    else:
+                                        # In adventure mode, wait before going to egg hatching to clear visuals
+                                        if self.game_mode == "adventure":
+                                            self.respawn_timer = self.respawn_delay
+                                            # Clear the snake body immediately
+                                            self.snake.body = []
+                                        else:
+                                            self.state = GameState.EGG_HATCHING
+                                            # Mark this as a respawn for boss battles
+                                            if hasattr(self, 'boss_active') and self.boss_active:
+                                                self.boss_egg_is_respawn = True
+                                                self.egg_timer = 0
+                                elif minion.body[0] in self.snake.body[1:]:
+                                    # Minion head hit player's body - minion dies
+                                    minion.alive = False
+                                    self.boss_minion_respawn_timers[minion_idx] = 300  # 5 seconds at 60 FPS
+                                    self.sound_manager.play('eat')
+                                    print("Boss minion {} killed, will respawn in 5 seconds".format(minion_idx + 1))
                             
                             # Check if minion ate food
                             minion_head = minion.body[0]
@@ -2213,6 +2222,17 @@ class SnakeGame:
                 self.worm_animation_counter = 0
                 self.worm_frame_index = (self.worm_frame_index + 1) % len(self.worm_frames)
         
+        # Handle respawn timer countdown in adventure mode
+        if self.state == GameState.PLAYING and self.respawn_timer > 0:
+            self.respawn_timer -= 1
+            if self.respawn_timer == 0:
+                # Timer expired, transition to egg hatching
+                self.state = GameState.EGG_HATCHING
+                # Mark this as a respawn for boss battles
+                if hasattr(self, 'boss_active') and self.boss_active:
+                    self.boss_egg_is_respawn = True
+                    self.egg_timer = 0
+        
         # Handle game over timer countdown
         if self.state == GameState.GAME_OVER and self.game_over_timer > 0:
             self.game_over_timer -= 1
@@ -2259,8 +2279,8 @@ class SnakeGame:
             
             stinger_pos = (stinger.grid_x, stinger.grid_y)
             
-            # Check if stinger hit player snake
-            if stinger_pos in self.snake.body:
+            # Check if stinger hit player snake (only if snake has a body)
+            if len(self.snake.body) > 0 and stinger_pos in self.snake.body:
                 # Player hit by stinger - dies
                 stinger.alive = False
                 self.sound_manager.play('die')
@@ -2278,8 +2298,15 @@ class SnakeGame:
                     self.state = GameState.GAME_OVER
                     self.game_over_timer = self.game_over_delay
                 else:
-                    self.reset_level()
-                    return
+                    # In adventure mode, wait before going to egg hatching to clear visuals
+                    if self.game_mode == "adventure":
+                        self.respawn_timer = self.respawn_delay
+                        # Clear the snake body immediately
+                        self.snake.body = []
+                    else:
+                        # Go to egg hatching state for respawn
+                        self.state = GameState.EGG_HATCHING
+                break  # Don't check more stingers this frame
         
         # Update beetle larvae
         self.beetle_larvae = [l for l in self.beetle_larvae if l.alive]
@@ -2293,8 +2320,8 @@ class SnakeGame:
             
             larvae_pos = (larvae.grid_x, larvae.grid_y)
             
-            # Check if larvae hit player snake
-            if larvae_pos in self.snake.body:
+            # Check if larvae hit player snake (only if snake has a body)
+            if len(self.snake.body) > 0 and larvae_pos in self.snake.body:
                 # Player hit by larvae - dies
                 larvae.alive = False
                 self.sound_manager.play('die')
@@ -2312,9 +2339,15 @@ class SnakeGame:
                     self.state = GameState.GAME_OVER
                     self.game_over_timer = self.game_over_delay
                 else:
-                    # Go to egg hatching state for respawn
-                    self.state = GameState.EGG_HATCHING
-                break  # Don't check more stingers this frame
+                    # In adventure mode, wait before going to egg hatching to clear visuals
+                    if self.game_mode == "adventure":
+                        self.respawn_timer = self.respawn_delay
+                        # Clear the snake body immediately
+                        self.snake.body = []
+                    else:
+                        # Go to egg hatching state for respawn
+                        self.state = GameState.EGG_HATCHING
+                break  # Don't check more larvae this frame
         
         # Check bullet collisions with boss minions
         if self.boss_active and hasattr(self, 'boss_minions') and self.boss_minions:
@@ -2587,11 +2620,16 @@ class SnakeGame:
                                 self.handle_player_death(snake)
                                 break
         else:
-            # Single player mode - speed based on level
-            move_interval = max(1, 16 - self.level // 2)
+            # Single player mode - speed based on level (except in adventure mode)
+            if self.game_mode == "adventure":
+                # Fixed speed in adventure mode (doesn't increase with level)
+                move_interval = 16
+            else:
+                # Endless mode - speed increases with level
+                move_interval = max(1, 16 - self.level // 2)
             
-            # Don't move if player is frozen (during boss death sequence)
-            if self.move_timer >= move_interval and not self.player_frozen:
+            # Don't move if player is frozen (during boss death sequence) or during respawn delay or if snake has no body
+            if self.move_timer >= move_interval and not self.player_frozen and self.respawn_timer == 0 and len(self.snake.body) > 0:
                 self.move_timer = 0
                 self.snake.move()
                 
@@ -2642,18 +2680,29 @@ class SnakeGame:
                         self.state = GameState.GAME_OVER
                         self.game_over_timer = self.game_over_delay
                     else:
-                        # Go to egg hatching state for respawn
-                        self.state = GameState.EGG_HATCHING
-                        # Mark this as a respawn for boss battles
-                        if hasattr(self, 'boss_active') and self.boss_active:
-                            self.boss_egg_is_respawn = True
-                            self.egg_timer = 0
+                        # In adventure mode, wait before going to egg hatching to clear visuals
+                        if self.game_mode == "adventure":
+                            self.respawn_timer = self.respawn_delay
+                            # Clear the snake body immediately
+                            self.snake.body = []
+                        else:
+                            # Go to egg hatching state for respawn
+                            self.state = GameState.EGG_HATCHING
+                            # Mark this as a respawn for boss battles
+                            if hasattr(self, 'boss_active') and self.boss_active:
+                                self.boss_egg_is_respawn = True
+                                self.egg_timer = 0
                 
                 # Update enemies in adventure mode
                 if self.game_mode == "adventure" and hasattr(self, 'enemies'):
                     for enemy in self.enemies:
                         if enemy.alive:
-                            enemy.update(self.snake.body, self.level_walls, self.food_items)
+                            # Skip collision check if snake body is empty (during respawn delay)
+                            if len(self.snake.body) > 0:
+                                enemy.update(self.snake.body, self.level_walls, self.food_items)
+                            else:
+                                # Update without snake interaction during respawn
+                                enemy.update([], self.level_walls, self.food_items)
                             
                             # Update enemy animation
                             if enemy.enemy_type.startswith('enemy_ant') and self.ant_frames:
@@ -2695,8 +2744,11 @@ class SnakeGame:
                                     self.beetle_larvae.append(larvae)
                                 print("Beetle launched 4 larvae projectiles!")
                             
-                            # Check collision with snake
-                            collision_type = enemy.check_collision_with_snake(self.snake.body[0], self.snake.body)
+                            # Check collision with snake (only if snake has a body)
+                            if len(self.snake.body) > 0:
+                                collision_type = enemy.check_collision_with_snake(self.snake.body[0], self.snake.body)
+                            else:
+                                collision_type = None
                             
                             if collision_type == 'head':
                                 # Snake head hit enemy - snake dies
@@ -2715,12 +2767,18 @@ class SnakeGame:
                                     self.state = GameState.GAME_OVER
                                     self.game_over_timer = self.game_over_delay
                                 else:
-                                    # Go to egg hatching state for respawn
-                                    self.state = GameState.EGG_HATCHING
-                                    # Mark this as a respawn for boss battles
-                                    if hasattr(self, 'boss_active') and self.boss_active:
-                                        self.boss_egg_is_respawn = True
-                                        self.egg_timer = 0
+                                    # In adventure mode, wait before going to egg hatching to clear visuals
+                                    if self.game_mode == "adventure":
+                                        self.respawn_timer = self.respawn_delay
+                                        # Clear the snake body immediately
+                                        self.snake.body = []
+                                    else:
+                                        # Go to egg hatching state for respawn
+                                        self.state = GameState.EGG_HATCHING
+                                        # Mark this as a respawn for boss battles
+                                        if hasattr(self, 'boss_active') and self.boss_active:
+                                            self.boss_egg_is_respawn = True
+                                            self.egg_timer = 0
                                 break  # Don't check more enemies this frame
                             
                             elif collision_type == 'body':
@@ -2797,7 +2855,7 @@ class SnakeGame:
                         break  # Only eat one food per frame
         else:
             # Single player food collection
-            if self.move_timer == 0:  # Only check after movement
+            if self.move_timer == 0 and len(self.snake.body) > 0:  # Only check after movement and if snake has body
                 # Check if snake ate any food
                 food_eaten = False
                 
@@ -4239,8 +4297,14 @@ class SnakeGame:
             self.snake.next_direction = direction
         
         # Create flying egg pieces
-        center_x = SCREEN_WIDTH // 2
-        center_y = SCREEN_HEIGHT // 2
+        # In adventure mode, spawn pieces at the starting position
+        if self.game_mode == "adventure" and hasattr(self, 'current_level_data'):
+            egg_x, egg_y = self.current_level_data['starting_position']
+            center_x = egg_x * GRID_SIZE + GRID_SIZE // 2
+            center_y = egg_y * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y
+        else:
+            center_x = SCREEN_WIDTH // 2
+            center_y = SCREEN_HEIGHT // 2
         
         if len(self.egg_piece_imgs) == 4:
             # Create 4 egg pieces flying in different directions
@@ -4942,8 +5006,9 @@ class SnakeGame:
             if self.game_mode == "adventure" and hasattr(self, 'current_level_data'):
                 # Use level's starting position
                 egg_x, egg_y = self.current_level_data['starting_position']
-                egg_pixel_x = egg_x * GRID_SIZE
-                egg_pixel_y = egg_y * GRID_SIZE + GAME_OFFSET_Y
+                # Center the 2x2 egg over the 1x1 spawn point
+                egg_pixel_x = egg_x * GRID_SIZE - GRID_SIZE // 2
+                egg_pixel_y = egg_y * GRID_SIZE + GAME_OFFSET_Y - GRID_SIZE // 2
             else:
                 # Default to center for endless mode
                 egg_pixel_x = SCREEN_WIDTH // 2 - GRID_SIZE
@@ -4975,8 +5040,13 @@ class SnakeGame:
             move_interval = max(1, snake.last_move_interval)
             progress = min(1.0, snake.move_timer / move_interval)
         else:
-            # Single player - use global timer and level-based speed
-            move_interval = max(1, 16 - self.level // 2)
+            # Single player - use global timer and calculate speed same as movement logic
+            if self.game_mode == "adventure":
+                # Fixed speed in adventure mode (doesn't increase with level)
+                move_interval = 16
+            else:
+                # Endless mode - speed increases with level
+                move_interval = max(1, 16 - self.level // 2)
             progress = min(1.0, self.move_timer / move_interval)
         
         interpolated_positions = []
