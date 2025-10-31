@@ -705,6 +705,27 @@ class SnakeGame:
         except Exception as e:
             print("Warning: bossSpewtum.gif not found or could not be loaded: {}".format(e))
         
+        # Load Frog Boss assets
+        try:
+            frog_boss_path = os.path.join(SCRIPT_DIR, 'img', 'frogBoss.png')
+            self.frog_boss_img = pygame.image.load(frog_boss_path).convert_alpha()
+            # Scale to 200% size (4x4 grid cells instead of 2x2)
+            self.frog_boss_img = pygame.transform.scale(self.frog_boss_img, (GRID_SIZE * 4, GRID_SIZE * 4))
+            print("Loaded frogBoss.png")
+        except Exception as e:
+            print("Warning: frogBoss.png not found: {}".format(e))
+            self.frog_boss_img = None
+        
+        try:
+            frog_tongue_path = os.path.join(SCRIPT_DIR, 'img', 'frogTongue.png')
+            self.frog_tongue_img = pygame.image.load(frog_tongue_path).convert_alpha()
+            # Tongue segment is 1 grid cell
+            self.frog_tongue_img = pygame.transform.scale(self.frog_tongue_img, (GRID_SIZE, GRID_SIZE))
+            print("Loaded frogTongue.png")
+        except Exception as e:
+            self.frog_tongue_img = None
+            print("Warning: frogTongue.png not found: {}".format(e))
+        
         # Load bad snake graphics for boss minions
         try:
             bad_head_path = os.path.join(SCRIPT_DIR, 'img', 'badSnakeHead.png')
@@ -757,6 +778,25 @@ class SnakeGame:
         self.boss_death_particle_timer = 0  # Timer for spawning particles during phase 3
         self.boss_slide_offset_y = 0  # Vertical offset for boss sliding during death
         self.boss_slide_timer = 0  # Timer for boss slide (4 seconds = 240 frames)
+        
+        # Frog Boss state variables
+        self.frog_state = 'falling'  # States: 'falling', 'landed', 'jumping', 'airborne'
+        self.frog_position = [GRID_WIDTH // 2, GRID_HEIGHT // 2]  # Grid position (can be fractional during animation)
+        self.frog_shadow_position = [GRID_WIDTH // 2, GRID_HEIGHT // 2]  # Shadow grid position
+        self.frog_fall_timer = 0  # Animation timer for falling
+        self.frog_jump_timer = 0  # Timer between jumps
+        self.frog_airborne_timer = 0  # How long frog has been in the air
+        self.frog_tongue_segments = []  # List of tongue segment positions [(x, y), ...]
+        self.frog_tongue_extending = False  # Whether tongue is extending
+        self.frog_tongue_retracting = False  # Whether tongue is retracting
+        self.frog_tongue_timer = 0  # Timer for tongue animation
+        self.frog_tongue_direction = (0, -1)  # Direction of tongue extension (dx, dy)
+        self.frog_jump_count = 0  # Number of jumps performed
+        self.frog_tracking_player = False  # Whether frog is tracking player for targeted attack
+        self.frog_is_invulnerable = False  # Whether frog is invulnerable (during jump)
+        self.frog_rotation_angle = 0  # Angle frog is facing (0 = right, 90 = down, etc.)
+        self.frog_tongue_stuck_timer = 0  # Timer for tongue staying extended
+        self.frog_tongue_sticking = False  # Whether tongue is stuck at full extension
         
         # Load UI icons for multiplayer lobby
         # Star rating icons for difficulty
@@ -1395,8 +1435,322 @@ class SnakeGame:
         
         print("Spawned {} enemy walls in super attack pattern".format(len([e for e in self.enemies if e.enemy_type == 'enemy_wall' and e.alive])))
     
+    def update_frog_boss(self):
+        """Update Frog Boss behavior: falling entrance, jumping, shadow movement, tongue attacks"""
+        
+        # Entrance sequence: Frog falls from sky
+        if self.frog_state == 'falling':
+            self.frog_fall_timer += 1
+            
+            # Shadow appears at center only on initial entrance (jump count == 0)
+            if self.frog_fall_timer == 1 and self.frog_jump_count == 0:
+                self.frog_shadow_position = [GRID_WIDTH // 2, GRID_HEIGHT // 2]
+                self.frog_position = [GRID_WIDTH // 2, -5]  # Start above screen
+                print("Frog Boss: Shadow appears at center (initial entrance)")
+            elif self.frog_fall_timer == 1:
+                # Subsequent falls - frog position already set by airborne state
+                # Shadow position already set during airborne state
+                pass
+            
+            # Frog falls down over 60 frames (1 second)
+            if self.frog_fall_timer <= 60:
+                # Interpolate from above screen to shadow position
+                progress = self.frog_fall_timer / 60.0
+                self.frog_position[1] = -5 + (self.frog_shadow_position[1] + 5) * progress
+            else:
+                # Landing complete
+                self.frog_position = self.frog_shadow_position[:]
+                self.frog_state = 'landed'
+                self.frog_fall_timer = 0
+                self.frog_is_invulnerable = False
+                # Immediately start tongue attack
+                self.start_frog_tongue_attack()
+                print("Frog Boss: Landed at position", self.frog_position)
+        
+        # Landed state: Tongue attack or preparing to jump
+        elif self.frog_state == 'landed':
+            # Handle tongue attack
+            if self.frog_tongue_extending or self.frog_tongue_retracting:
+                self.update_frog_tongue()
+            else:
+                # Wait a moment, then jump
+                self.frog_jump_timer += 1
+                if self.frog_jump_timer >= 180:  # 3 seconds after tongue retracts
+                    self.start_frog_jump()
+        
+        # Jumping state: Frog leaves the ground
+        elif self.frog_state == 'jumping':
+            self.frog_jump_timer += 1
+            # Quick jump animation (30 frames)
+            if self.frog_jump_timer <= 30:
+                # Frog moves up off screen
+                progress = self.frog_jump_timer / 30.0
+                start_y = self.frog_shadow_position[1]
+                self.frog_position[1] = start_y - progress * (start_y + 5)
+            else:
+                # Jump complete, now airborne
+                self.frog_state = 'airborne'
+                self.frog_jump_timer = 0
+                self.frog_is_invulnerable = True
+                print("Frog Boss: Airborne")
+        
+        # Airborne state: Wait 3-4 seconds, then fall
+        elif self.frog_state == 'airborne':
+            self.frog_airborne_timer += 1
+            
+            # Pick new landing position at the start of airborne (shadow moves once)
+            if self.frog_airborne_timer == 1:
+                self.pick_new_frog_landing()
+                print("Frog Boss: Shadow moving to", self.frog_shadow_position)
+            
+            # Wait 210 frames (3.5 seconds)
+            if self.frog_airborne_timer >= 210:
+                # Start falling
+                self.frog_state = 'falling'
+                self.frog_airborne_timer = 0
+                self.frog_fall_timer = 0
+                self.frog_position = [self.frog_shadow_position[0], -5]
+                print("Frog Boss: Falling to", self.frog_shadow_position)
+        
+        # Update damage flash
+        if self.boss_damage_flash > 0:
+            self.boss_damage_flash -= 1
+        if self.boss_damage_sound_cooldown > 0:
+            self.boss_damage_sound_cooldown -= 1
+        
+        # Handle boss defeated
+        if self.boss_health <= 0 and not self.boss_defeated:
+            self.boss_defeated = True
+            self.player_frozen = True
+            self.boss_death_phase = 1
+            self.boss_death_delay = 120  # 2 seconds
+            pygame.mixer.music.fadeout(2000)
+            self.music_manager.silent_mode = True
+            # Clear tongue
+            self.frog_tongue_segments = []
+            self.frog_tongue_extending = False
+            self.frog_tongue_retracting = False
+            print("Frog Boss defeated!")
+        
+        # Death sequence
+        if self.boss_defeated:
+            if self.boss_death_delay > 0:
+                self.boss_death_delay -= 1
+            else:
+                # Victory
+                self.boss_spawned = False
+                self.boss_active = False
+                self.boss_death_phase = 3
+                self.state = GameState.LEVEL_COMPLETE
+                self.level_complete_timer = 180
+                self.sound_manager.play('win')
+        
+        # Periodic isotope spawning
+        if self.boss_spawned and hasattr(self, 'isotope_spawn_timer'):
+            self.isotope_spawn_timer += 1
+            if self.isotope_spawn_timer >= self.isotope_spawn_interval:
+                has_isotope = any(food_type == 'isotope' for _, food_type in self.food_items)
+                if not has_isotope:
+                    self.spawn_isotope()
+                self.isotope_spawn_timer = 0
+    
+    def start_frog_tongue_attack(self):
+        """Start the frog's tongue attack"""
+        self.frog_tongue_extending = True
+        self.frog_tongue_retracting = False
+        self.frog_tongue_sticking = False
+        self.frog_tongue_timer = 0
+        self.frog_tongue_segments = []
+        self.frog_tongue_stuck_timer = 0
+        
+        # Always aim at player's head (after jump 3, use current position, otherwise use last known)
+        if len(self.snake.body) > 0:
+            player_head = self.snake.body[0]
+            # Frog center is at position + 2 grid cells (since frog is 4x4)
+            frog_center_x = self.frog_position[0] + 2
+            frog_center_y = self.frog_position[1] + 2
+            
+            # Calculate angle to player head
+            dx = player_head[0] - frog_center_x
+            dy = player_head[1] - frog_center_y
+            
+            # Calculate angle in degrees (0 = right, 90 = down, 180 = left, 270 = up)
+            import math
+            angle_rad = math.atan2(dy, dx)
+            angle_deg = math.degrees(angle_rad)
+            
+            # Normalize to 0-360 range
+            if angle_deg < 0:
+                angle_deg += 360
+            
+            self.frog_rotation_angle = angle_deg
+            
+            # Store direction as normalized vector for tongue extension
+            distance = math.sqrt(dx * dx + dy * dy)
+            if distance > 0:
+                self.frog_tongue_direction = (dx / distance, dy / distance)
+            else:
+                self.frog_tongue_direction = (1, 0)  # Default right
+        else:
+            # Default direction if no player
+            self.frog_tongue_direction = (1, 0)  # Right
+            self.frog_rotation_angle = 0
+        
+        print("Frog Boss: Starting tongue attack at angle {:.1f} degrees".format(self.frog_rotation_angle))
+    
+    def update_frog_tongue(self):
+        """Update tongue extension/retraction animation"""
+        self.frog_tongue_timer += 1
+        
+        if self.frog_tongue_extending:
+            # Extend tongue - add new segment every 3 frames
+            if self.frog_tongue_timer % 3 == 0:
+                # Calculate next segment position
+                if len(self.frog_tongue_segments) == 0:
+                    # First segment starts at frog center (frog is 4x4)
+                    frog_center_x = self.frog_position[0] + 2
+                    frog_center_y = self.frog_position[1] + 2
+                    # Move in the direction vector
+                    next_x = frog_center_x + self.frog_tongue_direction[0]
+                    next_y = frog_center_y + self.frog_tongue_direction[1]
+                    next_pos = (int(round(next_x)), int(round(next_y)))
+                else:
+                    # Extend from last segment using the direction vector
+                    last_seg = self.frog_tongue_segments[-1]
+                    next_x = last_seg[0] + self.frog_tongue_direction[0]
+                    next_y = last_seg[1] + self.frog_tongue_direction[1]
+                    next_pos = (int(round(next_x)), int(round(next_y)))
+                
+                # Check if next position is valid and not hitting obstacles
+                hit_obstacle = False
+                
+                # Check screen bounds
+                if not (0 <= next_pos[0] < GRID_WIDTH and 0 <= next_pos[1] < GRID_HEIGHT):
+                    hit_obstacle = True
+                # Check for duplicate position
+                elif len(self.frog_tongue_segments) > 0 and next_pos == self.frog_tongue_segments[-1]:
+                    hit_obstacle = True
+                # Check for wall collision
+                elif hasattr(self, 'level_walls') and next_pos in self.level_walls:
+                    hit_obstacle = True
+                
+                if not hit_obstacle:
+                    # Valid position, add segment
+                    self.frog_tongue_segments.append(next_pos)
+                    # Check collision with player body
+                    self.check_tongue_collision(next_pos)
+                elif len(self.frog_tongue_segments) > 0:
+                    # Hit obstacle (wall, edge, or duplicate), start sticking phase
+                    self.frog_tongue_extending = False
+                    self.frog_tongue_sticking = True
+                    self.frog_tongue_timer = 0
+                    self.frog_tongue_stuck_timer = 90  # Stick for 1.5 seconds (90 frames)
+                    print("Frog tongue hit obstacle, sticking at {} segments".format(len(self.frog_tongue_segments)))
+            
+            # Tongue fully extended (15 segments) - start sticking
+            if len(self.frog_tongue_segments) >= 15:
+                self.frog_tongue_extending = False
+                self.frog_tongue_sticking = True
+                self.frog_tongue_timer = 0
+                self.frog_tongue_stuck_timer = 90  # Stick for 1.5 seconds
+        
+        elif self.frog_tongue_sticking:
+            # Tongue is stuck at full extension
+            if self.frog_tongue_stuck_timer > 0:
+                self.frog_tongue_stuck_timer -= 1
+            else:
+                # Done sticking, start retracting
+                self.frog_tongue_sticking = False
+                self.frog_tongue_retracting = True
+                self.frog_tongue_timer = 0
+        
+        elif self.frog_tongue_retracting:
+            # Retract tongue - remove segment every 3 frames
+            if self.frog_tongue_timer % 3 == 0 and len(self.frog_tongue_segments) > 0:
+                self.frog_tongue_segments.pop()  # Remove last segment
+            
+            # Tongue fully retracted
+            if len(self.frog_tongue_segments) == 0:
+                self.frog_tongue_retracting = False
+                self.frog_tongue_timer = 0
+                self.frog_jump_timer = 0  # Reset jump timer
+    
+    def check_tongue_collision(self, tongue_pos):
+        """Check if tongue segment hit player"""
+        if len(self.snake.body) == 0:
+            return
+        
+        # Check collision with player body (not head)
+        if tongue_pos in self.snake.body[1:]:
+            # Find which body segment was hit
+            body_segment_index = self.snake.body.index(tongue_pos)
+            
+            # Destroy tongue segments from this point onwards
+            tongue_segment_index = self.frog_tongue_segments.index(tongue_pos)
+            destroyed_tongue_segments = self.frog_tongue_segments[tongue_segment_index:]
+            self.frog_tongue_segments = self.frog_tongue_segments[:tongue_segment_index]
+            
+            # Remove player body segments from hit point to tail
+            removed_body_count = len(self.snake.body) - body_segment_index
+            self.snake.body = self.snake.body[:body_segment_index]
+            
+            # Start retracting immediately
+            self.frog_tongue_extending = False
+            self.frog_tongue_retracting = True
+            self.frog_tongue_timer = 0
+            
+            # Create particles at hit location
+            hit_x = tongue_pos[0] * GRID_SIZE + GRID_SIZE // 2
+            hit_y = tongue_pos[1] * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y
+            self.create_particles(hit_x, hit_y, RED, 10)
+            self.sound_manager.play('eat_fruit')
+            
+            print("Frog tongue hit player body! {} tongue segments destroyed, {} body segments lost".format(
+                len(destroyed_tongue_segments), removed_body_count))
+    
+    def start_frog_jump(self):
+        """Start frog jump sequence"""
+        self.frog_state = 'jumping'
+        self.frog_jump_timer = 0
+        self.frog_jump_count += 1
+        
+        # Clear tongue segments and reset tongue state (prevent leaving tongue behind)
+        self.frog_tongue_segments = []
+        self.frog_tongue_extending = False
+        self.frog_tongue_retracting = False
+        self.frog_tongue_sticking = False
+        self.frog_tongue_timer = 0
+        self.frog_tongue_stuck_timer = 0
+        
+        # After 3 jumps, start tracking player
+        if self.frog_jump_count >= 3:
+            self.frog_tracking_player = True
+            print("Frog Boss: Now tracking player for next attack")
+    
+    def pick_new_frog_landing(self):
+        """Pick a new random landing position for the frog"""
+        # Pick random position, avoiding edges (need 2x2 space for frog)
+        attempts = 0
+        while attempts < 20:
+            x = random.randint(2, GRID_WIDTH - 4)
+            y = random.randint(2, GRID_HEIGHT - 4)
+            
+            # Make sure not too close to player (at least 3 cells away)
+            if len(self.snake.body) > 0:
+                player_head = self.snake.body[0]
+                dist = abs(x - player_head[0]) + abs(y - player_head[1])
+                if dist >= 3:
+                    self.frog_shadow_position = [x, y]
+                    return
+            else:
+                self.frog_shadow_position = [x, y]
+                return
+            attempts += 1
+        
+        # Fallback: use center
+        self.frog_shadow_position = [GRID_WIDTH // 2, GRID_HEIGHT // 2]
+    
     def respawn_boss_minion(self, minion_index):
-        """Respawn a dead boss minion"""
         if minion_index >= len(self.boss_minions):
             return
         
@@ -2173,6 +2527,10 @@ class SnakeGame:
                     # Reset timer
                     self.isotope_spawn_timer = 0
         
+        # Update Frog Boss if active
+        if self.boss_active and self.boss_data == 'frog':
+            self.update_frog_boss()
+        
         # Handle multiplayer end timer (delay after last player dies)
         if hasattr(self, 'multiplayer_end_timer') and self.multiplayer_end_timer > 0:
             self.multiplayer_end_timer -= 1
@@ -2435,17 +2793,37 @@ class SnakeGame:
                 if not bullet.alive:
                     continue
                 
-                # Check if bullet hit the boss sprite area (256x256 at boss_position)
+                hit_boss = False
                 bullet_pixel_x = bullet.pixel_x
                 bullet_pixel_y = bullet.pixel_y - GAME_OFFSET_Y  # Adjust for HUD offset
                 
-                boss_left = self.boss_position[0]
-                boss_right = self.boss_position[0] + 256
-                boss_top = self.boss_position[1]
-                boss_bottom = self.boss_position[1] + 256
+                # Check wormBoss collision (256x256 sprite)
+                if self.boss_data == 'wormBoss':
+                    boss_left = self.boss_position[0]
+                    boss_right = self.boss_position[0] + 256
+                    boss_top = self.boss_position[1]
+                    boss_bottom = self.boss_position[1] + 256
+                    
+                    if (boss_left <= bullet_pixel_x <= boss_right and
+                        boss_top <= bullet_pixel_y <= boss_bottom):
+                        hit_boss = True
                 
-                if (boss_left <= bullet_pixel_x <= boss_right and
-                    boss_top <= bullet_pixel_y <= boss_bottom):
+                # Check Frog Boss collision (2x2 grid cells = 64x64 pixels)
+                elif self.boss_data == 'frog':
+                    # Only vulnerable when on ground (not jumping/airborne)
+                    if not self.frog_is_invulnerable and self.frog_state in ['landed', 'falling']:
+                        frog_pixel_x = self.frog_position[0] * GRID_SIZE
+                        frog_pixel_y = self.frog_position[1] * GRID_SIZE
+                        frog_left = frog_pixel_x
+                        frog_right = frog_pixel_x + GRID_SIZE * 2
+                        frog_top = frog_pixel_y
+                        frog_bottom = frog_pixel_y + GRID_SIZE * 2
+                        
+                        if (frog_left <= bullet_pixel_x <= frog_right and
+                            frog_top <= bullet_pixel_y <= frog_bottom):
+                            hit_boss = True
+                
+                if hit_boss:
                     # Boss hit!
                     bullet.alive = False
                     self.boss_health -= 1
@@ -2637,8 +3015,8 @@ class SnakeGame:
                 head = self.snake.body[0]
                 hit_wall = False
                 
-                # Check if player entered the boss zone (lower right quadrant)
-                if hasattr(self, 'boss_active') and self.boss_active and self.boss_spawned:
+                # Check if player entered the boss zone (lower right quadrant - wormBoss only)
+                if hasattr(self, 'boss_active') and self.boss_active and self.boss_spawned and self.boss_data == 'wormBoss':
                     head_x, head_y = head
                     # Lower right quadrant: x >= 8 and y >= 8
                     if head_x >= 8 and head_y >= 8:
@@ -2788,6 +3166,91 @@ class SnakeGame:
                                 self.create_particles(enemy.grid_x * GRID_SIZE + GRID_SIZE // 2,
                                                     enemy.grid_y * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y, 
                                                     None, None, particle_type='white')
+        
+        # Check Frog Boss collision with player
+        # Don't check collision during egg hatching
+        if self.boss_active and self.boss_data == 'frog' and self.boss_spawned and self.state == GameState.PLAYING:
+            if len(self.snake.body) > 0 and not self.boss_defeated:
+                player_head = self.snake.body[0]
+                
+                # Check collision with frog body (when on ground and at valid position)
+                if self.frog_state == 'landed' and not self.frog_is_invulnerable:
+                    frog_x = int(self.frog_position[0])
+                    frog_y = int(self.frog_position[1])
+                    
+                    # Only check collision if frog is within valid grid bounds
+                    if (0 <= frog_x < GRID_WIDTH - 3 and 0 <= frog_y < GRID_HEIGHT - 3):
+                        # Frog occupies 4x4 grid cells (200% size)
+                        frog_cells = []
+                        for dx in range(4):
+                            for dy in range(4):
+                                frog_cells.append((frog_x + dx, frog_y + dy))
+                        
+                        # Check head collision - instant death
+                        if player_head in frog_cells:
+                            # Player dies from touching frog with head
+                            self.sound_manager.play('die')
+                            self.lives -= 1
+                            
+                            # Spawn white particles on all snake body segments
+                            for segment_x, segment_y in self.snake.body:
+                                self.create_particles(segment_x * GRID_SIZE + GRID_SIZE // 2,
+                                                    segment_y * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y, 
+                                                    None, None, particle_type='white')
+                            
+                            if self.lives <= 0:
+                                self.music_manager.play_game_over_music()
+                                self.state = GameState.GAME_OVER
+                                self.game_over_timer = self.game_over_delay
+                            else:
+                                self.state = GameState.EGG_HATCHING
+                                if hasattr(self, 'boss_active') and self.boss_active:
+                                    self.boss_egg_is_respawn = True
+                                    self.egg_timer = 0
+                            print("Player died from touching Frog Boss!")
+                        else:
+                            # Check body collision - remove segments from hit point to tail
+                            for frog_cell in frog_cells:
+                                if frog_cell in self.snake.body[1:]:
+                                    # Find which body segment was hit
+                                    body_segment_index = self.snake.body.index(frog_cell)
+                                    
+                                    # Remove player body segments from hit point to tail
+                                    removed_body_count = len(self.snake.body) - body_segment_index
+                                    self.snake.body = self.snake.body[:body_segment_index]
+                                    
+                                    # Create particles at hit location
+                                    hit_x = frog_cell[0] * GRID_SIZE + GRID_SIZE // 2
+                                    hit_y = frog_cell[1] * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y
+                                    self.create_particles(hit_x, hit_y, RED, 10)
+                                    self.sound_manager.play('eat_fruit')
+                                    
+                                    print("Frog landed on player body! {} body segments lost".format(removed_body_count))
+                                    break  # Only process one collision per frame
+                
+                # Check collision with tongue (any segment kills on head contact)
+                if len(self.frog_tongue_segments) > 0:
+                    if player_head in self.frog_tongue_segments:
+                        # Player dies from touching tongue with head
+                        self.sound_manager.play('die')
+                        self.lives -= 1
+                        
+                        # Spawn white particles on all snake body segments
+                        for segment_x, segment_y in self.snake.body:
+                            self.create_particles(segment_x * GRID_SIZE + GRID_SIZE // 2,
+                                                segment_y * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y, 
+                                                None, None, particle_type='white')
+                        
+                        if self.lives <= 0:
+                            self.music_manager.play_game_over_music()
+                            self.state = GameState.GAME_OVER
+                            self.game_over_timer = self.game_over_delay
+                        else:
+                            self.state = GameState.EGG_HATCHING
+                            if hasattr(self, 'boss_active') and self.boss_active:
+                                self.boss_egg_is_respawn = True
+                                self.egg_timer = 0
+                        print("Player died from touching tongue!")
         
         # Food collection (outside movement block)
         if self.is_multiplayer:
@@ -4117,6 +4580,38 @@ class SnakeGame:
                         pygame.mixer.music.play(-1)  # Loop
                         self.music_manager.theme_mode = False
                         print("Playing FinalBoss music for boss battle")
+                    except Exception as e:
+                        print("Warning: Could not load FinalBoss.mp3: {}".format(e))
+                
+                # If it's a Frog Boss, initialize frog-specific state
+                if self.boss_data == 'frog':
+                    self.boss_max_health = 30  # Frog boss has 30 health
+                    self.boss_health = 30
+                    self.boss_spawned = True  # Frog spawns immediately
+                    self.frog_state = 'falling'  # Start with falling entrance
+                    self.frog_position = [GRID_WIDTH // 2, -5]
+                    self.frog_shadow_position = [GRID_WIDTH // 2, GRID_HEIGHT // 2]
+                    self.frog_fall_timer = 0
+                    self.frog_jump_timer = 0
+                    self.frog_airborne_timer = 0
+                    self.frog_tongue_segments = []
+                    self.frog_tongue_extending = False
+                    self.frog_tongue_retracting = False
+                    self.frog_tongue_timer = 0
+                    self.frog_tongue_direction = (0, -1)
+                    self.frog_jump_count = 0
+                    self.frog_tracking_player = False
+                    self.frog_is_invulnerable = True  # Invulnerable during entrance
+                    print("Frog Boss initialized with 30 health")
+                    
+                    # Play boss music if available
+                    try:
+                        boss_music_path = os.path.join(SCRIPT_DIR, 'sound', 'music', 'FinalBoss.mp3')
+                        pygame.mixer.music.load(boss_music_path)
+                        pygame.mixer.music.set_volume(0.9)
+                        pygame.mixer.music.play(-1)  # Loop
+                        self.music_manager.theme_mode = False
+                        print("Playing FinalBoss music for Frog Boss battle")
                     except Exception as e:
                         print("Warning: Could not load FinalBoss.mp3: {}".format(e))
             else:
@@ -5497,8 +5992,44 @@ class SnakeGame:
                     # Use draw_snake for smooth interpolation
                     self.draw_snake(minion, minion.player_id)
         
+        # Draw Frog Boss if active
+        if self.boss_active and self.boss_data == 'frog' and self.boss_spawned:
+            # Draw shadow (visible during airborne and falling states)
+            if self.frog_state in ['airborne', 'falling', 'jumping']:
+                shadow_x = int(self.frog_shadow_position[0] * GRID_SIZE)
+                shadow_y = int(self.frog_shadow_position[1] * GRID_SIZE + GAME_OFFSET_Y)
+                # Draw semi-transparent dark circle for shadow (4x4 to match frog size)
+                shadow_surface = pygame.Surface((GRID_SIZE * 4, GRID_SIZE * 4), pygame.SRCALPHA)
+                pygame.draw.ellipse(shadow_surface, (0, 0, 0, 100), shadow_surface.get_rect())
+                self.screen.blit(shadow_surface, (shadow_x, shadow_y))
+            
+            # Draw frog (when not fully off-screen)
+            if self.frog_state in ['falling', 'landed', 'jumping'] and self.frog_boss_img:
+                frog_pixel_x = int(self.frog_position[0] * GRID_SIZE)
+                frog_pixel_y = int(self.frog_position[1] * GRID_SIZE + GAME_OFFSET_Y)
+                
+                # Rotate frog sprite to face tongue direction
+                rotated_frog = pygame.transform.rotate(self.frog_boss_img, -self.frog_rotation_angle)
+                # Get rect for centered rotation (frog is 4x4 = 128 pixels, center at +64)
+                rotated_rect = rotated_frog.get_rect(center=(frog_pixel_x + GRID_SIZE * 2, frog_pixel_y + GRID_SIZE * 2))
+                
+                # Apply red flash if damaged
+                if self.boss_damage_flash > 0 and not self.boss_defeated:
+                    red_overlay = pygame.Surface(rotated_frog.get_size(), pygame.SRCALPHA)
+                    red_overlay.fill((255, 0, 0, 128))
+                    rotated_frog.blit(red_overlay, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+                
+                self.screen.blit(rotated_frog, rotated_rect)
+            
+            # Draw tongue segments
+            if len(self.frog_tongue_segments) > 0 and self.frog_tongue_img:
+                for segment_pos in self.frog_tongue_segments:
+                    seg_x = segment_pos[0] * GRID_SIZE
+                    seg_y = segment_pos[1] * GRID_SIZE + GAME_OFFSET_Y
+                    self.screen.blit(self.frog_tongue_img, (seg_x, seg_y))
+        
         # Draw boss on top of minions (even when defeated, for death animation)
-        if self.boss_spawned and self.boss_current_animation:
+        if self.boss_spawned and self.boss_current_animation and self.boss_data == 'wormBoss':
             anim_frames = self.boss_animations.get(self.boss_current_animation, [])
             if anim_frames:
                 # Clamp frame index to valid range
@@ -5522,8 +6053,10 @@ class SnakeGame:
                     self.screen.blit(flash_frame, (render_x, render_y))
                 else:
                     self.screen.blit(boss_frame, (render_x, render_y))
-            
-            # Draw boss health bar (top-right corner) - hidden during egg hatching and final death phase
+        
+        # Draw boss health bar (top-right corner) - for ALL boss types
+        # Hidden during egg hatching and final death phase
+        if self.boss_active and self.boss_spawned:
             show_health_bar = self.state != GameState.EGG_HATCHING
             if self.boss_defeated and self.boss_death_phase >= 2:
                 show_health_bar = False  # Hide during slide and completion phases
