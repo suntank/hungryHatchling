@@ -780,10 +780,11 @@ class SnakeGame:
         self.boss_slide_timer = 0  # Timer for boss slide (4 seconds = 240 frames)
         
         # Frog Boss state variables
-        self.frog_state = 'falling'  # States: 'falling', 'landed', 'jumping', 'airborne'
-        self.frog_position = [GRID_WIDTH // 2, GRID_HEIGHT // 2]  # Grid position (can be fractional during animation)
-        self.frog_shadow_position = [GRID_WIDTH // 2, GRID_HEIGHT // 2]  # Shadow grid position
+        self.frog_state = 'waiting'  # States: 'waiting', 'falling', 'landed', 'jumping', 'airborne'
+        self.frog_position = [GRID_WIDTH // 2, 2]  # Grid position (can be fractional during animation)
+        self.frog_shadow_position = [GRID_WIDTH // 2, 2]  # Shadow grid position
         self.frog_fall_timer = 0  # Animation timer for falling
+        self.frog_initial_spawn_timer = 0  # Timer for 2-second delay before initial spawn
         self.frog_jump_timer = 0  # Timer between jumps
         self.frog_airborne_timer = 0  # How long frog has been in the air
         self.frog_tongue_segments = []  # List of tongue segment positions [(x, y), ...]
@@ -1255,6 +1256,59 @@ class SnakeGame:
         print("Warning: Could not find valid position to spawn worm after 100 attempts")
         print("  Occupied positions: {}, Available spaces (approx): {}".format(occupied_count, available_spaces))
     
+    def find_random_unoccupied_position(self):
+        """Find a random unoccupied position for boss egg respawning."""
+        occupied_positions = set()
+        occupied_positions.update(self.snake.body)
+        occupied_positions.update(self.level_walls)
+        
+        # Add existing food items
+        occupied_positions.update([pos for pos, _ in self.food_items])
+        
+        # Add boss minion positions
+        if hasattr(self, 'boss_minions'):
+            for minion in self.boss_minions:
+                if minion.alive:
+                    occupied_positions.update(minion.body)
+        
+        # Add enemy positions
+        if hasattr(self, 'enemies'):
+            for enemy in self.enemies:
+                if enemy.alive:
+                    occupied_positions.add((enemy.grid_x, enemy.grid_y))
+        
+        # Add frog boss position if present
+        if hasattr(self, 'boss_type') and self.boss_type == 'frog' and hasattr(self, 'frog_position'):
+            frog_x = int(self.frog_position[0])
+            frog_y = int(self.frog_position[1])
+            # Frog occupies 4x4 grid cells
+            for dx in range(4):
+                for dy in range(4):
+                    occupied_positions.add((frog_x + dx, frog_y + dy))
+        
+        # Try to find a valid spawn position
+        max_attempts = 100
+        for _ in range(max_attempts):
+            x = random.randint(2, GRID_WIDTH - 3)  # Leave extra margin for 2x2 egg
+            y = random.randint(2, GRID_HEIGHT - 3)
+            
+            # Check if position and surrounding 2x2 area are clear (for egg size)
+            position_clear = True
+            for dx in range(2):
+                for dy in range(2):
+                    if (x + dx, y + dy) in occupied_positions:
+                        position_clear = False
+                        break
+                if not position_clear:
+                    break
+            
+            if position_clear:
+                return (x, y)
+        
+        # Fallback to center if no position found
+        print("Warning: Could not find random unoccupied position, using center")
+        return (GRID_WIDTH // 2, GRID_HEIGHT // 2)
+    
     def spawn_boss_minions(self):
         """Spawn 2 hard-AI boss minion snakes for the boss battle"""
         # Clear any existing minions
@@ -1439,19 +1493,26 @@ class SnakeGame:
     def update_frog_boss(self):
         """Update Frog Boss behavior: falling entrance, jumping, shadow movement, tongue attacks"""
         
+        # Waiting state: Initial 2-second delay before first spawn
+        if self.frog_state == 'waiting':
+            self.frog_initial_spawn_timer += 1
+            if self.frog_initial_spawn_timer >= 120:  # 2 seconds at 60 FPS
+                # Start falling sequence from top of level
+                self.frog_state = 'falling'
+                self.frog_shadow_position = [GRID_WIDTH // 2, 2]  # Top of level
+                self.frog_position = [GRID_WIDTH // 2, -5]  # Start above screen
+                self.frog_fall_timer = 0
+                print("Frog Boss: Initial spawn - Shadow appears at top ({}, {})".format(self.frog_shadow_position[0], self.frog_shadow_position[1]))
+            return  # Don't process other states while waiting
+        
         # Entrance sequence: Frog falls from sky
         if self.frog_state == 'falling':
             self.frog_fall_timer += 1
             
-            # Shadow appears at center only on initial entrance (jump count == 0)
-            if self.frog_fall_timer == 1 and self.frog_jump_count == 0:
-                self.frog_shadow_position = [GRID_WIDTH // 2, GRID_HEIGHT // 2]
-                self.frog_position = [GRID_WIDTH // 2, -5]  # Start above screen
-                print("Frog Boss: Shadow appears at center (initial entrance)")
-            elif self.frog_fall_timer == 1:
-                # Subsequent falls - frog position already set by airborne state
-                # Shadow position already set during airborne state
-                pass
+            # For initial entrance (jump count == 0), position already set by waiting state
+            # For subsequent falls, position already set by airborne state
+            if self.frog_fall_timer == 1:
+                print("Frog Boss: Falling to position ({}, {})".format(self.frog_shadow_position[0], self.frog_shadow_position[1]))
             
             # Frog falls down over 60 frames (1 second)
             if self.frog_fall_timer <= 60:
@@ -1490,7 +1551,7 @@ class SnakeGame:
             self.interpolate_frog_rotation()
             
             # Wait 1 second after landing before starting tongue attack
-            if not self.frog_tongue_extending and not self.frog_tongue_retracting:
+            if not self.frog_tongue_extending and not self.frog_tongue_retracting and not self.frog_tongue_sticking:
                 if self.frog_landed_timer < 60:  # 1 second delay (60 frames)
                     self.frog_landed_timer += 1
                 elif self.frog_landed_timer == 60:
@@ -1503,7 +1564,7 @@ class SnakeGame:
                     if self.frog_jump_timer >= 180:  # 3 seconds after tongue retracts
                         self.start_frog_jump()
             else:
-                # Handle tongue attack animation
+                # Handle tongue attack animation (extending, sticking, or retracting)
                 self.update_frog_tongue()
         
         # Jumping state: Frog leaves the ground
@@ -1546,32 +1607,110 @@ class SnakeGame:
         if self.boss_damage_sound_cooldown > 0:
             self.boss_damage_sound_cooldown -= 1
         
-        # Handle boss defeated
+        # Handle boss defeated (Phase 1 trigger)
         if self.boss_health <= 0 and not self.boss_defeated:
+            print("Frog Boss defeated! Starting death animation phase 1...")
             self.boss_defeated = True
             self.player_frozen = True
             self.boss_death_phase = 1
-            self.boss_death_delay = 120  # 2 seconds
+            # Phase 1: Brief pause (1 second)
+            self.boss_death_phase1_timer = 60  # 1 second
             pygame.mixer.music.fadeout(2000)
             self.music_manager.silent_mode = True
             # Clear tongue
             self.frog_tongue_segments = []
             self.frog_tongue_extending = False
             self.frog_tongue_retracting = False
-            print("Frog Boss defeated!")
+            self.frog_tongue_sticking = False
+            # Play death sound
+            self.sound_manager.play('frogBossDeath')
+            # Destroy all enemy walls immediately
+            if hasattr(self, 'enemies') and self.enemies:
+                for enemy in self.enemies:
+                    if enemy.alive and enemy.enemy_type == 'enemy_wall':
+                        enemy.alive = False
+                        self.create_particles(enemy.grid_x * GRID_SIZE + GRID_SIZE // 2,
+                                            enemy.grid_y * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y,
+                                            GRAY, 12)
+                print("All enemy walls destroyed!")
         
-        # Death sequence
+        # Death sequence phases
         if self.boss_defeated:
-            if self.boss_death_delay > 0:
-                self.boss_death_delay -= 1
-            else:
-                # Victory
-                self.boss_spawned = False
-                self.boss_active = False
-                self.boss_death_phase = 3
-                self.state = GameState.LEVEL_COMPLETE
-                self.level_complete_timer = 180
-                self.sound_manager.play('win')
+            # Phase 1: Brief pause (1 second)
+            if self.boss_death_phase == 1:
+                # Initialize timer if it doesn't exist (safety check)
+                if not hasattr(self, 'boss_death_phase1_timer'):
+                    self.boss_death_phase1_timer = 60  # 1 second
+                
+                if self.boss_death_phase1_timer > 0:
+                    self.boss_death_phase1_timer -= 1
+                else:
+                    # Move to phase 2
+                    print("Phase 1 complete, moving to phase 2 (shake with explosions)")
+                    self.boss_death_phase = 2
+                    self.boss_slide_timer = 240  # 4 seconds of shaking/explosions
+                    self.screen_shake_intensity = 2  # Match worm boss shake intensity
+                    # Clear any existing shake timer
+                    if hasattr(self, 'screen_shake_timer'):
+                        self.screen_shake_timer = 0
+            
+            # Phase 2: Shake with continuous explosions (4 seconds)
+            elif self.boss_death_phase == 2 and self.boss_slide_timer > 0:
+                self.boss_slide_timer -= 1
+                self.screen_shake_intensity = 2  # Keep shaking
+                
+                # Spawn white explosion particles continuously (every 2 frames like worm boss)
+                if self.boss_slide_timer % 2 == 0:
+                    # Calculate frog center position in pixels
+                    frog_center_x = int((self.frog_position[0] + 2) * GRID_SIZE)
+                    frog_center_y = int((self.frog_position[1] + 2) * GRID_SIZE + GAME_OFFSET_Y)
+                    # Spawn particles randomly within frog sprite (4x4 grid cells = 128x128 pixels)
+                    import random
+                    rand_x = frog_center_x + random.randint(-GRID_SIZE * 2, GRID_SIZE * 2)
+                    rand_y = frog_center_y + random.randint(-GRID_SIZE * 2, GRID_SIZE * 2)
+                    self.create_particles(rand_x, rand_y, None, None, particle_type='white')
+                
+                # When timer expires, move to phase 3
+                if self.boss_slide_timer <= 0:
+                    print("Phase 2 complete, waiting before victory jingle")
+                    self.boss_death_phase = 3
+                    self.screen_shake_intensity = 0
+                    self.boss_spawned = False
+                    # DON'T set boss_active = False yet - Phase 3 still needs to run!
+                    self.boss_death_delay = 120  # 2 seconds wait before victory jingle
+            
+            # Phase 3: Wait, then play victory jingle
+            elif self.boss_death_phase == 3:
+                if self.boss_death_delay > 0:
+                    self.boss_death_delay -= 1
+                else:
+                    # Calculate completion percentage for adventure mode
+                    print("Playing victory jingle...")
+                    starting_length = 3
+                    current_segments = len(self.snake.body) + self.snake.grow_pending
+                    segments_gained = current_segments - starting_length
+                    
+                    total_items = self.worms_required + self.total_bonus_fruits
+                    items_collected = self.worms_collected + self.bonus_fruits_collected
+                    
+                    # Completion = (items + segments) / (total_items * 2) * 100
+                    max_possible = total_items + total_items
+                    actual_earned = items_collected + segments_gained
+                    self.completion_percentage = int((actual_earned / max_possible) * 100) if max_possible > 0 else 0
+                    self.final_segments = current_segments
+                    
+                    # Save level score and unlock next level
+                    self.is_new_level_high_score = self.update_level_score(self.current_adventure_level, self.completion_percentage)
+                    self.unlock_level(self.current_adventure_level + 1)
+                    
+                    # Play victory jingle and transition to level complete
+                    self.music_manager.play_victory_jingle()
+                    self.state = GameState.LEVEL_COMPLETE
+                    self.level_complete_timer = 180
+                    self.sound_manager.play('win')
+                    
+                    # NOW we can set boss_active = False since victory screen is triggered
+                    self.boss_active = False
         
         # Periodic isotope spawning
         if self.boss_spawned and hasattr(self, 'isotope_spawn_timer'):
@@ -2596,6 +2735,21 @@ class SnakeGame:
         if self.boss_active and self.boss_data == 'frog':
             self.update_frog_boss()
         
+        # Update screen shake (works for all boss types)
+        if self.screen_shake_intensity > 0:
+            # Random shake offset
+            shake_x = random.randint(-self.screen_shake_intensity, self.screen_shake_intensity)
+            shake_y = random.randint(-self.screen_shake_intensity, self.screen_shake_intensity)
+            self.screen_shake_offset = (shake_x, shake_y)
+            
+            # Count down shake timer if it exists (for timed shakes like super attack)
+            if hasattr(self, 'screen_shake_timer') and self.screen_shake_timer > 0:
+                self.screen_shake_timer -= 1
+                if self.screen_shake_timer <= 0:
+                    self.screen_shake_intensity = 0
+        else:
+            self.screen_shake_offset = (0, 0)
+        
         # Handle multiplayer end timer (delay after last player dies)
         if hasattr(self, 'multiplayer_end_timer') and self.multiplayer_end_timer > 0:
             self.multiplayer_end_timer -= 1
@@ -2621,11 +2775,11 @@ class SnakeGame:
                     self.boss_death_phase = 4
                     self.boss_death_delay = 360  # 4 seconds for victory jingle to finish
             
-            # Phase 4: Wait before transitioning to credits
-            if self.boss_death_phase == 4 and self.boss_death_delay > 0:
+            # Phase 4: Wait before transitioning to credits (ONLY for worm boss - final boss)
+            if self.boss_death_phase == 4 and self.boss_death_delay > 0 and self.boss_data == 'wormBoss':
                 self.boss_death_delay -= 1
                 if self.boss_death_delay == 0:
-                    # Trigger credits screen
+                    # Trigger credits screen (final boss only)
                     print("Boss battle complete! Transitioning to credits screen")
                     self.state = GameState.CREDITS
                     # Play the Final song
@@ -3272,6 +3426,9 @@ class SnakeGame:
                                 if hasattr(self, 'boss_active') and self.boss_active:
                                     self.boss_egg_is_respawn = True
                                     self.egg_timer = 0
+                                    # Generate random egg respawn position
+                                    self.boss_egg_respawn_pos = self.find_random_unoccupied_position()
+                                    print("Generated random egg respawn position: {}".format(self.boss_egg_respawn_pos))
                             print("Player died from touching Frog Boss!")
                         else:
                             # Check body collision - remove segments from hit point to tail
@@ -3322,6 +3479,9 @@ class SnakeGame:
                             if hasattr(self, 'boss_active') and self.boss_active:
                                 self.boss_egg_is_respawn = True
                                 self.egg_timer = 0
+                                # Generate random egg respawn position
+                                self.boss_egg_respawn_pos = self.find_random_unoccupied_position()
+                                print("Generated random egg respawn position: {}".format(self.boss_egg_respawn_pos))
                         print("Player died from touching tongue!")
         
         # Food collection (outside movement block)
@@ -4643,27 +4803,28 @@ class SnakeGame:
                 # Reset super attack tracking
                 self.boss_super_attacks_used = set()
                 
-                # If it's a wormBoss, play FinalBoss music instead of normal music
+                # If it's a wormBoss, play Boss music instead of normal music
                 if self.boss_data == 'wormBoss':
                     try:
-                        boss_music_path = os.path.join(SCRIPT_DIR, 'sound', 'music', 'FinalBoss.mp3')
+                        boss_music_path = os.path.join(SCRIPT_DIR, 'sound', 'music', 'Boss.mp3')
                         pygame.mixer.music.load(boss_music_path)
                         pygame.mixer.music.set_volume(0.9)
                         pygame.mixer.music.play(-1)  # Loop
                         self.music_manager.theme_mode = False
-                        print("Playing FinalBoss music for boss battle")
+                        print("Playing Boss music for boss battle")
                     except Exception as e:
-                        print("Warning: Could not load FinalBoss.mp3: {}".format(e))
+                        print("Warning: Could not load Boss.mp3: {}".format(e))
                 
                 # If it's a Frog Boss, initialize frog-specific state
                 if self.boss_data == 'frog':
                     self.boss_max_health = 30  # Frog boss has 30 health
-                    self.boss_health = 30
+                    self.boss_health = 3
                     self.boss_spawned = True  # Frog spawns immediately
-                    self.frog_state = 'falling'  # Start with falling entrance
-                    self.frog_position = [GRID_WIDTH // 2, -5]
-                    self.frog_shadow_position = [GRID_WIDTH // 2, GRID_HEIGHT // 2]
+                    self.frog_state = 'waiting'  # Start with 2-second waiting period
+                    self.frog_position = [GRID_WIDTH // 2, 2]  # Top of level
+                    self.frog_shadow_position = [GRID_WIDTH // 2, 2]  # Top of level
                     self.frog_fall_timer = 0
+                    self.frog_initial_spawn_timer = 0  # Timer for 2-second delay
                     self.frog_jump_timer = 0
                     self.frog_airborne_timer = 0
                     self.frog_tongue_segments = []
@@ -4681,14 +4842,14 @@ class SnakeGame:
                     
                     # Play boss music if available
                     try:
-                        boss_music_path = os.path.join(SCRIPT_DIR, 'sound', 'music', 'FinalBoss.mp3')
+                        boss_music_path = os.path.join(SCRIPT_DIR, 'sound', 'music', 'Boss.mp3')
                         pygame.mixer.music.load(boss_music_path)
                         pygame.mixer.music.set_volume(0.9)
                         pygame.mixer.music.play(-1)  # Loop
                         self.music_manager.theme_mode = False
-                        print("Playing FinalBoss music for Frog Boss battle")
+                        print("Playing Boss music for Frog Boss battle")
                     except Exception as e:
-                        print("Warning: Could not load FinalBoss.mp3: {}".format(e))
+                        print("Warning: Could not load Boss.mp3: {}".format(e))
             else:
                 self.boss_data = None
                 self.boss_active = False
@@ -4857,8 +5018,13 @@ class SnakeGame:
         self.sound_manager.play('crack')
         
         # Reset snake with chosen direction
+        # Check if we have a boss egg respawn position (random position after death)
+        if (hasattr(self, 'boss_egg_respawn_pos') and self.boss_egg_respawn_pos is not None and 
+            hasattr(self, 'boss_egg_is_respawn') and self.boss_egg_is_respawn):
+            start_pos = tuple(self.boss_egg_respawn_pos)
+            self.snake.reset(spawn_pos=start_pos, direction=direction)
         # In adventure mode, use the level's starting position
-        if self.game_mode == "adventure" and hasattr(self, 'current_level_data'):
+        elif self.game_mode == "adventure" and hasattr(self, 'current_level_data'):
             start_pos = tuple(self.current_level_data['starting_position'])
             self.snake.reset(spawn_pos=start_pos, direction=direction)
         else:
@@ -4867,8 +5033,14 @@ class SnakeGame:
             self.snake.next_direction = direction
         
         # Create flying egg pieces
+        # Check if we have a boss egg respawn position (random position after death)
+        if (hasattr(self, 'boss_egg_respawn_pos') and self.boss_egg_respawn_pos is not None and 
+            hasattr(self, 'boss_egg_is_respawn') and self.boss_egg_is_respawn):
+            egg_x, egg_y = self.boss_egg_respawn_pos
+            center_x = egg_x * GRID_SIZE + GRID_SIZE // 2
+            center_y = egg_y * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y
         # In adventure mode, spawn pieces at the starting position
-        if self.game_mode == "adventure" and hasattr(self, 'current_level_data'):
+        elif self.game_mode == "adventure" and hasattr(self, 'current_level_data'):
             egg_x, egg_y = self.current_level_data['starting_position']
             center_x = egg_x * GRID_SIZE + GRID_SIZE // 2
             center_y = egg_y * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y
@@ -4889,9 +5061,11 @@ class SnakeGame:
                 piece = EggPiece(center_x, center_y, self.egg_piece_imgs[i], (vx, vy))
                 self.egg_pieces.append(piece)
         
-        # Reset boss egg respawn flag and timer
+        # Reset boss egg respawn flag, position, and timer
         if hasattr(self, 'boss_egg_is_respawn'):
             self.boss_egg_is_respawn = False
+        if hasattr(self, 'boss_egg_respawn_pos'):
+            self.boss_egg_respawn_pos = None
         self.egg_timer = 0
         
         # Transition to playing - start gameplay music
@@ -5573,7 +5747,14 @@ class SnakeGame:
         """Draw egg and instruction text overlay on top of the live game world"""
         # Draw egg at starting position (adventure mode) or center (endless mode)
         if self.egg_img:
-            if self.game_mode == "adventure" and hasattr(self, 'current_level_data'):
+            # Check if we have a boss egg respawn position (random position after death)
+            if (hasattr(self, 'boss_egg_respawn_pos') and self.boss_egg_respawn_pos is not None and 
+                hasattr(self, 'boss_egg_is_respawn') and self.boss_egg_is_respawn):
+                egg_x, egg_y = self.boss_egg_respawn_pos
+                # Center the 2x2 egg over the spawn point
+                egg_pixel_x = egg_x * GRID_SIZE - GRID_SIZE // 2
+                egg_pixel_y = egg_y * GRID_SIZE + GAME_OFFSET_Y - GRID_SIZE // 2
+            elif self.game_mode == "adventure" and hasattr(self, 'current_level_data'):
                 # Use level's starting position
                 egg_x, egg_y = self.current_level_data['starting_position']
                 # Center the 2x2 egg over the 1x1 spawn point
