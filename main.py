@@ -794,7 +794,8 @@ class SnakeGame:
         self.frog_jump_count = 0  # Number of jumps performed
         self.frog_tracking_player = False  # Whether frog is tracking player for targeted attack
         self.frog_is_invulnerable = False  # Whether frog is invulnerable (during jump)
-        self.frog_rotation_angle = 0  # Angle frog is facing (0 = right, 90 = down, etc.)
+        self.frog_rotation_angle = 0  # Current angle frog is facing (interpolated)
+        self.frog_target_rotation = 0  # Target angle for smooth rotation
         self.frog_tongue_stuck_timer = 0  # Timer for tongue staying extended
         self.frog_tongue_sticking = False  # Whether tongue is stuck at full extension
         
@@ -1464,10 +1465,30 @@ class SnakeGame:
                 self.frog_fall_timer = 0
                 self.frog_is_invulnerable = False
                 self.frog_landed_timer = 0  # Start delay timer
+                
+                # Calculate target rotation angle immediately so frog can start rotating
+                if len(self.snake.body) > 0:
+                    player_head = self.snake.body[0]
+                    frog_center_x = self.frog_position[0] + 2
+                    frog_center_y = self.frog_position[1] + 2
+                    dx = player_head[0] - frog_center_x
+                    dy = player_head[1] - frog_center_y
+                    import math
+                    angle_rad = math.atan2(dy, dx)
+                    angle_deg = math.degrees(angle_rad)
+                    if angle_deg < 0:
+                        angle_deg += 360
+                    self.frog_target_rotation = angle_deg
+                else:
+                    self.frog_target_rotation = 0
+                
                 print("Frog Boss: Landed at position", self.frog_position)
         
         # Landed state: Tongue attack or preparing to jump
         elif self.frog_state == 'landed':
+            # Smoothly interpolate rotation angle towards target
+            self.interpolate_frog_rotation()
+            
             # Wait 1 second after landing before starting tongue attack
             if not self.frog_tongue_extending and not self.frog_tongue_retracting:
                 if self.frog_landed_timer < 60:  # 1 second delay (60 frames)
@@ -1590,7 +1611,7 @@ class SnakeGame:
             if angle_deg < 0:
                 angle_deg += 360
             
-            self.frog_rotation_angle = angle_deg
+            self.frog_target_rotation = angle_deg
             
             # Store direction as normalized vector for tongue extension
             distance = math.sqrt(dx * dx + dy * dy)
@@ -1601,44 +1622,51 @@ class SnakeGame:
         else:
             # Default direction if no player
             self.frog_tongue_direction = (1, 0)  # Right
-            self.frog_rotation_angle = 0
+            self.frog_target_rotation = 0
         
-        print("Frog Boss: Starting tongue attack at angle {:.1f} degrees".format(self.frog_rotation_angle))
+        print("Frog Boss: Starting tongue attack at angle {:.1f} degrees".format(self.frog_target_rotation))
     
     def update_frog_tongue(self):
         """Update tongue extension/retraction animation"""
         self.frog_tongue_timer += 1
         
         if self.frog_tongue_extending:
-            # Extend tongue - add new segment every 3 frames
-            if self.frog_tongue_timer % 3 == 0:
+            # Extend tongue - add new segment every 5 frames (slower)
+            if self.frog_tongue_timer % 5 == 0:
                 # Calculate next segment position
+                segment_spacing = 0.5  # Reduced spacing between segments
                 if len(self.frog_tongue_segments) == 0:
                     # First segment starts at frog center (frog is 4x4)
                     frog_center_x = self.frog_position[0] + 2
                     frog_center_y = self.frog_position[1] + 2
-                    # Move in the direction vector
-                    next_x = frog_center_x + self.frog_tongue_direction[0]
-                    next_y = frog_center_y + self.frog_tongue_direction[1]
-                    next_pos = (int(round(next_x)), int(round(next_y)))
+                    # Move in the direction vector with reduced spacing
+                    next_x = frog_center_x + self.frog_tongue_direction[0] * segment_spacing
+                    next_y = frog_center_y + self.frog_tongue_direction[1] * segment_spacing
+                    next_pos = (next_x, next_y)
                 else:
-                    # Extend from last segment using the direction vector
+                    # Extend from last segment using the direction vector with reduced spacing
                     last_seg = self.frog_tongue_segments[-1]
-                    next_x = last_seg[0] + self.frog_tongue_direction[0]
-                    next_y = last_seg[1] + self.frog_tongue_direction[1]
-                    next_pos = (int(round(next_x)), int(round(next_y)))
+                    next_x = last_seg[0] + self.frog_tongue_direction[0] * segment_spacing
+                    next_y = last_seg[1] + self.frog_tongue_direction[1] * segment_spacing
+                    next_pos = (next_x, next_y)
                 
                 # Check if next position is valid and not hitting obstacles
                 hit_obstacle = False
                 
+                # Convert to grid position for wall/bounds checking
+                grid_pos = (int(round(next_pos[0])), int(round(next_pos[1])))
+                
                 # Check screen bounds
                 if not (0 <= next_pos[0] < GRID_WIDTH and 0 <= next_pos[1] < GRID_HEIGHT):
                     hit_obstacle = True
-                # Check for duplicate position
-                elif len(self.frog_tongue_segments) > 0 and next_pos == self.frog_tongue_segments[-1]:
-                    hit_obstacle = True
-                # Check for wall collision
-                elif hasattr(self, 'level_walls') and next_pos in self.level_walls:
+                # Check for duplicate position (within threshold)
+                elif len(self.frog_tongue_segments) > 0:
+                    last_pos = self.frog_tongue_segments[-1]
+                    dist = abs(next_pos[0] - last_pos[0]) + abs(next_pos[1] - last_pos[1])
+                    if dist < 0.1:  # Very close to last segment
+                        hit_obstacle = True
+                # Check for wall collision (use rounded grid position)
+                if not hit_obstacle and hasattr(self, 'level_walls') and grid_pos in self.level_walls:
                     hit_obstacle = True
                 
                 if not hit_obstacle:
@@ -1672,8 +1700,8 @@ class SnakeGame:
                 self.frog_tongue_timer = 0
         
         elif self.frog_tongue_retracting:
-            # Retract tongue - remove segment every 3 frames
-            if self.frog_tongue_timer % 3 == 0 and len(self.frog_tongue_segments) > 0:
+            # Retract tongue - remove segment every 8 frames (much slower)
+            if self.frog_tongue_timer % 8 == 0 and len(self.frog_tongue_segments) > 0:
                 self.frog_tongue_segments.pop()  # Remove last segment
             
             # Tongue fully retracted
@@ -1687,10 +1715,11 @@ class SnakeGame:
         if len(self.snake.body) == 0:
             return
         
-        # Check collision with player body (not head)
-        if tongue_pos in self.snake.body[1:]:
+        # Check collision with player body (not head) - check if within same grid cell
+        tongue_grid_pos = (int(round(tongue_pos[0])), int(round(tongue_pos[1])))
+        if tongue_grid_pos in self.snake.body[1:]:
             # Find which body segment was hit
-            body_segment_index = self.snake.body.index(tongue_pos)
+            body_segment_index = self.snake.body.index(tongue_grid_pos)
             
             # Destroy tongue segments from this point onwards
             tongue_segment_index = self.frog_tongue_segments.index(tongue_pos)
@@ -1707,8 +1736,8 @@ class SnakeGame:
             self.frog_tongue_timer = 0
             
             # Create particles at hit location
-            hit_x = tongue_pos[0] * GRID_SIZE + GRID_SIZE // 2
-            hit_y = tongue_pos[1] * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y
+            hit_x = int(tongue_pos[0] * GRID_SIZE + GRID_SIZE // 2)
+            hit_y = int(tongue_pos[1] * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y)
             self.create_particles(hit_x, hit_y, RED, 10)
             self.sound_manager.play('eat_fruit')
             
@@ -1756,6 +1785,35 @@ class SnakeGame:
         
         # Fallback: use center
         self.frog_shadow_position = [GRID_WIDTH // 2, GRID_HEIGHT // 2]
+    
+    def interpolate_frog_rotation(self):
+        """Smoothly interpolate frog rotation angle towards target"""
+        # Calculate the shortest angular distance
+        diff = self.frog_target_rotation - self.frog_rotation_angle
+        
+        # Normalize diff to -180 to 180 range (shortest path)
+        while diff > 180:
+            diff -= 360
+        while diff < -180:
+            diff += 360
+        
+        # Interpolate with speed (adjust speed for smoothness)
+        rotation_speed = 8.0  # Degrees per frame
+        if abs(diff) <= rotation_speed:
+            # Close enough, snap to target
+            self.frog_rotation_angle = self.frog_target_rotation
+        else:
+            # Rotate towards target
+            if diff > 0:
+                self.frog_rotation_angle += rotation_speed
+            else:
+                self.frog_rotation_angle -= rotation_speed
+            
+            # Normalize to 0-360 range
+            if self.frog_rotation_angle < 0:
+                self.frog_rotation_angle += 360
+            elif self.frog_rotation_angle >= 360:
+                self.frog_rotation_angle -= 360
     
     def respawn_boss_minion(self, minion_index):
         if minion_index >= len(self.boss_minions):
@@ -3237,7 +3295,14 @@ class SnakeGame:
                 
                 # Check collision with tongue (any segment kills on head contact)
                 if len(self.frog_tongue_segments) > 0:
-                    if player_head in self.frog_tongue_segments:
+                    # Check if any tongue segment is in the same grid cell as player head
+                    tongue_hit = False
+                    for tongue_seg in self.frog_tongue_segments:
+                        tongue_grid = (int(round(tongue_seg[0])), int(round(tongue_seg[1])))
+                        if tongue_grid == player_head:
+                            tongue_hit = True
+                            break
+                    if tongue_hit:
                         # Player dies from touching tongue with head
                         self.sound_manager.play('die')
                         self.lives -= 1
@@ -4610,6 +4675,8 @@ class SnakeGame:
                     self.frog_tracking_player = False
                     self.frog_is_invulnerable = True  # Invulnerable during entrance
                     self.frog_landed_timer = 0  # Timer for delay after landing before tongue attack
+                    self.frog_rotation_angle = 0
+                    self.frog_target_rotation = 0
                     print("Frog Boss initialized with 30 health")
                     
                     # Play boss music if available
@@ -6032,8 +6099,8 @@ class SnakeGame:
             # Draw tongue segments
             if len(self.frog_tongue_segments) > 0 and self.frog_tongue_img:
                 for segment_pos in self.frog_tongue_segments:
-                    seg_x = segment_pos[0] * GRID_SIZE
-                    seg_y = segment_pos[1] * GRID_SIZE + GAME_OFFSET_Y
+                    seg_x = int(segment_pos[0] * GRID_SIZE)
+                    seg_y = int(segment_pos[1] * GRID_SIZE + GAME_OFFSET_Y)
                     self.screen.blit(self.frog_tongue_img, (seg_x, seg_y))
         
         # Draw boss on top of minions (even when defeated, for death animation)
