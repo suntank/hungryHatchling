@@ -1463,20 +1463,27 @@ class SnakeGame:
                 self.frog_state = 'landed'
                 self.frog_fall_timer = 0
                 self.frog_is_invulnerable = False
-                # Immediately start tongue attack
-                self.start_frog_tongue_attack()
+                self.frog_landed_timer = 0  # Start delay timer
                 print("Frog Boss: Landed at position", self.frog_position)
         
         # Landed state: Tongue attack or preparing to jump
         elif self.frog_state == 'landed':
-            # Handle tongue attack
-            if self.frog_tongue_extending or self.frog_tongue_retracting:
-                self.update_frog_tongue()
+            # Wait 1 second after landing before starting tongue attack
+            if not self.frog_tongue_extending and not self.frog_tongue_retracting:
+                if self.frog_landed_timer < 60:  # 1 second delay (60 frames)
+                    self.frog_landed_timer += 1
+                elif self.frog_landed_timer == 60:
+                    # Start tongue attack after 1 second
+                    self.start_frog_tongue_attack()
+                    self.frog_landed_timer += 1  # Move past 60 to avoid repeated calls
+                else:
+                    # Wait for tongue to finish, then prepare to jump
+                    self.frog_jump_timer += 1
+                    if self.frog_jump_timer >= 180:  # 3 seconds after tongue retracts
+                        self.start_frog_jump()
             else:
-                # Wait a moment, then jump
-                self.frog_jump_timer += 1
-                if self.frog_jump_timer >= 180:  # 3 seconds after tongue retracts
-                    self.start_frog_jump()
+                # Handle tongue attack animation
+                self.update_frog_tongue()
         
         # Jumping state: Frog leaves the ground
         elif self.frog_state == 'jumping':
@@ -4602,6 +4609,7 @@ class SnakeGame:
                     self.frog_jump_count = 0
                     self.frog_tracking_player = False
                     self.frog_is_invulnerable = True  # Invulnerable during entrance
+                    self.frog_landed_timer = 0  # Timer for delay after landing before tongue attack
                     print("Frog Boss initialized with 30 health")
                     
                     # Play boss music if available
