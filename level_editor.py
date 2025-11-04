@@ -93,6 +93,7 @@ class LevelEditor:
         self.enemies = []  # New: store all enemy types
         self.starting_position = [10, 7]
         self.starting_direction = "RIGHT"
+        self.boss_data = None  # Boss data for boss levels (e.g., "frog", "wormBoss")
         
         # Level metadata
         self.level_number = 1
@@ -393,7 +394,7 @@ class LevelEditor:
             "coin_positions": self.coins,
             "diamond_positions": self.diamonds,
             "enemies": self.enemies,
-            "boss_data": None
+            "boss_data": self.boss_data  # Preserve boss_data instead of overwriting with None
         }
         
         # Use input_text for filename
@@ -432,8 +433,11 @@ class LevelEditor:
             self.coins = level_data.get("coin_positions", [])
             self.diamonds = level_data.get("diamond_positions", [])
             self.enemies = level_data.get("enemies", [])
+            self.boss_data = level_data.get("boss_data", None)  # Load boss_data
             
             print(f"Level loaded from {filepath}")
+            if self.boss_data:
+                print(f"  Boss data: {self.boss_data}")
         except FileNotFoundError:
             print(f"Level file not found: {filepath}")
         except Exception as e:
@@ -447,6 +451,7 @@ class LevelEditor:
         self.coins = []
         self.diamonds = []
         self.enemies = []
+        self.boss_data = None  # Clear boss data too
         self.starting_position = [10, 7]
         print("Level cleared")
     

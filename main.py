@@ -1621,11 +1621,15 @@ class SnakeGame:
             self.boss_death_phase1_timer = 60  # 1 second
             pygame.mixer.music.fadeout(2000)
             self.music_manager.silent_mode = True
-            # Clear tongue
+            # Clear tongue and reset all tongue/jump timers
             self.frog_tongue_segments = []
             self.frog_tongue_extending = False
             self.frog_tongue_retracting = False
             self.frog_tongue_sticking = False
+            self.frog_tongue_timer = 0
+            self.frog_tongue_stuck_timer = 0
+            self.frog_jump_timer = 0  # Reset jump timer to prevent jumping during death
+            self.frog_landed_timer = 0  # Reset landed timer
             # Play death sound
             self.sound_manager.play('frogBossDeath')
             # Destroy all enemy walls immediately
@@ -3624,6 +3628,8 @@ class SnakeGame:
                                                     NEON_PURPLE, 15)
                                 # Remove isotope from list
                                 self.food_items.pop(i)
+                                # Show "Press A to Fire" message for 5 seconds
+                                self.isotope_message_timer = 300  # 5 seconds at 60 FPS
                                 # Isotope doesn't count toward worms collected for level completion
                             else:
                                 # Regular worm
@@ -4835,7 +4841,7 @@ class SnakeGame:
                 # If it's a Frog Boss, initialize frog-specific state
                 if self.boss_data == 'frog':
                     self.boss_max_health = 30  # Frog boss has 30 health
-                    self.boss_health = 3
+                    self.boss_health = 30
                     self.boss_spawned = True  # Frog spawns immediately
                     self.frog_state = 'waiting'  # Start with 2-second waiting period
                     self.frog_position = [GRID_WIDTH // 2, 2]  # Top of level
@@ -5867,6 +5873,9 @@ class SnakeGame:
         segments_with_indices = [(i, x, y) for i, (x, y) in enumerate(interpolated_positions)]
         segments_with_indices.sort(key=lambda seg: seg[2])  # Sort by y coordinate
         
+        # Check if snake has shooting ability for pulsing effect
+        has_isotope_ability = hasattr(snake, 'can_shoot') and snake.can_shoot
+        
         for i, x, y in segments_with_indices:
             # Convert interpolated grid coordinates to pixel coordinates
             pixel_x = x * GRID_SIZE + self.snake_offset
@@ -5940,6 +5949,21 @@ class SnakeGame:
                     
                     rect = pygame.Rect(int(pixel_x), int(pixel_y), GRID_SIZE - 2, GRID_SIZE - 2)
                     pygame.draw.rect(self.screen, final_color, rect, border_radius=2)
+            
+            # Add pulsing overlay when snake has isotope ability
+            if has_isotope_ability:
+                # Calculate pulse effect similar to the "Press A to Fire" text
+                pulse_timer = pygame.time.get_ticks() % 1000  # 0-999ms cycle
+                pulse = abs((pulse_timer % 60) - 30) / 30.0  # Pulse between 0 and 1
+                
+                # Create a semi-transparent pulsing overlay (purple/cyan color for isotope theme)
+                overlay_alpha = int(30 + pulse * 50)  # Alpha between 30 and 80
+                
+                # Create a surface for the overlay
+                overlay = pygame.Surface((GRID_SIZE, GRID_SIZE), pygame.SRCALPHA)
+                overlay.fill((NEON_PURPLE[0], NEON_PURPLE[1], NEON_PURPLE[2], overlay_alpha))
+                
+                self.screen.blit(overlay, (int(pixel_x), int(pixel_y)))
     
     def draw_game(self):
         # Draw background
@@ -6556,6 +6580,25 @@ class SnakeGame:
                 self.screen.blit(lives_value, (85, SCREEN_HEIGHT - 19))
                 lives_value = self.font_small.render("{}".format(self.lives), True, WHITE)
                 self.screen.blit(lives_value, (83, SCREEN_HEIGHT - 21))
+        
+        # Draw "Press A to Fire" message when isotope is collected
+        if hasattr(self, 'isotope_message_timer') and self.isotope_message_timer > 0:
+            # Draw at bottom center of screen
+            message_text = "Press A to Fire"
+            # Shadow
+            text = self.font_medium.render(message_text, True, BLACK)
+            text_rect = text.get_rect(center=(SCREEN_WIDTH // 2 + 2, SCREEN_HEIGHT - 18))
+            self.screen.blit(text, text_rect)
+            # Main text with pulsing effect
+            pulse = abs((self.isotope_message_timer % 60) - 30) / 30.0  # Pulse between 0 and 1
+            alpha = int(200 + pulse * 55)  # Alpha between 200 and 255
+            text = self.font_medium.render(message_text, True, NEON_YELLOW)
+            text.set_alpha(alpha)
+            text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT - 20))
+            self.screen.blit(text, text_rect)
+            
+            # Decrement timer
+            self.isotope_message_timer -= 1
 
     def draw_pause(self):
         overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
