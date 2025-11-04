@@ -707,7 +707,7 @@ class SnakeGame:
         
         # Load Frog Boss assets
         try:
-            frog_boss_path = os.path.join(SCRIPT_DIR, 'img', 'frogBoss.png')
+            frog_boss_path = os.path.join(SCRIPT_DIR, 'img', 'boss', 'frogBoss.png')
             self.frog_boss_img = pygame.image.load(frog_boss_path).convert_alpha()
             # Scale to 200% size (4x4 grid cells instead of 2x2)
             self.frog_boss_img = pygame.transform.scale(self.frog_boss_img, (GRID_SIZE * 4, GRID_SIZE * 4))
@@ -717,7 +717,7 @@ class SnakeGame:
             self.frog_boss_img = None
         
         try:
-            frog_tongue_path = os.path.join(SCRIPT_DIR, 'img', 'frogTongue.png')
+            frog_tongue_path = os.path.join(SCRIPT_DIR, 'img', 'boss', 'frogTongue.png')
             self.frog_tongue_img = pygame.image.load(frog_tongue_path).convert_alpha()
             # Tongue segment is 1 grid cell
             self.frog_tongue_img = pygame.transform.scale(self.frog_tongue_img, (GRID_SIZE, GRID_SIZE))
@@ -743,6 +743,23 @@ class SnakeGame:
             self.bad_snake_body_img = None
             print("Warning: badSnakeBody.png not found: {}".format(e))
         
+        # Load enemy snake graphics
+        try:
+            enemy_head_path = os.path.join(SCRIPT_DIR, 'img', 'snakeHead.png')
+            self.enemy_snake_head_img = pygame.image.load(enemy_head_path).convert_alpha()
+            self.enemy_snake_head_img = pygame.transform.scale(self.enemy_snake_head_img, (self.snake_sprite_size, self.snake_sprite_size))
+        except Exception as e:
+            self.enemy_snake_head_img = None
+            print("Warning: snakeHead.png not found: {}".format(e))
+        
+        try:
+            enemy_body_path = os.path.join(SCRIPT_DIR, 'img', 'snakeBody.png')
+            self.enemy_snake_body_img = pygame.image.load(enemy_body_path).convert_alpha()
+            self.enemy_snake_body_img = pygame.transform.scale(self.enemy_snake_body_img, (self.snake_sprite_size, self.snake_sprite_size))
+        except Exception as e:
+            self.enemy_snake_body_img = None
+            print("Warning: snakeBody.png not found: {}".format(e))
+        
         # Boss battle state
         self.boss_active = False
         self.boss_data = None
@@ -757,6 +774,7 @@ class SnakeGame:
         self.screen_shake_intensity = 0
         self.screen_shake_offset = (0, 0)
         self.boss_minions = []  # List of boss minion snakes
+        self.enemy_snakes = []  # List of enemy snakes (non-boss)
         self.boss_minion_respawn_timers = {}  # Dict of minion_id -> respawn_timer
         self.boss_attack_timer = 0  # Timer for periodic boss attacks
         self.boss_attack_interval = 1200  # Start at 20 seconds (1200 frames at 60 FPS)
@@ -1227,6 +1245,12 @@ class SnakeGame:
             for minion in self.boss_minions:
                 if minion.alive:
                     occupied_positions.update(minion.body)
+        
+        # Add enemy snake positions
+        if hasattr(self, 'enemy_snakes'):
+            for enemy_snake in self.enemy_snakes:
+                if enemy_snake.alive:
+                    occupied_positions.update(enemy_snake.body)
         
         # Add enemy positions (including enemy walls from super attacks)
         if hasattr(self, 'enemies'):
@@ -2755,6 +2779,66 @@ class SnakeGame:
         if self.boss_active and self.boss_data == 'frog':
             self.update_frog_boss()
         
+        # Update enemy snakes (non-boss) - works in all adventure mode levels
+        if self.game_mode == "adventure" and self.enemy_snakes:
+            for enemy_snake in self.enemy_snakes:
+                if enemy_snake.alive:
+                    # Update enemy snake AI and movement
+                    enemy_snake.move_timer += 1
+                    move_interval = 16  # Same speed as normal snakes
+                    
+                    if enemy_snake.move_timer >= move_interval:
+                        # AI decision making
+                        self.update_cpu_decision(enemy_snake)
+                        enemy_snake.move_timer = 0
+                        enemy_snake.last_move_interval = move_interval
+                        enemy_snake.previous_body = enemy_snake.body.copy()
+                        enemy_snake.move()
+                        
+                        # Enemy snakes with can_eat=False should not eat food (to preserve scoring)
+                        # They roam around but never consume food items
+                        # This is already handled by not adding food eating logic here
+                        
+                        # Check collision with player snake (only if snake has a body)
+                        if len(self.snake.body) > 0:
+                            player_head = self.snake.body[0]
+                            enemy_head = enemy_snake.body[0]
+                            
+                            # Check if player head hits enemy snake (any part) - player dies
+                            if player_head in enemy_snake.body:
+                                self.sound_manager.play('die')
+                                self.lives -= 1
+                                if self.lives <= 0:
+                                    self.music_manager.play_game_over_music()
+                                    self.state = GameState.GAME_OVER
+                                    self.game_over_timer = self.game_over_delay
+                                else:
+                                    # In adventure mode, wait before going to egg hatching
+                                    if self.game_mode == "adventure":
+                                        self.respawn_timer = self.respawn_delay
+                                        self.snake.body = []
+                                    else:
+                                        # Classic mode: respawn immediately
+                                        self.respawn_snake()
+                                print("Player head hit enemy snake!")
+                            # Check if enemy snake head hits player body - player dies
+                            elif enemy_head in self.snake.body[1:]:
+                                self.sound_manager.play('die')
+                                self.lives -= 1
+                                if self.lives <= 0:
+                                    self.music_manager.play_game_over_music()
+                                    self.state = GameState.GAME_OVER
+                                    self.game_over_timer = self.game_over_delay
+                                else:
+                                    # In adventure mode, wait before going to egg hatching
+                                    if self.game_mode == "adventure":
+                                        self.respawn_timer = self.respawn_delay
+                                        self.snake.body = []
+                                    else:
+                                        # Classic mode: respawn immediately
+                                        self.respawn_snake()
+                                print("Enemy snake head hit player body!")
+        
         # Update screen shake (works for all boss types)
         if self.screen_shake_intensity > 0:
             # Random shake offset
@@ -2992,6 +3076,52 @@ class SnakeGame:
                             self.boss_minion_respawn_timers[minion_idx] = 300
                             self.sound_manager.play('die')
                             print("Boss minion {} destroyed! Respawning in 5 seconds.".format(minion_idx + 1))
+                        break
+        
+        # Check bullet collisions with enemy snakes
+        if hasattr(self, 'enemy_snakes') and self.enemy_snakes:
+            for bullet in self.bullets:
+                if not bullet.alive:
+                    continue
+                
+                bullet_pos = (bullet.grid_x, bullet.grid_y)
+                
+                for enemy_snake in self.enemy_snakes:
+                    if not enemy_snake.alive:
+                        continue
+                    
+                    # Check if bullet hit enemy snake head (instant kill)
+                    if bullet_pos == enemy_snake.body[0]:
+                        # Headshot - kill the enemy snake
+                        enemy_snake.alive = False
+                        bullet.alive = False
+                        self.sound_manager.play('die')
+                        # Create particles at hit location
+                        hit_x = bullet_pos[0] * GRID_SIZE + GRID_SIZE // 2
+                        hit_y = bullet_pos[1] * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y
+                        self.create_particles(hit_x, hit_y, GREEN, 15)
+                        print("Enemy snake destroyed!")
+                        break
+                    
+                    # Check if bullet hit enemy snake body (remove segment)
+                    elif bullet_pos in enemy_snake.body[1:]:
+                        # Body shot - remove the segment that was hit
+                        segment_index = enemy_snake.body.index(bullet_pos)
+                        # Remove all segments from hit point to tail
+                        enemy_snake.body = enemy_snake.body[:segment_index]
+                        bullet.alive = False
+                        self.sound_manager.play('eat_fruit')
+                        # Create particles at hit location
+                        hit_x = bullet_pos[0] * GRID_SIZE + GRID_SIZE // 2
+                        hit_y = bullet_pos[1] * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y
+                        self.create_particles(hit_x, hit_y, GREEN, 8)
+                        print("Enemy snake hit! Reduced to {} segments.".format(len(enemy_snake.body)))
+                        
+                        # If enemy snake is too small, kill it
+                        if len(enemy_snake.body) < 2:
+                            enemy_snake.alive = False
+                            self.sound_manager.play('die')
+                            print("Enemy snake destroyed!")
                         break
         
         # Check bullet collisions with enemy walls (destroyable)
@@ -4773,10 +4903,46 @@ class SnakeGame:
             
             # Load enemies (if any)
             self.enemies = []
+            self.enemy_snakes = []  # Clear enemy snakes list
             if 'enemies' in self.current_level_data:
                 for enemy_data in self.current_level_data['enemies']:
-                    enemy = Enemy(enemy_data['x'], enemy_data['y'], enemy_data['type'])
-                    self.enemies.append(enemy)
+                    enemy_type = enemy_data['type']
+                    
+                    # Handle snake enemies differently - create Snake objects
+                    if enemy_type == 'enemy_snake':
+                        snake_enemy = Snake(player_id=200 + len(self.enemy_snakes))  # Use high IDs (200+)
+                        snake_enemy.is_cpu = True
+                        snake_enemy.cpu_difficulty = 2  # Hard difficulty like boss minions
+                        snake_enemy.is_enemy_snake = True  # Mark as enemy snake
+                        snake_enemy.can_eat = False  # Cannot eat food
+                        # Set starting position and direction
+                        spawn_pos = (enemy_data['x'], enemy_data['y'])
+                        spawn_dir = Direction.LEFT  # Default direction
+                        snake_enemy.reset(spawn_pos=spawn_pos, direction=spawn_dir)
+                        # Set starting length to 6
+                        snake_enemy.body = [spawn_pos]
+                        for i in range(5):  # Add 5 more segments for total of 6
+                            # Add segments behind the head
+                            if spawn_dir == Direction.LEFT:
+                                new_seg = (spawn_pos[0] + i + 1, spawn_pos[1])
+                            elif spawn_dir == Direction.RIGHT:
+                                new_seg = (spawn_pos[0] - i - 1, spawn_pos[1])
+                            elif spawn_dir == Direction.UP:
+                                new_seg = (spawn_pos[0], spawn_pos[1] + i + 1)
+                            else:  # DOWN
+                                new_seg = (spawn_pos[0], spawn_pos[1] - i - 1)
+                            snake_enemy.body.append(new_seg)
+                        snake_enemy.alive = True
+                        # Initialize movement tracking for smooth interpolation
+                        snake_enemy.move_timer = 0
+                        snake_enemy.last_move_interval = 16
+                        snake_enemy.previous_body = snake_enemy.body.copy()
+                        self.enemy_snakes.append(snake_enemy)
+                        print("Spawned enemy snake at {} with length {}".format(spawn_pos, len(snake_enemy.body)))
+                    else:
+                        # Regular enemies (ant, spider, etc.)
+                        enemy = Enemy(enemy_data['x'], enemy_data['y'], enemy_type)
+                        self.enemies.append(enemy)
             
             # Clear all boss-related entities from previous attempts
             self.boss_minions = []
@@ -5853,13 +6019,19 @@ class SnakeGame:
             interpolated_positions.append((interp_x, interp_y))
         
         # Get player-specific graphics
-        # Check if this is a boss minion
+        # Check if this is a boss minion or enemy snake
         is_boss_minion = hasattr(snake, 'is_boss_minion') and snake.is_boss_minion
+        is_enemy_snake = hasattr(snake, 'is_enemy_snake') and snake.is_enemy_snake
         
         if is_boss_minion:
             # Use bad snake graphics for boss minions
             body_img = self.bad_snake_body_img
             head_img_static = self.bad_snake_head_img  # Static image for minions
+            head_frames = None
+        elif is_enemy_snake:
+            # Use enemy snake graphics for enemy snakes
+            body_img = self.enemy_snake_body_img
+            head_img_static = self.enemy_snake_head_img  # Static image for enemy snakes
             head_frames = None
         elif player_id < len(self.player_graphics):
             body_img, head_frames = self.player_graphics[player_id]
@@ -6288,6 +6460,13 @@ class SnakeGame:
                 if minion.alive:
                     # Use draw_snake for smooth interpolation
                     self.draw_snake(minion, minion.player_id)
+        
+        # Draw enemy snakes (non-boss)
+        if self.enemy_snakes:
+            for enemy_snake in self.enemy_snakes:
+                if enemy_snake.alive:
+                    # Use draw_snake for smooth interpolation
+                    self.draw_snake(enemy_snake, enemy_snake.player_id)
         
         # Draw Frog Boss if active
         if self.boss_active and self.boss_data == 'frog' and self.boss_spawned:

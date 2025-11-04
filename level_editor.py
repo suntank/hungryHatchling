@@ -53,7 +53,7 @@ CATEGORIES = {
             {"id": "enemy_scorpion", "name": "Scorpion", "color": (255, 140, 0)},
             {"id": "enemy_ant", "name": "Ant", "color": (165, 42, 42)},
             {"id": "enemy_wasp", "name": "Wasp", "color": (255, 215, 0)},
-            {"id": "enemy_centipede", "name": "Centipede", "color": (128, 0, 0)},
+            {"id": "enemy_snake", "name": "Snake", "color": (0, 128, 0)},
         ]
     },
     "special": {
