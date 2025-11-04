@@ -1211,6 +1211,10 @@ class SnakeGame:
     
     def spawn_adventure_food(self):
         """Spawn a worm in adventure mode, avoiding occupied positions"""
+        # Don't spawn worms during boss battles
+        if hasattr(self, 'boss_active') and self.boss_active:
+            return
+        
         occupied_positions = set()
         occupied_positions.update(self.snake.body)
         occupied_positions.update(self.level_walls)
@@ -1684,20 +1688,32 @@ class SnakeGame:
                 if self.boss_death_delay > 0:
                     self.boss_death_delay -= 1
                 else:
-                    # Calculate completion percentage for adventure mode
+                    # Calculate completion percentage for BOSS LEVELS
                     print("Playing victory jingle...")
                     starting_length = 3
                     current_segments = len(self.snake.body) + self.snake.grow_pending
                     segments_gained = current_segments - starting_length
-                    
-                    total_items = self.worms_required + self.total_bonus_fruits
-                    items_collected = self.worms_collected + self.bonus_fruits_collected
-                    
-                    # Completion = (items + segments) / (total_items * 2) * 100
-                    max_possible = total_items + total_items
-                    actual_earned = items_collected + segments_gained
-                    self.completion_percentage = int((actual_earned / max_possible) * 100) if max_possible > 0 else 0
                     self.final_segments = current_segments
+                    
+                    # NEW BOSS SCORING SYSTEM:
+                    # 1. Base 60% for defeating the boss (main objective)
+                    boss_defeat_score = 60
+                    
+                    # 2. Up to 20% for survival/growth (based on snake length)
+                    # Award 1% per segment gained, capped at 20%
+                    growth_score = min(segments_gained, 20)
+                    
+                    # 3. Up to 20% for bonus items collected (if any bonus fruits in level)
+                    bonus_score = 0
+                    if self.total_bonus_fruits > 0:
+                        # Award proportional points: (collected / total) * 20
+                        bonus_score = int((self.bonus_fruits_collected / self.total_bonus_fruits) * 20)
+                    
+                    # Total completion percentage (capped at 100%)
+                    self.completion_percentage = min(boss_defeat_score + growth_score + bonus_score, 100)
+                    
+                    print("Boss level score breakdown: Defeat={}, Growth={}, Bonus={}, Total={}%".format(
+                        boss_defeat_score, growth_score, bonus_score, self.completion_percentage))
                     
                     # Save level score and unlock next level
                     self.is_new_level_high_score = self.update_level_score(self.current_adventure_level, self.completion_percentage)
@@ -4792,6 +4808,7 @@ class SnakeGame:
                 self.egg_timer = 0
                 # Reset boss defeated state
                 self.boss_defeated = False
+                self.player_frozen = False  # Unfreeze player for replay
                 self.boss_death_delay = 0
                 self.boss_death_phase = 0
                 self.boss_death_timer = 0
@@ -4803,17 +4820,17 @@ class SnakeGame:
                 # Reset super attack tracking
                 self.boss_super_attacks_used = set()
                 
-                # If it's a wormBoss, play Boss music instead of normal music
+                # If it's a wormBoss (FINAL BOSS), play epic FinalBoss music
                 if self.boss_data == 'wormBoss':
                     try:
-                        boss_music_path = os.path.join(SCRIPT_DIR, 'sound', 'music', 'Boss.mp3')
+                        boss_music_path = os.path.join(SCRIPT_DIR, 'sound', 'music', 'FinalBoss.mp3')
                         pygame.mixer.music.load(boss_music_path)
                         pygame.mixer.music.set_volume(0.9)
                         pygame.mixer.music.play(-1)  # Loop
                         self.music_manager.theme_mode = False
-                        print("Playing Boss music for boss battle")
+                        print("Playing FinalBoss music for final boss battle")
                     except Exception as e:
-                        print("Warning: Could not load Boss.mp3: {}".format(e))
+                        print("Warning: Could not load FinalBoss.mp3: {}".format(e))
                 
                 # If it's a Frog Boss, initialize frog-specific state
                 if self.boss_data == 'frog':
