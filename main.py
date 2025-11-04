@@ -2783,61 +2783,81 @@ class SnakeGame:
         if self.game_mode == "adventure" and self.enemy_snakes:
             for enemy_snake in self.enemy_snakes:
                 if enemy_snake.alive:
-                    # Update enemy snake AI and movement
-                    enemy_snake.move_timer += 1
-                    move_interval = 16  # Same speed as normal snakes
-                    
-                    if enemy_snake.move_timer >= move_interval:
-                        # AI decision making
-                        self.update_cpu_decision(enemy_snake)
-                        enemy_snake.move_timer = 0
-                        enemy_snake.last_move_interval = move_interval
-                        enemy_snake.previous_body = enemy_snake.body.copy()
-                        enemy_snake.move()
+                    # Only update movement during PLAYING state
+                    if self.state == GameState.PLAYING:
+                        # Update enemy snake AI and movement
+                        enemy_snake.move_timer += 1
+                        move_interval = 16  # Same speed as normal snakes
                         
-                        # Enemy snakes with can_eat=False should not eat food (to preserve scoring)
-                        # They roam around but never consume food items
-                        # This is already handled by not adding food eating logic here
-                        
-                        # Check collision with player snake (only if snake has a body)
-                        if len(self.snake.body) > 0:
-                            player_head = self.snake.body[0]
-                            enemy_head = enemy_snake.body[0]
+                        if enemy_snake.move_timer >= move_interval:
+                            # AI decision making
+                            self.update_cpu_decision(enemy_snake)
+                            enemy_snake.move_timer = 0
+                            enemy_snake.last_move_interval = move_interval
+                            enemy_snake.previous_body = enemy_snake.body.copy()
+                            enemy_snake.move()
                             
-                            # Check if player head hits enemy snake (any part) - player dies
-                            if player_head in enemy_snake.body:
-                                self.sound_manager.play('die')
-                                self.lives -= 1
-                                if self.lives <= 0:
-                                    self.music_manager.play_game_over_music()
-                                    self.state = GameState.GAME_OVER
-                                    self.game_over_timer = self.game_over_delay
-                                else:
-                                    # In adventure mode, wait before going to egg hatching
-                                    if self.game_mode == "adventure":
-                                        self.respawn_timer = self.respawn_delay
-                                        self.snake.body = []
+                            # Enemy snakes with can_eat=False should not eat food (to preserve scoring)
+                            # They roam around but never consume food items
+                            # This is already handled by not adding food eating logic here
+                            
+                            # Check collision with player snake (only if snake has a body)
+                            if len(self.snake.body) > 0:
+                                player_head = self.snake.body[0]
+                                enemy_head = enemy_snake.body[0]
+                                
+                                # Check if player head hits enemy snake (any part) - player dies
+                                if player_head in enemy_snake.body:
+                                    self.sound_manager.play('die')
+                                    self.lives -= 1
+                                    
+                                    # Spawn white particles on all body segments including head
+                                    for segment_x, segment_y in self.snake.body:
+                                        self.create_particles(segment_x * GRID_SIZE + GRID_SIZE // 2,
+                                                            segment_y * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y,
+                                                            None, None, particle_type='white')
+                                    
+                                    if self.lives <= 0:
+                                        self.music_manager.play_game_over_music()
+                                        self.state = GameState.GAME_OVER
+                                        self.game_over_timer = self.game_over_delay
                                     else:
-                                        # Classic mode: respawn immediately
-                                        self.respawn_snake()
-                                print("Player head hit enemy snake!")
-                            # Check if enemy snake head hits player body - player dies
-                            elif enemy_head in self.snake.body[1:]:
-                                self.sound_manager.play('die')
-                                self.lives -= 1
-                                if self.lives <= 0:
-                                    self.music_manager.play_game_over_music()
-                                    self.state = GameState.GAME_OVER
-                                    self.game_over_timer = self.game_over_delay
-                                else:
-                                    # In adventure mode, wait before going to egg hatching
-                                    if self.game_mode == "adventure":
-                                        self.respawn_timer = self.respawn_delay
-                                        self.snake.body = []
+                                        # In adventure mode, wait before going to egg hatching
+                                        if self.game_mode == "adventure":
+                                            self.respawn_timer = self.respawn_delay
+                                            self.snake.body = []
+                                        else:
+                                            # Classic mode: respawn immediately
+                                            self.respawn_snake()
+                                    print("Player head hit enemy snake!")
+                                # Check if enemy snake head hits player body - player dies
+                                elif enemy_head in self.snake.body[1:]:
+                                    self.sound_manager.play('die')
+                                    self.lives -= 1
+                                    
+                                    # Spawn white particles on all body segments including head
+                                    for segment_x, segment_y in self.snake.body:
+                                        self.create_particles(segment_x * GRID_SIZE + GRID_SIZE // 2,
+                                                            segment_y * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y,
+                                                            None, None, particle_type='white')
+                                    
+                                    if self.lives <= 0:
+                                        self.music_manager.play_game_over_music()
+                                        self.state = GameState.GAME_OVER
+                                        self.game_over_timer = self.game_over_delay
                                     else:
-                                        # Classic mode: respawn immediately
-                                        self.respawn_snake()
-                                print("Enemy snake head hit player body!")
+                                        # In adventure mode, wait before going to egg hatching
+                                        if self.game_mode == "adventure":
+                                            self.respawn_timer = self.respawn_delay
+                                            self.snake.body = []
+                                        else:
+                                            # Classic mode: respawn immediately
+                                            self.respawn_snake()
+                                    print("Enemy snake head hit player body!")
+                    else:
+                        # Not in PLAYING state - sync previous_body to prevent flickering
+                        enemy_snake.previous_body = enemy_snake.body.copy()
+                        enemy_snake.move_timer = 0
         
         # Update screen shake (works for all boss types)
         if self.screen_shake_intensity > 0:
@@ -5974,9 +5994,10 @@ class SnakeGame:
         # Get interpolated positions for smooth movement
         # Calculate progress between frames for interpolation
         is_boss_minion = hasattr(snake, 'is_boss_minion') and snake.is_boss_minion
+        is_enemy_snake = hasattr(snake, 'is_enemy_snake') and snake.is_enemy_snake
         
-        if self.is_multiplayer or is_boss_minion:
-            # Use snake's individual timer and interval (for multiplayer or boss minions)
+        if self.is_multiplayer or is_boss_minion or is_enemy_snake:
+            # Use snake's individual timer and interval (for multiplayer, boss minions, or enemy snakes)
             move_interval = max(1, snake.last_move_interval)
             progress = min(1.0, snake.move_timer / move_interval)
         else:
