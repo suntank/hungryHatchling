@@ -80,6 +80,15 @@ class SnakeGame:
             self.wall_img = None
             print("Warning: wall1.png not found, using default wall graphic")
         
+        # Load isotope image (shooting ability power-up)
+        try:
+            isotope_path = os.path.join(SCRIPT_DIR, 'img', 'isotope.png')
+            self.isotope_img = pygame.image.load(isotope_path).convert_alpha()
+            self.isotope_img = pygame.transform.scale(self.isotope_img, (GRID_SIZE, GRID_SIZE))
+        except:
+            self.isotope_img = None
+            print("Warning: isotope.png not found, using default isotope graphic")
+        
         # Load game over screen image
         try:
             gameover_path = os.path.join(SCRIPT_DIR, 'img', 'bg', 'gameOver.png')
@@ -715,6 +724,16 @@ class SnakeGame:
         except Exception as e:
             print("Warning: frogBoss.png not found: {}".format(e))
             self.frog_boss_img = None
+        
+        try:
+            frog_boss_top_path = os.path.join(SCRIPT_DIR, 'img', 'boss', 'frogBossTop.png')
+            self.frog_boss_top_img = pygame.image.load(frog_boss_top_path).convert_alpha()
+            # Scale to same size as frog boss (4x4 grid cells)
+            self.frog_boss_top_img = pygame.transform.scale(self.frog_boss_top_img, (GRID_SIZE * 4, GRID_SIZE * 4))
+            print("Loaded frogBossTop.png")
+        except Exception as e:
+            print("Warning: frogBossTop.png not found: {}".format(e))
+            self.frog_boss_top_img = None
         
         try:
             frog_tongue_path = os.path.join(SCRIPT_DIR, 'img', 'boss', 'frogTongue.png')
@@ -2787,7 +2806,7 @@ class SnakeGame:
                     if self.state == GameState.PLAYING:
                         # Update enemy snake AI and movement
                         enemy_snake.move_timer += 1
-                        move_interval = 16  # Same speed as normal snakes
+                        move_interval = 24  # Same speed as normal snakes
                         
                         if enemy_snake.move_timer >= move_interval:
                             # AI decision making
@@ -5063,6 +5082,9 @@ class SnakeGame:
                 self.boss_data = None
                 self.boss_active = False
             
+            # Always unfreeze player when loading a new level (in case previous level had boss)
+            self.player_frozen = False
+            
             # Don't set food_pos in Adventure mode - use food_items list instead
             self.food_pos = None
             
@@ -6143,20 +6165,28 @@ class SnakeGame:
                     rect = pygame.Rect(int(pixel_x), int(pixel_y), GRID_SIZE - 2, GRID_SIZE - 2)
                     pygame.draw.rect(self.screen, final_color, rect, border_radius=2)
             
-            # Add pulsing overlay when snake has isotope ability
+            # Add pulsing glow effect when snake has isotope ability
             if has_isotope_ability:
-                # Calculate pulse effect similar to the "Press A to Fire" text
-                pulse_timer = pygame.time.get_ticks() % 1000  # 0-999ms cycle
-                pulse = abs((pulse_timer % 60) - 30) / 30.0  # Pulse between 0 and 1
+                # Calculate pulse effect - smooth sine wave pulsing
+                pulse_timer = pygame.time.get_ticks() / 500.0  # Slower pulse (2 seconds per cycle)
+                import math
+                pulse = (math.sin(pulse_timer) + 1.0) / 2.0  # Pulse between 0 and 1
                 
-                # Create a semi-transparent pulsing overlay (purple/cyan color for isotope theme)
-                overlay_alpha = int(30 + pulse * 50)  # Alpha between 30 and 80
+                # Draw soft circular glow around each segment
+                glow_color = WHITE
+                center_x = int(pixel_x + GRID_SIZE // 2)
+                center_y = int(pixel_y + GRID_SIZE // 2)
                 
-                # Create a surface for the overlay
-                overlay = pygame.Surface((GRID_SIZE, GRID_SIZE), pygame.SRCALPHA)
-                overlay.fill((NEON_PURPLE[0], NEON_PURPLE[1], NEON_PURPLE[2], overlay_alpha))
-                
-                self.screen.blit(overlay, (int(pixel_x), int(pixel_y)))
+                # Draw multiple circles with decreasing size and increasing opacity for soft glow
+                max_radius = 32
+                for radius in range(max_radius, 4, -2):
+                    # Alpha increases as radius decreases (brighter in the center) - more visible but still transparent
+                    alpha = int((pulse * 90 + 60) * (1 - radius / max_radius))  # Increased from 50+30 to 90+60
+                    if alpha > 0:
+                        glow_surface = pygame.Surface((radius * 2 + 4, radius * 2 + 4), pygame.SRCALPHA)
+                        pygame.draw.circle(glow_surface, (*glow_color, alpha), (radius + 2, radius + 2), radius)
+                        # Use normal alpha blending instead of additive for proper transparency
+                        self.screen.blit(glow_surface, (center_x - radius - 2, center_y - radius - 2))
     
     def draw_game(self):
         # Draw background
@@ -6291,20 +6321,24 @@ class SnakeGame:
                     ]
                     pygame.draw.polygon(self.screen, WHITE, inner_points, 1)
                 elif food_type == 'isotope':
-                    # Draw isotope as a glowing purple atom symbol
-                    center_x = fx * GRID_SIZE + GRID_SIZE // 2
-                    center_y = fy * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y
-                    # Draw nucleus (central circle)
-                    pygame.draw.circle(self.screen, NEON_PURPLE, (center_x, center_y), GRID_SIZE // 6)
-                    pygame.draw.circle(self.screen, WHITE, (center_x, center_y), GRID_SIZE // 6, 2)
-                    # Draw orbiting electrons (3 circles)
-                    import math
-                    radius = GRID_SIZE // 3
-                    for i in range(3):
-                        angle = (self.move_timer * 3 + i * 120) % 360  # Rotating animation
-                        electron_x = center_x + int(radius * math.cos(math.radians(angle)))
-                        electron_y = center_y + int(radius * math.sin(math.radians(angle)))
-                        pygame.draw.circle(self.screen, NEON_CYAN, (electron_x, electron_y), 3)
+                    # Draw isotope image
+                    if self.isotope_img:
+                        self.screen.blit(self.isotope_img, (fx * GRID_SIZE, fy * GRID_SIZE + GAME_OFFSET_Y))
+                    else:
+                        # Fallback to rendered graphic
+                        center_x = fx * GRID_SIZE + GRID_SIZE // 2
+                        center_y = fy * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y
+                        # Draw nucleus (central circle)
+                        pygame.draw.circle(self.screen, NEON_PURPLE, (center_x, center_y), GRID_SIZE // 6)
+                        pygame.draw.circle(self.screen, WHITE, (center_x, center_y), GRID_SIZE // 6, 2)
+                        # Draw orbiting electrons (3 circles)
+                        import math
+                        radius = GRID_SIZE // 3
+                        for i in range(3):
+                            angle = (self.move_timer * 3 + i * 120) % 360  # Rotating animation
+                            electron_x = center_x + int(radius * math.cos(math.radians(angle)))
+                            electron_y = center_y + int(radius * math.sin(math.radians(angle)))
+                            pygame.draw.circle(self.screen, NEON_CYAN, (electron_x, electron_y), 3)
         
         # Draw bullets
         for bullet in self.bullets:
@@ -6524,6 +6558,24 @@ class SnakeGame:
                     seg_x = int(segment_pos[0] * GRID_SIZE)
                     seg_y = int(segment_pos[1] * GRID_SIZE + GAME_OFFSET_Y)
                     self.screen.blit(self.frog_tongue_img, (seg_x, seg_y))
+            
+            # Draw frog boss top layer (renders above tongue)
+            if self.frog_state in ['falling', 'landed', 'jumping'] and self.frog_boss_top_img:
+                frog_pixel_x = int(self.frog_position[0] * GRID_SIZE)
+                frog_pixel_y = int(self.frog_position[1] * GRID_SIZE + GAME_OFFSET_Y)
+                
+                # Rotate top layer to match frog sprite rotation
+                rotated_top = pygame.transform.rotate(self.frog_boss_top_img, -self.frog_rotation_angle)
+                # Get rect for centered rotation (same as main frog sprite)
+                rotated_rect = rotated_top.get_rect(center=(frog_pixel_x + GRID_SIZE * 2, frog_pixel_y + GRID_SIZE * 2))
+                
+                # Apply red flash if damaged (same as main frog sprite)
+                if self.boss_damage_flash > 0 and not self.boss_defeated:
+                    red_overlay = pygame.Surface(rotated_top.get_size(), pygame.SRCALPHA)
+                    red_overlay.fill((255, 0, 0, 128))
+                    rotated_top.blit(red_overlay, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
+                
+                self.screen.blit(rotated_top, rotated_rect)
         
         # Draw boss on top of minions (even when defeated, for death animation)
         if self.boss_spawned and self.boss_current_animation and self.boss_data == 'wormBoss':
