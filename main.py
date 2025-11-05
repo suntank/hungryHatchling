@@ -125,6 +125,25 @@ class SnakeGame:
             self.splash_screen = None
             print("Warning: splashAMS.png not found, skipping splash screen")
         
+        # Load intro sequence images
+        self.intro_images = []
+        for i in range(1, 8):  # intro1 through intro7 (jpg or png)
+            loaded = False
+            # Try both .jpg and .png extensions
+            for ext in ['.jpg', '.png']:
+                try:
+                    intro_path = os.path.join(SCRIPT_DIR, 'img', 'intro', 'intro{}{}'.format(i, ext))
+                    intro_img = pygame.image.load(intro_path).convert()
+                    intro_img = pygame.transform.scale(intro_img, (SCREEN_WIDTH, SCREEN_HEIGHT))
+                    self.intro_images.append(intro_img)
+                    loaded = True
+                    break
+                except:
+                    pass
+            if not loaded:
+                print("Warning: intro{} not found (tried .jpg and .png)".format(i))
+        print("Loaded {} intro images".format(len(self.intro_images)))
+        
         # Load Tweetrix logo
         try:
             tweetrix_path = os.path.join(SCRIPT_DIR, 'img', 'Tweetrix.png')
@@ -1141,25 +1160,28 @@ class SnakeGame:
         return self.level_scores.get(level_key, 0)
     
     def load_unlocked_levels(self):
-        """Load which levels are unlocked and total coins"""
+        """Load which levels are unlocked, total coins, and intro status"""
         try:
             unlock_path = os.path.join(SCRIPT_DIR, 'level_unlocks.json')
             if os.path.exists(unlock_path):
                 with open(unlock_path, 'r') as f:
                     data = json.load(f)
                     self.total_coins = data.get('total_coins', 0)
+                    self.intro_seen = data.get('intro', False) or False  # null or missing becomes False
                     return set(data.get('unlocked', [1]))  # Default to level 1 unlocked
         except:
             pass
         self.total_coins = 0
+        self.intro_seen = False
         return {1}  # Only level 1 unlocked by default
     
     def save_unlocked_levels(self):
-        """Save which levels are unlocked and total coins"""
+        """Save which levels are unlocked, total coins, and intro status"""
         try:
             unlock_path = os.path.join(SCRIPT_DIR, 'level_unlocks.json')
             with open(unlock_path, 'w') as f:
                 data = {
+                    'intro': getattr(self, 'intro_seen', False),
                     'unlocked': sorted(list(self.unlocked_levels)),
                     'total_coins': getattr(self, 'total_coins', 0)
                 }
@@ -2819,60 +2841,60 @@ class SnakeGame:
                             # Enemy snakes with can_eat=False should not eat food (to preserve scoring)
                             # They roam around but never consume food items
                             # This is already handled by not adding food eating logic here
+                        
+                        # Check collision with player snake every frame (not just when enemy moves)
+                        if len(self.snake.body) > 0:
+                            player_head = self.snake.body[0]
+                            enemy_head = enemy_snake.body[0]
                             
-                            # Check collision with player snake (only if snake has a body)
-                            if len(self.snake.body) > 0:
-                                player_head = self.snake.body[0]
-                                enemy_head = enemy_snake.body[0]
+                            # Check if player head hits enemy snake (any part) - player dies
+                            if player_head in enemy_snake.body:
+                                self.sound_manager.play('die')
+                                self.lives -= 1
                                 
-                                # Check if player head hits enemy snake (any part) - player dies
-                                if player_head in enemy_snake.body:
-                                    self.sound_manager.play('die')
-                                    self.lives -= 1
-                                    
-                                    # Spawn white particles on all body segments including head
-                                    for segment_x, segment_y in self.snake.body:
-                                        self.create_particles(segment_x * GRID_SIZE + GRID_SIZE // 2,
-                                                            segment_y * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y,
-                                                            None, None, particle_type='white')
-                                    
-                                    if self.lives <= 0:
-                                        self.music_manager.play_game_over_music()
-                                        self.state = GameState.GAME_OVER
-                                        self.game_over_timer = self.game_over_delay
+                                # Spawn white particles on all body segments including head
+                                for segment_x, segment_y in self.snake.body:
+                                    self.create_particles(segment_x * GRID_SIZE + GRID_SIZE // 2,
+                                                        segment_y * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y,
+                                                        None, None, particle_type='white')
+                                
+                                if self.lives <= 0:
+                                    self.music_manager.play_game_over_music()
+                                    self.state = GameState.GAME_OVER
+                                    self.game_over_timer = self.game_over_delay
+                                else:
+                                    # In adventure mode, wait before going to egg hatching
+                                    if self.game_mode == "adventure":
+                                        self.respawn_timer = self.respawn_delay
+                                        self.snake.body = []
                                     else:
-                                        # In adventure mode, wait before going to egg hatching
-                                        if self.game_mode == "adventure":
-                                            self.respawn_timer = self.respawn_delay
-                                            self.snake.body = []
-                                        else:
-                                            # Classic mode: respawn immediately
-                                            self.respawn_snake()
-                                    print("Player head hit enemy snake!")
-                                # Check if enemy snake head hits player body - player dies
-                                elif enemy_head in self.snake.body[1:]:
-                                    self.sound_manager.play('die')
-                                    self.lives -= 1
-                                    
-                                    # Spawn white particles on all body segments including head
-                                    for segment_x, segment_y in self.snake.body:
-                                        self.create_particles(segment_x * GRID_SIZE + GRID_SIZE // 2,
-                                                            segment_y * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y,
-                                                            None, None, particle_type='white')
-                                    
-                                    if self.lives <= 0:
-                                        self.music_manager.play_game_over_music()
-                                        self.state = GameState.GAME_OVER
-                                        self.game_over_timer = self.game_over_delay
+                                        # Classic mode: respawn immediately
+                                        self.respawn_snake()
+                                print("Player head hit enemy snake!")
+                            # Check if enemy snake head hits player body - player dies
+                            elif enemy_head in self.snake.body[1:]:
+                                self.sound_manager.play('die')
+                                self.lives -= 1
+                                
+                                # Spawn white particles on all body segments including head
+                                for segment_x, segment_y in self.snake.body:
+                                    self.create_particles(segment_x * GRID_SIZE + GRID_SIZE // 2,
+                                                        segment_y * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y,
+                                                        None, None, particle_type='white')
+                                
+                                if self.lives <= 0:
+                                    self.music_manager.play_game_over_music()
+                                    self.state = GameState.GAME_OVER
+                                    self.game_over_timer = self.game_over_delay
+                                else:
+                                    # In adventure mode, wait before going to egg hatching
+                                    if self.game_mode == "adventure":
+                                        self.respawn_timer = self.respawn_delay
+                                        self.snake.body = []
                                     else:
-                                        # In adventure mode, wait before going to egg hatching
-                                        if self.game_mode == "adventure":
-                                            self.respawn_timer = self.respawn_delay
-                                            self.snake.body = []
-                                        else:
-                                            # Classic mode: respawn immediately
-                                            self.respawn_snake()
-                                    print("Enemy snake head hit player body!")
+                                        # Classic mode: respawn immediately
+                                        self.respawn_snake()
+                                print("Enemy snake head hit player body!")
                     else:
                         # Not in PLAYING state - sync previous_body to prevent flickering
                         enemy_snake.previous_body = enemy_snake.body.copy()
@@ -4223,6 +4245,15 @@ class SnakeGame:
                     self.music_manager.play_theme()
                 return True
             
+            # Skip intro with ESC, Enter, or any other key
+            if self.state == GameState.INTRO:
+                if event.key == pygame.K_ESCAPE or event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
+                    self.intro_seen = True
+                    self.save_unlocked_levels()
+                    self.state = GameState.ADVENTURE_LEVEL_SELECT
+                    self.adventure_level_selection = 0
+                return True
+            
             if self.state == GameState.MENU:
                 if event.key == pygame.K_UP:
                     self.menu_selection = (self.menu_selection - 1) % len(self.menu_options)
@@ -4284,6 +4315,11 @@ class SnakeGame:
                     else:
                         # Play error sound if level is locked
                         self.sound_manager.play('blip_select')
+                elif event.key == pygame.K_y:
+                    # View intro if available
+                    if len(self.intro_images) > 0:
+                        self.sound_manager.play('blip_select')
+                        self.start_intro()
                 elif event.key == pygame.K_ESCAPE:
                     self.sound_manager.play('blip_select')
                     self.state = GameState.SINGLE_PLAYER_MENU
@@ -4452,7 +4488,13 @@ class SnakeGame:
         
         if event.type == pygame.JOYBUTTONDOWN and self.joystick:
             button = event.button
-            if self.state == GameState.MENU:
+            # Skip intro with any button press
+            if self.state == GameState.INTRO:
+                self.intro_seen = True
+                self.save_unlocked_levels()
+                self.state = GameState.ADVENTURE_LEVEL_SELECT
+                self.adventure_level_selection = 0
+            elif self.state == GameState.MENU:
                 if button == GamepadButton.BTN_START or button == GamepadButton.BTN_A:
                     self.select_menu_option()
             elif self.state == GameState.SINGLE_PLAYER_MENU:
@@ -4480,6 +4522,11 @@ class SnakeGame:
                         self.sound_manager.play('blip_select')
                         self.score = 0
                         self.level = level_num
+                elif button == GamepadButton.BTN_Y:
+                    # View intro if available
+                    if len(self.intro_images) > 0:
+                        self.sound_manager.play('blip_select')
+                        self.start_intro()
                 elif button == GamepadButton.BTN_B:
                     self.sound_manager.play('blip_select')
                     self.state = GameState.SINGLE_PLAYER_MENU
@@ -4715,12 +4762,17 @@ class SnakeGame:
     def select_single_player_option(self):
         """Handle single player submenu selection"""
         if self.single_player_selection == 0:
-            # Adventure Mode - Go to level selection
+            # Adventure Mode - Check if intro has been seen
             self.sound_manager.play('blip_select')
             self.game_mode = "adventure"
             self.is_multiplayer = False
-            self.state = GameState.ADVENTURE_LEVEL_SELECT
-            self.adventure_level_selection = 0
+            
+            # If intro hasn't been seen and we have intro images, show intro first
+            if not self.intro_seen and len(self.intro_images) > 0:
+                self.start_intro()
+            else:
+                self.state = GameState.ADVENTURE_LEVEL_SELECT
+                self.adventure_level_selection = 0
         elif self.single_player_selection == 1:
             # Endless Mode - Go to difficulty selection
             self.sound_manager.play('blip_select')
@@ -5320,6 +5372,85 @@ class SnakeGame:
             pygame.mixer.music.stop()
             self.music_manager.play_next()
     
+    def start_intro(self):
+        """Initialize intro sequence"""
+        self.state = GameState.INTRO
+        self.intro_current_image = 0
+        self.intro_timer = 0
+        self.intro_image_duration = 180  # 3 seconds at 60 FPS
+        self.intro_fade_duration = 30  # 0.5 seconds fade
+        self.intro_fade_alpha = 0
+        self.intro_fading = False
+        self.intro_final_fade = False
+        self.intro_final_fade_timer = 0
+        self.intro_final_fade_duration = 120  # 2 seconds fade to black
+        
+        # Restart theme music for intro
+        self.music_manager.play_theme()
+    
+    def update_intro(self):
+        """Update intro sequence"""
+        if self.intro_final_fade:
+            # Final fade to black after last image
+            self.intro_final_fade_timer += 1
+            if self.intro_final_fade_timer >= self.intro_final_fade_duration:
+                # Intro complete - mark as seen and go to level select
+                self.intro_seen = True
+                self.save_unlocked_levels()
+                self.state = GameState.ADVENTURE_LEVEL_SELECT
+                self.adventure_level_selection = 0
+            return
+        
+        # Update timer for current image
+        self.intro_timer += 1
+        
+        # Check if it's time to fade to next image
+        if self.intro_timer >= self.intro_image_duration - self.intro_fade_duration and not self.intro_fading:
+            self.intro_fading = True
+            self.intro_fade_alpha = 0
+        
+        # Update fade
+        if self.intro_fading:
+            self.intro_fade_alpha += 255 / self.intro_fade_duration
+            if self.intro_fade_alpha >= 255:
+                self.intro_fade_alpha = 255
+                # Move to next image
+                self.intro_current_image += 1
+                self.intro_timer = 0
+                self.intro_fading = False
+                
+                # Check if we've shown all images
+                if self.intro_current_image >= len(self.intro_images):
+                    # Start final fade to black
+                    self.intro_final_fade = True
+                    self.intro_final_fade_timer = 0
+    
+    def draw_intro(self):
+        """Draw intro sequence"""
+        if self.intro_final_fade:
+            # Fade to black
+            self.screen.fill(BLACK)
+            fade_alpha = int((self.intro_final_fade_timer / self.intro_final_fade_duration) * 255)
+            fade_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+            fade_surface.fill(BLACK)
+            fade_surface.set_alpha(fade_alpha)
+            self.screen.blit(fade_surface, (0, 0))
+            return
+        
+        # Draw current image
+        if self.intro_current_image < len(self.intro_images):
+            self.screen.blit(self.intro_images[self.intro_current_image], (0, 0))
+            
+            # Draw next image on top if fading
+            if self.intro_fading and self.intro_current_image + 1 < len(self.intro_images):
+                next_img = self.intro_images[self.intro_current_image + 1].copy()
+                next_img.set_alpha(int(self.intro_fade_alpha))
+                self.screen.blit(next_img, (0, 0))
+        
+        # Allow adding custom graphics/animations here in the future
+        # Example: if self.intro_current_image == 2:  # On image 3
+        #     Draw custom sprite or animation
+    
     def run(self):
         running = True
         while running:
@@ -5335,6 +5466,12 @@ class SnakeGame:
                 if current_time - self.splash_start_time >= self.splash_duration:
                     # Transition to menu after 3 seconds
                     self.state = GameState.MENU
+            
+            # Handle intro sequence
+            if self.state == GameState.INTRO:
+                self.update_intro()
+                # Update music - intro uses menu music (theme)
+                self.music_manager.update(in_menu=True)
             
             if self.state == GameState.EGG_HATCHING:
                 # In boss mode, give player 5 seconds to choose direction (after death, not initial spawn)
@@ -5412,6 +5549,8 @@ class SnakeGame:
         
         if self.state == GameState.SPLASH:
             self.draw_splash()
+        elif self.state == GameState.INTRO:
+            self.draw_intro()
         elif self.state == GameState.MENU:
             self.draw_menu()
         elif self.state == GameState.SINGLE_PLAYER_MENU:
@@ -5622,11 +5761,20 @@ class SnakeGame:
         
         # Hint text
         hint_text = self.font_small.render("Press Start to begin", True, BLACK)
-        hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+2, 452))
+        hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+2, 432))
         self.screen.blit(hint_text, hint_rect)
         hint_text = self.font_small.render("Press Start to begin", True, NEON_PURPLE)
-        hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 450))
+        hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 430))
         self.screen.blit(hint_text, hint_rect)
+        
+        # View Intro button (if intro images are available)
+        if len(self.intro_images) > 0:
+            intro_text = self.font_small.render("Press Y to view intro", True, BLACK)
+            intro_rect = intro_text.get_rect(center=((SCREEN_WIDTH // 2)+2, 452))
+            self.screen.blit(intro_text, intro_rect)
+            intro_text = self.font_small.render("Press Y to view intro", True, NEON_CYAN)
+            intro_rect = intro_text.get_rect(center=(SCREEN_WIDTH // 2, 450))
+            self.screen.blit(intro_text, intro_rect)
     
     def draw_multiplayer_menu(self):
         """Draw the multiplayer mode selection menu."""
@@ -6660,8 +6808,10 @@ class SnakeGame:
                 
                 self.draw_snake(snake, snake.player_id)
         else:
-            # Single player - draw the main snake
-            self.draw_snake(self.snake, 0)
+            # Single player - draw the main snake (but not during initial egg hatching)
+            # Don't draw snake at start of level when egg hasn't hatched yet
+            if self.state != GameState.EGG_HATCHING or len(self.snake.body) > 1:
+                self.draw_snake(self.snake, 0)
         
         # Draw particles
         for particle in self.particles:

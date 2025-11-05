@@ -77,6 +77,7 @@ class GameState(Enum):
     ACHIEVEMENTS = 16
     MUSIC_PLAYER = 17
     LEVEL_EDITOR_MENU = 18
+    INTRO = 19
 
 # Difficulty modes
 class Difficulty(Enum):
