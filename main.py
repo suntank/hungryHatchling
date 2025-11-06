@@ -1695,8 +1695,6 @@ class SnakeGame:
             self.frog_tongue_stuck_timer = 0
             self.frog_jump_timer = 0  # Reset jump timer to prevent jumping during death
             self.frog_landed_timer = 0  # Reset landed timer
-            # Play death sound
-            self.sound_manager.play('frogBossDeath')
             # Destroy all enemy walls immediately
             if hasattr(self, 'enemies') and self.enemies:
                 for enemy in self.enemies:
@@ -1723,6 +1721,8 @@ class SnakeGame:
                     self.boss_death_phase = 2
                     self.boss_slide_timer = 240  # 4 seconds of shaking/explosions
                     self.screen_shake_intensity = 2  # Match worm boss shake intensity
+                    # Play death sound now that music has faded
+                    self.sound_manager.play('frogBossDeath')
                     # Clear any existing shake timer
                     if hasattr(self, 'screen_shake_timer'):
                         self.screen_shake_timer = 0
@@ -2302,7 +2302,10 @@ class SnakeGame:
             
             # Check if move is valid (not wall, not self)
             if new_x < 0 or new_x >= GRID_WIDTH or new_y < 0 or new_y >= GRID_HEIGHT:
-                score -= 10000  # Wall collision
+                score -= 10000  # Grid boundary
+                is_immediately_fatal = True
+            elif (new_x, new_y) in self.level_walls:
+                score -= 10000  # Level wall collision
                 is_immediately_fatal = True
             elif (new_x, new_y) in snake.body:
                 score -= 10000  # Self collision
@@ -2320,37 +2323,45 @@ class SnakeGame:
                 
                 # Only evaluate further if not immediately fatal
                 if not is_immediately_fatal:
-                    # Look for food (all difficulties)
-                    closest_food_dist = 999999
-                    best_food_type = None
+                    # Check if this is an enemy snake (can't eat food)
+                    is_enemy_snake = hasattr(snake, 'is_enemy_snake') and snake.is_enemy_snake
                     
-                    for food_pos, food_type in self.food_items:
-                        fx, fy = food_pos
-                        dist = abs(new_x - fx) + abs(new_y - fy)
+                    # Only seek food if this is a player/CPU (not enemy snake)
+                    if not is_enemy_snake:
+                        # Look for food (all difficulties)
+                        closest_food_dist = 999999
+                        best_food_type = None
                         
-                        # Weight food by type based on difficulty
-                        if difficulty >= 2:  # Hard+
-                            if food_type == 'apple':
-                                dist *= 0.7  # Prefer apples
-                            elif food_type == 'black_apple':
-                                dist *= 2.0  # Avoid black apples
+                        for food_pos, food_type in self.food_items:
+                            fx, fy = food_pos
+                            dist = abs(new_x - fx) + abs(new_y - fy)
+                            
+                            # Weight food by type based on difficulty
+                            if difficulty >= 2:  # Hard+
+                                if food_type == 'apple':
+                                    dist *= 0.7  # Prefer apples
+                                elif food_type == 'black_apple':
+                                    dist *= 2.0  # Avoid black apples
+                            
+                            if dist < closest_food_dist:
+                                closest_food_dist = dist
+                                best_food_type = food_type
                         
-                        if dist < closest_food_dist:
-                            closest_food_dist = dist
-                            best_food_type = food_type
-                    
-                    # Score based on proximity to food
-                    if closest_food_dist < 999999:
-                        score += (100 - closest_food_dist * 5)
-                        
-                        # Brutal difficulty: strategic food choices
-                        if difficulty >= 3:
-                            if best_food_type == 'apple' and snake.speed_modifier < 0:
-                                score += 50  # Already fast, less priority
-                            elif best_food_type == 'apple':
-                                score += 100  # Prioritize speed boost
-                            elif best_food_type == 'black_apple':
-                                score -= 200  # Strongly avoid black apples
+                        # Score based on proximity to food
+                        if closest_food_dist < 999999:
+                            score += (100 - closest_food_dist * 5)
+                            
+                            # Brutal difficulty: strategic food choices
+                            if difficulty >= 3:
+                                if best_food_type == 'apple' and snake.speed_modifier < 0:
+                                    score += 50  # Already fast, less priority
+                                elif best_food_type == 'apple':
+                                    score += 100  # Prioritize speed boost
+                                elif best_food_type == 'black_apple':
+                                    score -= 200  # Strongly avoid black apples
+                    else:
+                        # Enemy snakes: just wander randomly, favor open space
+                        score += random.randint(-30, 30)
                     
                     # Avoid danger zones (look ahead)
                     if difficulty >= 2:
@@ -2428,6 +2439,8 @@ class SnakeGame:
             is_safe = True
             if next_x < 0 or next_x >= GRID_WIDTH or next_y < 0 or next_y >= GRID_HEIGHT:
                 is_safe = False
+            elif (next_x, next_y) in self.level_walls:
+                is_safe = False  # Check level walls
             elif (next_x, next_y) in snake.body:
                 is_safe = False
             else:
@@ -2607,6 +2620,8 @@ class SnakeGame:
                                         # Initialize slide timer (320 frames = ~5.3 seconds at 60 FPS, 25% slower than before)
                                         self.boss_slide_timer = 640
                                         self.boss_slide_offset_y = 0
+                                        # Play boss worm death sound now that music has faded
+                                        self.sound_manager.play('bossWormDeath')
             
             # Update screen shake
             if self.screen_shake_intensity > 0:
@@ -2730,6 +2745,8 @@ class SnakeGame:
                             self.boss_death_phase = 2
                             self.boss_slide_timer = 240  # 4 seconds
                             self.boss_slide_offset_y = 0
+                            # Play boss worm death sound now that music has faded
+                            self.sound_manager.play('bossWormDeath')
                 
                 # Phase 2: Slide down off-screen with continuous white explosions
                 if self.boss_death_phase == 2 and self.boss_slide_timer > 0:
@@ -3021,9 +3038,9 @@ class SnakeGame:
             
             stinger_pos = (stinger.grid_x, stinger.grid_y)
             
-            # Check if stinger hit player snake (only if snake has a body)
-            if len(self.snake.body) > 0 and stinger_pos in self.snake.body:
-                # Player hit by stinger - dies
+            # Check if stinger hit player snake head (not body segments)
+            if len(self.snake.body) > 0 and stinger_pos == self.snake.body[0]:
+                # Player head hit by stinger - dies
                 stinger.alive = False
                 self.sound_manager.play('die')
                 self.lives -= 1
@@ -3151,39 +3168,77 @@ class SnakeGame:
                     if not enemy_snake.alive:
                         continue
                     
-                    # Check if bullet hit enemy snake head (instant kill)
-                    if bullet_pos == enemy_snake.body[0]:
-                        # Headshot - kill the enemy snake
+                    # Check if bullet hit anywhere - kill instantly (per user request)
+                    if bullet_pos in enemy_snake.body:
                         enemy_snake.alive = False
                         bullet.alive = False
                         self.sound_manager.play('die')
-                        # Create particles at hit location
-                        hit_x = bullet_pos[0] * GRID_SIZE + GRID_SIZE // 2
-                        hit_y = bullet_pos[1] * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y
-                        self.create_particles(hit_x, hit_y, GREEN, 15)
-                        print("Enemy snake destroyed!")
+                        # Spawn particles on all segments
+                        for segment_x, segment_y in enemy_snake.body:
+                            self.create_particles(segment_x * GRID_SIZE + GRID_SIZE // 2,
+                                                segment_y * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y, 
+                                                None, None, particle_type='white')
+                        print("Enemy snake destroyed by bullet!")
                         break
+        
+        # Check bullet collisions with regular enemies (ants, spiders, wasps, scorpions, beetles)
+        for bullet in self.bullets:
+            if not bullet.alive:
+                continue
+            
+            bullet_pos = (bullet.grid_x, bullet.grid_y)
+            
+            for enemy in self.enemies:
+                if not enemy.alive:
+                    continue
+                
+                # Skip enemy walls (they have separate collision below)
+                if enemy.enemy_type == 'enemy_wall':
+                    continue
+                
+                # Check if enemy is a regular enemy type
+                if enemy.enemy_type.startswith(('enemy_ant', 'enemy_spider', 'enemy_wasp', 'enemy_scorpion', 'enemy_beetle')):
+                    enemy_pos = (enemy.grid_x, enemy.grid_y)
                     
-                    # Check if bullet hit enemy snake body (remove segment)
-                    elif bullet_pos in enemy_snake.body[1:]:
-                        # Body shot - remove the segment that was hit
-                        segment_index = enemy_snake.body.index(bullet_pos)
-                        # Remove all segments from hit point to tail
-                        enemy_snake.body = enemy_snake.body[:segment_index]
-                        bullet.alive = False
-                        self.sound_manager.play('eat_fruit')
-                        # Create particles at hit location
-                        hit_x = bullet_pos[0] * GRID_SIZE + GRID_SIZE // 2
-                        hit_y = bullet_pos[1] * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y
-                        self.create_particles(hit_x, hit_y, GREEN, 8)
-                        print("Enemy snake hit! Reduced to {} segments.".format(len(enemy_snake.body)))
-                        
-                        # If enemy snake is too small, kill it
-                        if len(enemy_snake.body) < 2:
-                            enemy_snake.alive = False
+                    # For scorpions (2x2), check all grid cells they occupy
+                    if enemy.enemy_type.startswith('enemy_scorpion'):
+                        scorpion_cells = [
+                            (enemy.grid_x, enemy.grid_y),
+                            (enemy.grid_x + 1, enemy.grid_y),
+                            (enemy.grid_x, enemy.grid_y + 1),
+                            (enemy.grid_x + 1, enemy.grid_y + 1)
+                        ]
+                        if bullet_pos in scorpion_cells:
+                            # Instant kill
+                            enemy.alive = False
+                            bullet.alive = False
                             self.sound_manager.play('die')
-                            print("Enemy snake destroyed!")
-                        break
+                            # Spawn particles at all 4 grid cells
+                            for dx in range(2):
+                                for dy in range(2):
+                                    self.create_particles(
+                                        (enemy.grid_x + dx) * GRID_SIZE + GRID_SIZE // 2,
+                                        (enemy.grid_y + dy) * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y,
+                                        None, None, particle_type='white')
+                            print("Scorpion destroyed by bullet!")
+                            break
+                    else:
+                        # Regular 1x1 enemies (ants, spiders, wasps, beetles)
+                        if bullet_pos == enemy_pos:
+                            # Instant kill
+                            enemy.alive = False
+                            bullet.alive = False
+                            self.sound_manager.play('die')
+                            # Spawn white particle
+                            self.create_particles(
+                                enemy.grid_x * GRID_SIZE + GRID_SIZE // 2,
+                                enemy.grid_y * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y,
+                                None, None, particle_type='white')
+                            print(f"{enemy.enemy_type} destroyed by bullet!")
+                            break
+            
+            if not bullet.alive:
+                break  # Bullet hit something, stop checking
         
         # Check bullet collisions with enemy walls (destroyable)
         for bullet in self.bullets:
@@ -3331,9 +3386,6 @@ class SnakeGame:
                                                         enemy.grid_y * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y,
                                                         GRAY, 12)
                             print("All enemy walls destroyed!")
-                        # Play both death sounds simultaneously
-                        self.sound_manager.play('bossWormDeath')
-                        self.sound_manager.play('bossWormDeath2')
                     
                     break
         
@@ -3593,9 +3645,20 @@ class SnakeGame:
                                 # Enemy hit snake body - enemy dies
                                 enemy.alive = False
                                 # Spawn white particles where enemy died
-                                self.create_particles(enemy.grid_x * GRID_SIZE + GRID_SIZE // 2,
-                                                    enemy.grid_y * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y, 
-                                                    None, None, particle_type='white')
+                                # Scorpions are 2x2, so spawn 4 particles across their body
+                                if enemy.enemy_type.startswith('enemy_scorpion'):
+                                    # Spawn particles at all 4 grid cells the scorpion occupies
+                                    for dx in range(2):
+                                        for dy in range(2):
+                                            self.create_particles(
+                                                (enemy.grid_x + dx) * GRID_SIZE + GRID_SIZE // 2,
+                                                (enemy.grid_y + dy) * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y,
+                                                None, None, particle_type='white')
+                                else:
+                                    # Regular enemies spawn 1 particle
+                                    self.create_particles(enemy.grid_x * GRID_SIZE + GRID_SIZE // 2,
+                                                        enemy.grid_y * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y, 
+                                                        None, None, particle_type='white')
         
         # Check Frog Boss collision with player
         # Don't check collision during egg hatching
@@ -4373,9 +4436,9 @@ class SnakeGame:
                     if self.game_mode == "adventure":
                         self.lives = 3  # Reset lives after completing a level
                         self.state = GameState.ADVENTURE_LEVEL_SELECT
-                        # Returning to level select menu - ensure theme music is playing
-                        if not self.music_manager.theme_mode and not pygame.mixer.music.get_busy():
-                            self.music_manager.play_theme()
+                        # Stop victory jingle and start theme music
+                        pygame.mixer.music.stop()
+                        self.music_manager.play_theme()
                     else:
                         self.next_level()
             elif self.state == GameState.CREDITS:
@@ -4558,6 +4621,9 @@ class SnakeGame:
                     if self.game_mode == "adventure":
                         self.lives = 3  # Reset lives after completing a level
                         self.state = GameState.ADVENTURE_LEVEL_SELECT
+                        # Stop victory jingle and start theme music
+                        pygame.mixer.music.stop()
+                        self.music_manager.play_theme()
                     else:
                         self.next_level()
             elif self.state == GameState.CREDITS:

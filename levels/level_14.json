@@ -2,12 +2,12 @@
   "level_number": 1,
   "name": "New Level",
   "description": "A new level",
-  "background_image": "bg.png",
+  "background_image": "BG5.png",
   "grid_width": 15,
   "grid_height": 15,
   "worms_required": 16,
   "starting_position": [
-    7,
+    5,
     7
   ],
   "starting_direction": "RIGHT",
@@ -532,6 +532,12 @@
     }
   ],
   "diamond_positions": [],
+  "isotope_positions": [
+    {
+      "x": 9,
+      "y": 7
+    }
+  ],
   "enemies": [
     {
       "x": 3,
@@ -552,6 +558,16 @@
       "x": 11,
       "y": 11,
       "type": "enemy_ant"
+    },
+    {
+      "x": 7,
+      "y": 3,
+      "type": "enemy_spider"
+    },
+    {
+      "x": 7,
+      "y": 11,
+      "type": "enemy_spider"
     }
   ],
   "boss_data": null

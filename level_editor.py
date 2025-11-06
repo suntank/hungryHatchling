@@ -43,6 +43,7 @@ CATEGORIES = {
             {"id": "bonus", "name": "Bonus Fruit", "color": RED},
             {"id": "coin", "name": "Coin", "color": YELLOW},
             {"id": "diamond", "name": "Diamond", "color": CYAN},
+            {"id": "isotope", "name": "Isotope", "color": (0, 255, 0)},  # Bright green
         ]
     },
     "enemies": {
@@ -72,6 +73,7 @@ TOOL_EGG = "egg"
 TOOL_BONUS = "bonus"
 TOOL_COIN = "coin"
 TOOL_DIAMOND = "diamond"
+TOOL_ISOTOPE = "isotope"
 TOOL_ERASE = "erase"
 
 class LevelEditor:
@@ -90,6 +92,7 @@ class LevelEditor:
         self.bonus_fruits = []
         self.coins = []
         self.diamonds = []
+        self.isotopes = []
         self.enemies = []  # New: store all enemy types
         self.starting_position = [10, 7]
         self.starting_direction = "RIGHT"
@@ -348,6 +351,8 @@ class LevelEditor:
             self.coins.append(pos)
         elif self.current_tool == TOOL_DIAMOND:
             self.diamonds.append(pos)
+        elif self.current_tool == TOOL_ISOTOPE:
+            self.isotopes.append(pos)
         elif self.current_tool.startswith("enemy_"):
             # Handle all enemy types
             enemy_data = {"x": grid_x, "y": grid_y, "type": self.current_tool}
@@ -371,6 +376,9 @@ class LevelEditor:
         # Remove diamonds
         self.diamonds = [d for d in self.diamonds if not (d["x"] == grid_x and d["y"] == grid_y)]
         
+        # Remove isotopes
+        self.isotopes = [i for i in self.isotopes if not (i["x"] == grid_x and i["y"] == grid_y)]
+        
         # Remove enemies
         self.enemies = [e for e in self.enemies if not (e["x"] == grid_x and e["y"] == grid_y)]
         
@@ -393,6 +401,7 @@ class LevelEditor:
             "bonus_fruit_positions": self.bonus_fruits,
             "coin_positions": self.coins,
             "diamond_positions": self.diamonds,
+            "isotope_positions": self.isotopes,
             "enemies": self.enemies,
             "boss_data": self.boss_data  # Preserve boss_data instead of overwriting with None
         }
@@ -432,6 +441,7 @@ class LevelEditor:
             self.bonus_fruits = level_data.get("bonus_fruit_positions", [])
             self.coins = level_data.get("coin_positions", [])
             self.diamonds = level_data.get("diamond_positions", [])
+            self.isotopes = level_data.get("isotope_positions", [])
             self.enemies = level_data.get("enemies", [])
             self.boss_data = level_data.get("boss_data", None)  # Load boss_data
             
@@ -450,6 +460,7 @@ class LevelEditor:
         self.bonus_fruits = []
         self.coins = []
         self.diamonds = []
+        self.isotopes = []
         self.enemies = []
         self.boss_data = None  # Clear boss data too
         self.starting_position = [10, 7]
@@ -468,6 +479,7 @@ class LevelEditor:
         self._draw_bonus_fruits()
         self._draw_coins()
         self._draw_diamonds()
+        self._draw_isotopes()
         self._draw_enemies()
         self._draw_starting_position()
         
@@ -566,6 +578,28 @@ class LevelEditor:
             ]
             pygame.draw.polygon(self.screen, WHITE, inner_points, 1)
     
+    def _draw_isotopes(self):
+        """Draw isotopes on the grid (shooting power-up)"""
+        for isotope in self.isotopes:
+            x = isotope["x"] * GRID_SIZE + GRID_SIZE // 2
+            y = isotope["y"] * GRID_SIZE + GRID_SIZE // 2
+            # Draw as a bright green glowing circle with radiation symbol
+            radius = GRID_SIZE // 3
+            # Outer glow
+            pygame.draw.circle(self.screen, (0, 255, 0), (x, y), radius)
+            pygame.draw.circle(self.screen, (0, 200, 0), (x, y), radius, 2)
+            # Inner core
+            inner_radius = GRID_SIZE // 6
+            pygame.draw.circle(self.screen, (100, 255, 100), (x, y), inner_radius)
+            # Draw simple radiation symbol (3 triangular segments)
+            segment_size = GRID_SIZE // 8
+            for angle in [0, 120, 240]:
+                import math
+                rad = math.radians(angle)
+                tip_x = x + int(radius * 0.7 * math.cos(rad))
+                tip_y = y + int(radius * 0.7 * math.sin(rad))
+                pygame.draw.circle(self.screen, (0, 150, 0), (tip_x, tip_y), segment_size // 2)
+    
     def _draw_enemies(self):
         """Draw enemies on the grid"""
         for enemy in self.enemies:
@@ -625,8 +659,8 @@ class LevelEditor:
         info = self.font_small.render(info_text, True, WHITE)
         self.screen.blit(info, (8, base_y + 5))
         
-        # Second line of info for coins, diamonds, and enemies
-        info_text2 = f"Coins: {len(self.coins)} | Diamonds: {len(self.diamonds)} | Enemies: {len(self.enemies)}"
+        # Second line of info for coins, diamonds, isotopes, and enemies
+        info_text2 = f"Coins: {len(self.coins)} | Diamonds: {len(self.diamonds)} | Isotopes: {len(self.isotopes)} | Enemies: {len(self.enemies)}"
         info2 = self.font_small.render(info_text2, True, WHITE)
         self.screen.blit(info2, (8, base_y + 25))
         

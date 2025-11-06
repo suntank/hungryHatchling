@@ -2,7 +2,7 @@
   "level_number": 1,
   "name": "New Level",
   "description": "A new level",
-  "background_image": "bg.png",
+  "background_image": "BG10.png",
   "grid_width": 15,
   "grid_height": 15,
   "worms_required": 18,
@@ -549,10 +549,6 @@
       "y": 13
     },
     {
-      "x": 9,
-      "y": 13
-    },
-    {
       "x": 10,
       "y": 13
     },
@@ -668,10 +664,6 @@
       "y": 8
     },
     {
-      "x": 9,
-      "y": 3
-    },
-    {
       "x": 10,
       "y": 3
     },
@@ -682,6 +674,16 @@
     {
       "x": 1,
       "y": 13
+    }
+  ],
+  "isotope_positions": [
+    {
+      "x": 9,
+      "y": 13
+    },
+    {
+      "x": 9,
+      "y": 3
     }
   ],
   "enemies": [

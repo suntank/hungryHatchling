@@ -2,7 +2,7 @@
   "level_number": 1,
   "name": "New Level",
   "description": "A new level",
-  "background_image": "BG2.png",
+  "background_image": "bg.png",
   "grid_width": 15,
   "grid_height": 15,
   "worms_required": 16,

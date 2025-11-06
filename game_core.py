@@ -391,7 +391,9 @@ class SoundManager:
             'start_game': os.path.join(SCRIPT_DIR, 'sound', 'sfx', 'StartGame.wav'),
             'crack': os.path.join(SCRIPT_DIR, 'sound', 'sfx', 'crack.wav'),
             'pickupCoin': os.path.join(SCRIPT_DIR, 'sound', 'sfx', 'pickupCoin.wav'),
-            'pickupDiamond': os.path.join(SCRIPT_DIR, 'sound', 'sfx', 'pickupDiamond.wav')
+            'pickupDiamond': os.path.join(SCRIPT_DIR, 'sound', 'sfx', 'pickupDiamond.wav'),
+            'frogBossDeath': os.path.join(SCRIPT_DIR, 'sound', 'sfx', 'frogBossDeath.wav'),
+            'bossWormDeath': os.path.join(SCRIPT_DIR, 'sound', 'sfx', 'bossWormDeath.wav')
         }
         
         for name, path in sound_files.items():
@@ -847,7 +849,7 @@ class Enemy:
             self.charge_target_y = y
             self.is_rotating = False  # Rotation state for scanning
             self.rotation_delay = 0  # Frames remaining in rotation
-            self.target_angle = angle  # Target angle for rotation
+            self.target_angle = self.angle  # Target angle for rotation
             self.scan_timer = 120  # Timer for idle scanning behavior
 
         # Animation properties
@@ -1107,15 +1109,15 @@ class Enemy:
                 self.previous_y = self.grid_y
             return
         
-        # Handle movement interpolation (slower than ants - 15 frames)
+        # Handle movement interpolation (same speed as spiders - 5 frames)
         if self.is_moving:
             self.move_timer += 1
-            if self.move_timer >= 15:  # Full movement complete in 15 frames (slower than ants)
+            if self.move_timer >= 5:  # Full movement complete in 5 frames (same as spiders)
                 self.grid_x = self.target_x
                 self.grid_y = self.target_y
                 self.move_timer = 0
                 self.is_moving = False
-                self.move_cooldown = random.randint(4, 5)  # Reset cooldown (4-5 turns, slower than ants)
+                self.move_cooldown = random.randint(3, 4)  # Reset cooldown (3-4 turns)
                 # Stop animation and return to frame 0
                 self.animation_frame = 0
                 self.animation_counter = 0
@@ -1532,7 +1534,7 @@ class Enemy:
             elif self.enemy_type.startswith('enemy_spider'):
                 progress = self.move_timer / 5.0
             elif self.enemy_type.startswith('enemy_scorpion'):
-                progress = self.move_timer / 15.0
+                progress = self.move_timer / 5.0  # Same speed as spiders
             elif self.enemy_type.startswith('enemy_beetle'):
                 progress = self.move_timer / 8.0
             else:
