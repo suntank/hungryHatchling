@@ -132,7 +132,7 @@ class SnakeGame:
             # Try both .jpg and .png extensions
             for ext in ['.jpg', '.png']:
                 try:
-                    intro_path = os.path.join(SCRIPT_DIR, 'img', 'intro', 'intro{}{}'.format(i, ext))
+                    intro_path = os.path.join(SCRIPT_DIR, 'img', 'Intro', 'intro{}{}'.format(i, ext))
                     intro_img = pygame.image.load(intro_path).convert()
                     intro_img = pygame.transform.scale(intro_img, (SCREEN_WIDTH, SCREEN_HEIGHT))
                     self.intro_images.append(intro_img)
@@ -2888,30 +2888,18 @@ class SnakeGame:
                                         # Classic mode: respawn immediately
                                         self.respawn_snake()
                                 print("Player head hit enemy snake!")
-                            # Check if enemy snake head hits player body - player dies
+                            # Check if enemy snake head hits player body - enemy snake dies
                             elif enemy_head in self.snake.body[1:]:
+                                enemy_snake.alive = False
                                 self.sound_manager.play('die')
-                                self.lives -= 1
                                 
-                                # Spawn white particles on all body segments including head
-                                for segment_x, segment_y in self.snake.body:
+                                # Spawn white particles on all enemy snake body segments
+                                for segment_x, segment_y in enemy_snake.body:
                                     self.create_particles(segment_x * GRID_SIZE + GRID_SIZE // 2,
                                                         segment_y * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y,
                                                         None, None, particle_type='white')
                                 
-                                if self.lives <= 0:
-                                    self.music_manager.play_game_over_music()
-                                    self.state = GameState.GAME_OVER
-                                    self.game_over_timer = self.game_over_delay
-                                else:
-                                    # In adventure mode, wait before going to egg hatching
-                                    if self.game_mode == "adventure":
-                                        self.respawn_timer = self.respawn_delay
-                                        self.snake.body = []
-                                    else:
-                                        # Classic mode: respawn immediately
-                                        self.respawn_snake()
-                                print("Enemy snake head hit player body!")
+                                print("Enemy snake head hit player body - enemy snake dies!")
                     else:
                         # Not in PLAYING state - sync previous_body to prevent flickering
                         enemy_snake.previous_body = enemy_snake.body.copy()
@@ -4833,8 +4821,8 @@ class SnakeGame:
             self.game_mode = "adventure"
             self.is_multiplayer = False
             
-            # If intro hasn't been seen and we have intro images, show intro first
-            if not self.intro_seen and len(self.intro_images) > 0:
+            # If intro hasn't been seen, show intro first
+            if not self.intro_seen:
                 self.start_intro()
             else:
                 self.state = GameState.ADVENTURE_LEVEL_SELECT
@@ -5440,16 +5428,31 @@ class SnakeGame:
     
     def start_intro(self):
         """Initialize intro sequence"""
+        # If no intro images exist, skip directly to level select
+        if len(self.intro_images) == 0:
+            self.intro_seen = True
+            self.save_unlocked_levels()
+            self.state = GameState.ADVENTURE_LEVEL_SELECT
+            self.adventure_level_selection = 0
+            return
+        
         self.state = GameState.INTRO
         self.intro_current_image = 0
         self.intro_timer = 0
-        self.intro_image_duration = 180  # 3 seconds at 60 FPS
+        self.intro_image_duration = 300  # 5 seconds at 60 FPS
         self.intro_fade_duration = 30  # 0.5 seconds fade
         self.intro_fade_alpha = 0
         self.intro_fading = False
         self.intro_final_fade = False
         self.intro_final_fade_timer = 0
         self.intro_final_fade_duration = 120  # 2 seconds fade to black
+        
+        # Shot 1: Meteorite animation variables
+        self.intro_meteorite_active = False
+        self.intro_meteorite_x = 0
+        self.intro_meteorite_y = 0
+        self.intro_meteorite_particles = []
+        self.intro_meteorite_crashed = False
         
         # Restart theme music for intro
         self.music_manager.play_theme()
@@ -5466,6 +5469,45 @@ class SnakeGame:
                 self.state = GameState.ADVENTURE_LEVEL_SELECT
                 self.adventure_level_selection = 0
             return
+        
+        # Shot 1: Meteorite animation
+        if self.intro_current_image == 0:
+            # Start meteorite after 0.5 seconds
+            if self.intro_timer == 30 and not self.intro_meteorite_active and not self.intro_meteorite_crashed:
+                self.intro_meteorite_active = True
+                self.intro_meteorite_x = -50  # Start off-screen left
+                self.intro_meteorite_y = SCREEN_HEIGHT // 2
+            
+            # Update meteorite position
+            if self.intro_meteorite_active and not self.intro_meteorite_crashed:
+                self.intro_meteorite_x += 8  # Move right
+                
+                # Crash when reaching center
+                if self.intro_meteorite_x >= SCREEN_WIDTH // 2:
+                    self.intro_meteorite_crashed = True
+                    self.intro_meteorite_active = False
+                    
+                    # Create white particles at crash point
+                    crash_x = SCREEN_WIDTH // 2
+                    crash_y = SCREEN_HEIGHT // 2
+                    for _ in range(20):
+                        particle = {
+                            'x': crash_x,
+                            'y': crash_y,
+                            'vx': random.uniform(-5, 5),
+                            'vy': random.uniform(-5, 5),
+                            'life': 30,
+                            'max_life': 30
+                        }
+                        self.intro_meteorite_particles.append(particle)
+            
+            # Update particles
+            for particle in self.intro_meteorite_particles[:]:
+                particle['x'] += particle['vx']
+                particle['y'] += particle['vy']
+                particle['life'] -= 1
+                if particle['life'] <= 0:
+                    self.intro_meteorite_particles.remove(particle)
         
         # Update timer for current image
         self.intro_timer += 1
@@ -5484,6 +5526,11 @@ class SnakeGame:
                 self.intro_current_image += 1
                 self.intro_timer = 0
                 self.intro_fading = False
+                
+                # Reset meteorite animation for next shot
+                self.intro_meteorite_active = False
+                self.intro_meteorite_crashed = False
+                self.intro_meteorite_particles = []
                 
                 # Check if we've shown all images
                 if self.intro_current_image >= len(self.intro_images):
@@ -5513,9 +5560,26 @@ class SnakeGame:
                 next_img.set_alpha(int(self.intro_fade_alpha))
                 self.screen.blit(next_img, (0, 0))
         
-        # Allow adding custom graphics/animations here in the future
-        # Example: if self.intro_current_image == 2:  # On image 3
-        #     Draw custom sprite or animation
+        # Shot 1: Draw meteorite animation
+        if self.intro_current_image == 0:
+            # Draw meteorite
+            if self.intro_meteorite_active and self.isotope_img:
+                # Scale and rotate the isotope
+                meteorite_size = GRID_SIZE
+                meteorite_scaled = pygame.transform.scale(self.isotope_img, (meteorite_size, meteorite_size))
+                meteorite_rotated = pygame.transform.rotate(meteorite_scaled, -90)
+                self.screen.blit(meteorite_rotated, 
+                               (int(self.intro_meteorite_x) - meteorite_rotated.get_width() // 2, 
+                                int(self.intro_meteorite_y) - meteorite_rotated.get_height() // 2))
+            
+            # Draw blue particles
+            for particle in self.intro_meteorite_particles:
+                alpha = int(255 * (particle['life'] / particle['max_life']))
+                particle_size = 4
+                particle_surf = pygame.Surface((particle_size, particle_size))
+                particle_surf.fill((0, 100, 255))  # Blue color
+                particle_surf.set_alpha(alpha)
+                self.screen.blit(particle_surf, (int(particle['x']), int(particle['y'])))
     
     def run(self):
         running = True
