@@ -144,6 +144,18 @@ class SnakeGame:
                 print("Warning: intro{} not found (tried .jpg and .png)".format(i))
         print("Loaded {} intro images".format(len(self.intro_images)))
         
+        # Load outro sequence images
+        self.outro_images = []
+        for i in range(1, 5):  # outro1 through outro4 (jpg)
+            try:
+                outro_path = os.path.join(SCRIPT_DIR, 'img', 'outro', 'outro{}.jpg'.format(i))
+                outro_img = pygame.image.load(outro_path).convert()
+                # Don't scale here - we'll handle it in draw_outro for panning
+                self.outro_images.append(outro_img)
+            except:
+                print("Warning: outro{}.jpg not found".format(i))
+        print("Loaded {} outro images".format(len(self.outro_images)))
+        
         # Load Tweetrix logo
         try:
             tweetrix_path = os.path.join(SCRIPT_DIR, 'img', 'Tweetrix.png')
@@ -2945,15 +2957,14 @@ class SnakeGame:
                     self.boss_death_phase = 4
                     self.boss_death_delay = 360  # 4 seconds for victory jingle to finish
             
-            # Phase 4: Wait before transitioning to credits (ONLY for worm boss - final boss)
+            # Phase 4: Wait before transitioning to outro (ONLY for worm boss - final boss)
             if self.boss_death_phase == 4 and self.boss_death_delay > 0 and self.boss_data == 'wormBoss':
                 self.boss_death_delay -= 1
                 if self.boss_death_delay == 0:
-                    # Trigger credits screen (final boss only)
-                    print("Boss battle complete! Transitioning to credits screen")
-                    self.state = GameState.CREDITS
-                    # Play the Final song
+                    # Trigger outro sequence (final boss only)
+                    print("Boss battle complete! Transitioning to outro sequence")
                     self.music_manager.play_final_song()
+                    self.start_outro()
         
         # Update snake head animation
         if self.snake_head_frames:
@@ -4305,6 +4316,12 @@ class SnakeGame:
                     self.adventure_level_selection = 0
                 return True
             
+            # Skip outro with ESC, Enter, or Space
+            if self.state == GameState.OUTRO:
+                if event.key == pygame.K_ESCAPE or event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
+                    self.state = GameState.CREDITS
+                return True
+            
             if self.state == GameState.MENU:
                 if event.key == pygame.K_UP:
                     self.menu_selection = (self.menu_selection - 1) % len(self.menu_options)
@@ -5581,6 +5598,177 @@ class SnakeGame:
                 particle_surf.set_alpha(alpha)
                 self.screen.blit(particle_surf, (int(particle['x']), int(particle['y'])))
     
+    def start_outro(self):
+        """Initialize outro sequence"""
+        # If no outro images exist, skip directly to credits
+        if len(self.outro_images) == 0:
+            self.state = GameState.CREDITS
+            self.music_manager.play_final_song()
+            return
+        
+        self.state = GameState.OUTRO
+        self.outro_current_image = 0
+        self.outro_timer = 0
+        self.outro_image_duration = 300  # 5 seconds at 60 FPS
+        self.outro_fade_duration = 30  # 0.5 seconds fade
+        self.outro_fade_alpha = 0
+        self.outro_fading = False
+        self.outro_final_fade = False
+        self.outro_final_fade_timer = 0
+        self.outro_final_fade_duration = 120  # 2 seconds fade to black
+        
+        # Image 4 panning variables (taller image that pans from top to bottom)
+        self.outro_pan_offset = 0  # Y offset for panning
+        self.outro_pan_speed = 0.5  # Pixels per frame to pan
+        self.outro_pan_complete = False
+        self.outro_pan_hold_timer = 0
+        self.outro_pan_hold_duration = 600  # 10 seconds total at 60 FPS
+        
+        # Keep music playing (Final.mp3 should already be playing)
+        # No need to restart it
+    
+    def update_outro(self):
+        """Update outro sequence"""
+        if self.outro_final_fade:
+            # Final fade to black after last image
+            self.outro_final_fade_timer += 1
+            if self.outro_final_fade_timer >= self.outro_final_fade_duration:
+                # Outro complete - go to credits screen
+                self.state = GameState.CREDITS
+                # Music should already be playing Final.mp3
+            return
+        
+        # Special handling for image 4 (index 3) - the tall panning image
+        if self.outro_current_image == 3 and len(self.outro_images) > 3:
+            outro_img = self.outro_images[3]
+            img_height = outro_img.get_height()
+            
+            # Calculate max pan offset (image height - screen height)
+            max_pan = img_height - SCREEN_HEIGHT - 128
+            
+            if not self.outro_pan_complete:
+                # Pan down from top to bottom
+                self.outro_pan_offset += self.outro_pan_speed
+                
+                # Check if we've reached the bottom
+                if self.outro_pan_offset >= max_pan:
+                    self.outro_pan_offset = max_pan
+                    self.outro_pan_complete = True
+            else:
+                # Hold at bottom for remaining time
+                self.outro_pan_hold_timer += 1
+                
+                # After holding for full duration, start final fade
+                if self.outro_pan_hold_timer >= self.outro_pan_hold_duration:
+                    # This is the last image, start final fade
+                    self.outro_final_fade = True
+                    self.outro_final_fade_timer = 0
+            
+            return
+        
+        # Standard timing for images 1-3
+        self.outro_timer += 1
+        
+        # Check if it's time to fade to next image
+        if self.outro_timer >= self.outro_image_duration - self.outro_fade_duration and not self.outro_fading:
+            self.outro_fading = True
+            self.outro_fade_alpha = 0
+        
+        # Update fade
+        if self.outro_fading:
+            self.outro_fade_alpha += 255 / self.outro_fade_duration
+            if self.outro_fade_alpha >= 255:
+                self.outro_fade_alpha = 255
+                # Move to next image
+                self.outro_current_image += 1
+                self.outro_timer = 0
+                self.outro_fading = False
+                
+                # Reset panning variables for image 4
+                if self.outro_current_image == 3:
+                    self.outro_pan_offset = 0
+                    self.outro_pan_complete = False
+                    self.outro_pan_hold_timer = 0
+                
+                # Check if we've shown all images
+                if self.outro_current_image >= len(self.outro_images):
+                    # Start final fade to black
+                    self.outro_final_fade = True
+                    self.outro_final_fade_timer = 0
+    
+    def draw_outro(self):
+        """Draw outro sequence"""
+        if self.outro_final_fade:
+            # Fade to black
+            self.screen.fill(BLACK)
+            fade_alpha = int((self.outro_final_fade_timer / self.outro_final_fade_duration) * 255)
+            fade_surface = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
+            fade_surface.fill(BLACK)
+            fade_surface.set_alpha(fade_alpha)
+            self.screen.blit(fade_surface, (0, 0))
+            return
+        
+        # Draw current image
+        if self.outro_current_image < len(self.outro_images):
+            outro_img = self.outro_images[self.outro_current_image]
+            
+            # Special handling for image 4 (index 3) - tall image with panning
+            if self.outro_current_image == 3:
+                # Scale the image to screen width, maintain aspect ratio
+                img_width = outro_img.get_width()
+                img_height = outro_img.get_height()
+                scale_factor = SCREEN_WIDTH / img_width
+                scaled_width = SCREEN_WIDTH
+                scaled_height = int(img_height * scale_factor)
+                
+                # Scale the image
+                scaled_img = pygame.transform.scale(outro_img, (scaled_width, scaled_height))
+                
+                # Create a subsurface for the visible portion (panning from top)
+                visible_rect = pygame.Rect(0, int(self.outro_pan_offset), SCREEN_WIDTH, SCREEN_HEIGHT)
+                try:
+                    visible_portion = scaled_img.subsurface(visible_rect)
+                    self.screen.blit(visible_portion, (0, 0))
+                except:
+                    # Fallback if subsurface fails
+                    self.screen.blit(scaled_img, (0, -int(self.outro_pan_offset)))
+            else:
+                # Images 1-3: Scale to fit screen
+                scaled_img = pygame.transform.scale(outro_img, (SCREEN_WIDTH, SCREEN_HEIGHT))
+                self.screen.blit(scaled_img, (0, 0))
+                
+                # Draw next image on top if fading
+                if self.outro_fading and self.outro_current_image + 1 < len(self.outro_images):
+                    next_img = self.outro_images[self.outro_current_image + 1]
+                    
+                    # Check if next image is the tall one (image 4)
+                    if self.outro_current_image + 1 == 3:
+                        # Scale next image (image 4) to screen width
+                        img_width = next_img.get_width()
+                        img_height = next_img.get_height()
+                        scale_factor = SCREEN_WIDTH / img_width
+                        scaled_width = SCREEN_WIDTH
+                        scaled_height = int(img_height * scale_factor)
+                        next_scaled = pygame.transform.scale(next_img, (scaled_width, scaled_height))
+                        
+                        # Show top portion for fade-in
+                        visible_rect = pygame.Rect(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT)
+                        try:
+                            visible_portion = next_scaled.subsurface(visible_rect)
+                            visible_portion_copy = visible_portion.copy()
+                            visible_portion_copy.set_alpha(int(self.outro_fade_alpha))
+                            self.screen.blit(visible_portion_copy, (0, 0))
+                        except:
+                            # Fallback
+                            next_scaled_copy = next_scaled.copy()
+                            next_scaled_copy.set_alpha(int(self.outro_fade_alpha))
+                            self.screen.blit(next_scaled_copy, (0, 0))
+                    else:
+                        # Normal fade for images 1-3
+                        next_scaled = pygame.transform.scale(next_img, (SCREEN_WIDTH, SCREEN_HEIGHT))
+                        next_scaled.set_alpha(int(self.outro_fade_alpha))
+                        self.screen.blit(next_scaled, (0, 0))
+    
     def run(self):
         running = True
         while running:
@@ -5601,6 +5789,12 @@ class SnakeGame:
             if self.state == GameState.INTRO:
                 self.update_intro()
                 # Update music - intro uses menu music (theme)
+                self.music_manager.update(in_menu=True)
+            
+            # Handle outro sequence
+            if self.state == GameState.OUTRO:
+                self.update_outro()
+                # Update music - outro uses Final.mp3
                 self.music_manager.update(in_menu=True)
             
             if self.state == GameState.EGG_HATCHING:
@@ -5681,6 +5875,8 @@ class SnakeGame:
             self.draw_splash()
         elif self.state == GameState.INTRO:
             self.draw_intro()
+        elif self.state == GameState.OUTRO:
+            self.draw_outro()
         elif self.state == GameState.MENU:
             self.draw_menu()
         elif self.state == GameState.SINGLE_PLAYER_MENU:
@@ -7675,7 +7871,7 @@ class SnakeGame:
             ("Music: Suno AI Music", WHITE),
             ("Sound Effects: Austin Morgan", WHITE),
             ("", WHITE),
-            ("Now go make your own games!", WHITE),
+            ("Bonus Level unlocked!", NEON_PINK),
         ]
         
         for line_text, color in credits_lines:
