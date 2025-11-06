@@ -44,5 +44,42 @@
       "unlocked": false,
       "cost": 50
     }
+  },
+  "achievements": {
+    "1":{
+      "unlocked": false,
+      "name": "Toad Crusher",
+      "description": "Defeat the Frog Boss!"
+    },
+    "2":{
+      "unlocked": false,
+      "name": "Worm Smasher",
+      "description": "Defeat the final Boss!"
+    },
+    "3":{
+      "unlocked": false,
+      "name": "Completionist",
+      "description": "Complete all levels"
+    },
+    "4":{
+      "unlocked": false,
+      "name": "Perfectionist",
+      "description": "100% all levels. You're CrAzY!"
+    },
+    "5":{
+      "unlocked": false,
+      "name": "Multiplayer Master",
+      "description": "Unlock all multiplayer levels and Brutal AI Difficulty"
+    },
+    "6":{
+      "unlocked": false,
+      "name": "Gold Farmer",
+      "description": "Save up 1000 coins"
+    },
+    "7":{
+      "unlocked": false,
+      "name": "Endless Master",
+      "description": "Get past level 30 in Endless Mode"
+    }
   }
 }
