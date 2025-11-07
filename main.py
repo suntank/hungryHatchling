@@ -169,6 +169,17 @@ class SnakeGame:
             self.tweetrix_logo = None
             print("Warning: Tweetrix.png not found")
         
+        # Load trophy icon for achievements
+        try:
+            trophy_path = os.path.join(SCRIPT_DIR, 'img', 'trophy.png')
+            self.trophy_icon = pygame.image.load(trophy_path).convert_alpha()
+            # Scale trophy to reasonable size
+            trophy_size = 32
+            self.trophy_icon = pygame.transform.scale(self.trophy_icon, (trophy_size, trophy_size))
+        except:
+            self.trophy_icon = None
+            print("Warning: trophy.png not found")
+        
         # Load lock icon for locked content
         try:
             lock_path = os.path.join(SCRIPT_DIR, 'img', 'lock.png')
@@ -915,6 +926,12 @@ class SnakeGame:
         else:
             self.state = GameState.MENU
         
+        # Achievement notification system
+        self.achievement_notification_active = False
+        self.achievement_notification_name = ""
+        self.achievement_notification_timer = 0
+        self.achievement_selection = 0  # For achievements menu
+        
         # Multiplayer support
         self.is_multiplayer = False
         self.num_players = 1
@@ -933,6 +950,12 @@ class SnakeGame:
         # Multiplayer menu
         self.multiplayer_menu_selection = 0
         self.multiplayer_menu_options = ["Same Screen", "Local Network (Coming Soon)", "Back"]
+        
+        # Multiplayer level selection
+        self.multiplayer_level_selection = 0
+        self.multiplayer_levels = []  # Will be loaded from multi_*.json files
+        self.multiplayer_level_previews = {}  # Cache for level wall previews
+        self.load_multiplayer_levels()
         
         # Multiplayer lobby settings
         self.lobby_selection = 0  # Which setting is selected
@@ -1128,6 +1151,62 @@ class SnakeGame:
                 return True
         return False
     
+    def is_achievement_unlocked(self, achievement_id):
+        """Check if an achievement is unlocked."""
+        if 'achievements' not in self.game_unlocks:
+            return False
+        if str(achievement_id) not in self.game_unlocks['achievements']:
+            return False
+        return self.game_unlocks['achievements'][str(achievement_id)].get('unlocked', False)
+    
+    def unlock_achievement(self, achievement_id):
+        """Unlock an achievement and show notification."""
+        # Check if already unlocked
+        if self.is_achievement_unlocked(achievement_id):
+            return False
+        
+        # Unlock the achievement
+        if 'achievements' not in self.game_unlocks:
+            return False
+        
+        achievement_id_str = str(achievement_id)
+        if achievement_id_str not in self.game_unlocks['achievements']:
+            return False
+        
+        # Mark as unlocked
+        self.game_unlocks['achievements'][achievement_id_str]['unlocked'] = True
+        self.save_game_unlocks()
+        
+        # Show notification
+        achievement_name = self.game_unlocks['achievements'][achievement_id_str].get('name', 'Achievement')
+        self.show_achievement_notification(achievement_name)
+        
+        # Play sound
+        self.sound_manager.play('achievement')
+        
+        return True
+    
+    def show_achievement_notification(self, achievement_name):
+        """Display achievement unlocked notification."""
+        self.achievement_notification_active = True
+        self.achievement_notification_name = achievement_name
+        self.achievement_notification_timer = 300  # 5 seconds at 60 FPS
+    
+    def get_achievement_list(self):
+        """Get a list of all achievements with their status."""
+        achievements = []
+        if 'achievements' in self.game_unlocks:
+            for achievement_id, achievement_data in self.game_unlocks['achievements'].items():
+                achievements.append({
+                    'id': achievement_id,
+                    'name': achievement_data.get('name', 'Unknown'),
+                    'description': achievement_data.get('description', ''),
+                    'unlocked': achievement_data.get('unlocked', False)
+                })
+        # Sort by ID
+        achievements.sort(key=lambda x: int(x['id']))
+        return achievements
+    
     def add_high_score(self, name, score):
         self.high_scores.append({'name': name, 'score': score})
         self.high_scores.sort(key=lambda x: x['score'], reverse=True)
@@ -1200,6 +1279,72 @@ class SnakeGame:
                 json.dump(data, f, indent=2)
         except:
             pass
+    
+    def load_multiplayer_levels(self):
+        """Load all multiplayer level files (multi_01.json to multi_12.json)"""
+        self.multiplayer_levels = []
+        levels_dir = os.path.join(SCRIPT_DIR, 'levels')
+        
+        # Try to load multi_01 through multi_12
+        for i in range(1, 13):
+            level_file = 'multi_{:02d}.json'.format(i)
+            level_path = os.path.join(levels_dir, level_file)
+            
+            if os.path.exists(level_path):
+                try:
+                    with open(level_path, 'r') as f:
+                        level_data = json.load(f)
+                        self.multiplayer_levels.append({
+                            'number': i,
+                            'name': level_data.get('name', 'Level {}'.format(i)),
+                            'background': level_data.get('background_image', 'bg.png'),
+                            'walls': level_data.get('walls', []),
+                            'filename': level_file
+                        })
+                except Exception as e:
+                    print("Warning: Could not load {}: {}".format(level_file, e))
+        
+        print("Loaded {} multiplayer levels".format(len(self.multiplayer_levels)))
+    
+    def generate_level_preview(self, level_index):
+        """Generate a small preview surface of level walls for display"""
+        if level_index < 0 or level_index >= len(self.multiplayer_levels):
+            return None
+        
+        # Check cache first
+        if level_index in self.multiplayer_level_previews:
+            return self.multiplayer_level_previews[level_index]
+        
+        level = self.multiplayer_levels[level_index]
+        walls = level['walls']
+        
+        # Create small preview surface (scale down 15x15 grid to fit in preview area)
+        preview_size = 180  # Preview area size in pixels
+        cell_size = preview_size // 15  # Each grid cell size
+        
+        preview_surface = pygame.Surface((preview_size, preview_size))
+        preview_surface.fill(BLACK)  # Dark background
+        
+        # Draw grid lines (subtle)
+        grid_color = (30, 30, 30)
+        for x in range(0, preview_size, cell_size):
+            pygame.draw.line(preview_surface, grid_color, (x, 0), (x, preview_size), 1)
+        for y in range(0, preview_size, cell_size):
+            pygame.draw.line(preview_surface, grid_color, (0, y), (preview_size, y), 1)
+        
+        # Draw walls
+        wall_color = NEON_CYAN
+        for wall in walls:
+            x = wall['x']
+            y = wall['y']
+            wall_rect = pygame.Rect(x * cell_size, y * cell_size, cell_size, cell_size)
+            pygame.draw.rect(preview_surface, wall_color, wall_rect)
+            # Add subtle border
+            pygame.draw.rect(preview_surface, NEON_BLUE, wall_rect, 1)
+        
+        # Cache the preview
+        self.multiplayer_level_previews[level_index] = preview_surface
+        return preview_surface
     
     def unlock_level(self, level_number):
         """Unlock a specific level"""
@@ -1694,6 +1839,9 @@ class SnakeGame:
             self.boss_defeated = True
             self.player_frozen = True
             self.boss_death_phase = 1
+            
+            # Unlock Toad Crusher achievement
+            self.unlock_achievement(1)
             # Phase 1: Brief pause (1 second)
             self.boss_death_phase1_timer = 60  # 1 second
             pygame.mixer.music.fadeout(2000)
@@ -2090,10 +2238,23 @@ class SnakeGame:
         for _ in range(max_attempts):
             x = random.randint(1, GRID_WIDTH - 2)
             y = random.randint(1, GRID_HEIGHT - 2)
-            if (x, y) not in occupied_positions:
-                self.food_items.append(((x, y), food_type))
-                print("Spawned {} at {}".format(food_type, (x, y)))
-                return
+            
+            # Check if position is valid (not occupied, not a wall)
+            if (x, y) in occupied_positions:
+                continue
+            
+            # Check multiplayer walls
+            if hasattr(self, 'walls') and self.walls and (x, y) in self.walls:
+                continue
+            
+            # Check adventure mode walls
+            if hasattr(self, 'level_walls') and (x, y) in self.level_walls:
+                continue
+            
+            # Valid spawn position found!
+            self.food_items.append(((x, y), food_type))
+            print("Spawned {} at {}".format(food_type, (x, y)))
+            return
         print("Warning: Could not spawn {}".format(food_type))
     
     def spawn_bonus_food(self):
@@ -2317,7 +2478,10 @@ class SnakeGame:
                 score -= 10000  # Grid boundary
                 is_immediately_fatal = True
             elif (new_x, new_y) in self.level_walls:
-                score -= 10000  # Level wall collision
+                score -= 10000  # Adventure mode level wall collision
+                is_immediately_fatal = True
+            elif hasattr(self, 'walls') and self.walls and (new_x, new_y) in self.walls:
+                score -= 10000  # Multiplayer level wall collision
                 is_immediately_fatal = True
             elif (new_x, new_y) in snake.body:
                 score -= 10000  # Self collision
@@ -2481,15 +2645,28 @@ class SnakeGame:
         for _ in range(max_attempts):
             x = random.randint(2, GRID_WIDTH - 3)
             y = random.randint(2, GRID_HEIGHT - 3)
-            if (x, y) not in occupied_positions:
-                # Spawn egg with 5 second timer (5 * 60 = 300 frames at 60fps)
-                self.respawning_players[player_id] = {
-                    'pos': (x, y),
-                    'timer': 300,  # 5 seconds
-                    'direction': None
-                }
-                print("Spawned respawn egg for Player {} at ({}, {})".format(player_id + 1, x, y))
-                return
+            
+            # Check if position is valid (not occupied, not a wall)
+            if (x, y) in occupied_positions:
+                continue
+            
+            # Check multiplayer walls
+            if hasattr(self, 'walls') and self.walls and (x, y) in self.walls:
+                continue
+            
+            # Check adventure mode walls
+            if hasattr(self, 'level_walls') and (x, y) in self.level_walls:
+                continue
+            
+            # Valid spawn position found!
+            # Spawn egg with 5 second timer (5 * 60 = 300 frames at 60fps)
+            self.respawning_players[player_id] = {
+                'pos': (x, y),
+                'timer': 300,  # 5 seconds
+                'direction': None
+            }
+            print("Spawned respawn egg for Player {} at ({}, {})".format(player_id + 1, x, y))
+            return
         
         print("Warning: Could not find spawn position for Player {}".format(player_id + 1))
     
@@ -2548,6 +2725,12 @@ class SnakeGame:
     def update_game(self):
         # Update music - we're in gameplay (not menu)
         self.music_manager.update(in_menu=False)
+        
+        # Update achievement notification timer
+        if self.achievement_notification_active:
+            self.achievement_notification_timer -= 1
+            if self.achievement_notification_timer <= 0:
+                self.achievement_notification_active = False
         
         # Update boss battle if active
         if self.boss_active and self.boss_data == 'wormBoss':
@@ -2798,7 +2981,10 @@ class SnakeGame:
             for spewtum in self.spewtums:
                 spewtum.update()
                 
-                # Check collision with player snake
+                # Check collision with player snake (only if snake has a body)
+                if len(self.snake.body) == 0:
+                    continue
+                
                 spewtum_pos = (spewtum.grid_x, spewtum.grid_y)
                 
                 # Check if hit player head
@@ -2963,6 +3149,10 @@ class SnakeGame:
                 if self.boss_death_delay == 0:
                     # Trigger outro sequence (final boss only)
                     print("Boss battle complete! Transitioning to outro sequence")
+                    
+                    # Unlock Worm Smasher achievement (after all death animations complete)
+                    self.unlock_achievement(2)
+                    
                     self.music_manager.play_final_song()
                     self.start_outro()
         
@@ -3456,17 +3646,30 @@ class SnakeGame:
                         if head in self.level_walls:
                             hit_wall = True
                         # Check enemy walls (destroyable walls from boss super attack)
-                        for enemy in self.enemies:
-                            if enemy.alive and enemy.enemy_type == 'enemy_wall':
-                                if head == (enemy.grid_x, enemy.grid_y):
-                                    hit_wall = True
-                                    break
+                        if hasattr(self, 'enemies') and self.enemies:
+                            for enemy in self.enemies:
+                                if enemy.alive and enemy.enemy_type == 'enemy_wall':
+                                    if head == (enemy.grid_x, enemy.grid_y):
+                                        hit_wall = True
+                                        break
                         # Check self-collision
                         if snake.body[0] in snake.body[1:]:
                             hit_wall = True
                     else:
-                        # Multiplayer mode - enable wrap around like adventure mode
-                        hit_wall = snake.check_collision(wrap_around=True)
+                        # Multiplayer mode - check walls and self-collision
+                        head = snake.body[0]
+                        
+                        # Check multiplayer level walls
+                        if hasattr(self, 'walls') and self.walls:
+                            if head in self.walls:
+                                hit_wall = True
+                        
+                        # Check self-collision
+                        if snake.body[0] in snake.body[1:]:
+                            hit_wall = True
+                        
+                        # Wrap around screen edges (no death from edges)
+                        # This is handled automatically by the snake movement
                     
                     if hit_wall:
                         self.handle_player_death(snake)
@@ -3851,6 +4054,11 @@ class SnakeGame:
                                 self.sound_manager.play('pickupCoin')
                                 self.total_coins += 1
                                 self.save_unlocked_levels()  # Save coins immediately
+                                
+                                # Check for Gold Farmer achievement (1000 coins)
+                                if self.total_coins >= 1000:
+                                    self.unlock_achievement(6)
+                                
                                 fx, fy = food_pos
                                 self.create_particles(fx * GRID_SIZE + GRID_SIZE // 2,
                                                     fy * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y, 
@@ -4455,7 +4663,14 @@ class SnakeGame:
                     if not self.music_manager.theme_mode:
                         self.music_manager.play_theme()
             elif self.state == GameState.ACHIEVEMENTS:
-                if event.key == pygame.K_RETURN or event.key == pygame.K_ESCAPE:
+                achievements = self.get_achievement_list()
+                if event.key == pygame.K_UP and achievements:
+                    self.achievement_selection = (self.achievement_selection - 1) % len(achievements)
+                    self.sound_manager.play('blip_select')
+                elif event.key == pygame.K_DOWN and achievements:
+                    self.achievement_selection = (self.achievement_selection + 1) % len(achievements)
+                    self.sound_manager.play('blip_select')
+                elif event.key == pygame.K_RETURN or event.key == pygame.K_ESCAPE:
                     self.sound_manager.play('blip_select')
                     self.state = GameState.EXTRAS_MENU
             elif self.state == GameState.MUSIC_PLAYER:
@@ -4501,11 +4716,10 @@ class SnakeGame:
                     self.sound_manager.play('blip_select')
                 elif event.key == pygame.K_RETURN:
                     if self.multiplayer_menu_selection == 0:
-                        # Same Screen - Go to player lobby
+                        # Same Screen - Go to level selection first
                         self.sound_manager.play('blip_select')
                         self.is_multiplayer = True
-                        self.state = GameState.MULTIPLAYER_LOBBY
-                        self.setup_multiplayer_game()
+                        self.state = GameState.MULTIPLAYER_LEVEL_SELECT
                     elif self.multiplayer_menu_selection == 1:
                         # Local Network - Coming soon
                         pass
@@ -4516,6 +4730,34 @@ class SnakeGame:
                 elif event.key == pygame.K_ESCAPE:
                     self.sound_manager.play('blip_select')
                     self.state = GameState.MENU
+            elif self.state == GameState.MULTIPLAYER_LEVEL_SELECT:
+                if event.key == pygame.K_UP:
+                    if len(self.multiplayer_levels) > 0:
+                        self.multiplayer_level_selection = (self.multiplayer_level_selection - 1) % len(self.multiplayer_levels)
+                        self.sound_manager.play('blip_select')
+                elif event.key == pygame.K_DOWN:
+                    if len(self.multiplayer_levels) > 0:
+                        self.multiplayer_level_selection = (self.multiplayer_level_selection + 1) % len(self.multiplayer_levels)
+                        self.sound_manager.play('blip_select')
+                elif event.key == pygame.K_RETURN:
+                    # Select level and go to lobby
+                    if len(self.multiplayer_levels) > 0:
+                        self.sound_manager.play('blip_select')
+                        # Load the selected multiplayer level
+                        selected_level = self.multiplayer_levels[self.multiplayer_level_selection]
+                        level_path = os.path.join(SCRIPT_DIR, 'levels', selected_level['filename'])
+                        try:
+                            with open(level_path, 'r') as f:
+                                self.current_level_data = json.load(f)
+                            print("Loaded multiplayer level: {}".format(selected_level['filename']))
+                        except Exception as e:
+                            print("Error loading multiplayer level: {}".format(e))
+                            self.current_level_data = None
+                        # Go to lobby (setup will happen when game starts)
+                        self.state = GameState.MULTIPLAYER_LOBBY
+                elif event.key == pygame.K_ESCAPE:
+                    self.sound_manager.play('blip_select')
+                    self.state = GameState.MULTIPLAYER_MENU
             elif self.state == GameState.MULTIPLAYER_LOBBY:
                 if event.key == pygame.K_UP:
                     self.lobby_selection = (self.lobby_selection - 1) % 7  # 3 settings + 4 players
@@ -5328,6 +5570,32 @@ class SnakeGame:
             # Multiplayer reset - start fresh
             self.setup_multiplayer_game()
             
+            print("DEBUG: reset_game called for multiplayer")
+            print("DEBUG: Has current_level_data?", hasattr(self, 'current_level_data'))
+            if hasattr(self, 'current_level_data'):
+                print("DEBUG: current_level_data is not None?", self.current_level_data is not None)
+            
+            # Apply loaded multiplayer level data if available
+            if hasattr(self, 'current_level_data') and self.current_level_data:
+                # Load walls from level
+                self.walls = []
+                for wall in self.current_level_data.get('walls', []):
+                    self.walls.append((wall['x'], wall['y']))
+                
+                # Load background
+                bg_image = self.current_level_data.get('background_image', 'bg.png')
+                try:
+                    bg_path = os.path.join(SCRIPT_DIR, 'img', 'bg', bg_image)
+                    self.background = pygame.image.load(bg_path).convert()
+                    print("Loaded background: {}".format(bg_image))
+                except Exception as e:
+                    print("Warning: Could not load background: {} - {}".format(bg_image, e))
+                
+                print("Applied multiplayer level: {} walls, background: {}".format(len(self.walls), bg_image))
+            else:
+                # No level loaded, use default (no walls)
+                self.walls = []
+            
             # Initialize multiplayer food based on settings
             self.food_items = []
             freq = self.lobby_settings['item_frequency']
@@ -5885,6 +6153,8 @@ class SnakeGame:
             self.draw_adventure_level_select()
         elif self.state == GameState.MULTIPLAYER_MENU:
             self.draw_multiplayer_menu()
+        elif self.state == GameState.MULTIPLAYER_LEVEL_SELECT:
+            self.draw_multiplayer_level_select()
         elif self.state == GameState.MULTIPLAYER_LOBBY:
             self.draw_multiplayer_lobby()
         elif self.state == GameState.EGG_HATCHING:
@@ -6180,6 +6450,128 @@ class SnakeGame:
         hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+2, 452))
         self.screen.blit(hint_text, hint_rect)
         hint_text = self.font_small.render("Press B to go back", True, NEON_PURPLE)
+        hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 450))
+        self.screen.blit(hint_text, hint_rect)
+    
+    def draw_multiplayer_level_select(self):
+        """Draw the multiplayer level selection screen with preview."""
+        # Use background
+        if self.background:
+            self.screen.blit(self.background, (0, 0))
+        else:
+            self.screen.fill(DARK_BG)
+        
+        # Title
+        title = self.font_large.render("SELECT LEVEL", True, BLACK)
+        title_rect = title.get_rect(center=((SCREEN_WIDTH // 2)+3, 53))
+        self.screen.blit(title, title_rect)
+        title = self.font_large.render("SELECT LEVEL", True, NEON_YELLOW)
+        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 50))
+        self.screen.blit(title, title_rect)
+        
+        if len(self.multiplayer_levels) == 0:
+            # No levels available
+            msg = self.font_medium.render("No multiplayer levels found", True, BLACK)
+            msg_rect = msg.get_rect(center=((SCREEN_WIDTH // 2)+2, 242))
+            self.screen.blit(msg, msg_rect)
+            msg = self.font_medium.render("No multiplayer levels found", True, NEON_CYAN)
+            msg_rect = msg.get_rect(center=(SCREEN_WIDTH // 2, 240))
+            self.screen.blit(msg, msg_rect)
+        else:
+            # Draw level list on the left side
+            list_x = 30
+            list_y = 100
+            line_height = 28
+            visible_levels = 10  # Show 10 levels at a time
+            
+            # Calculate scroll offset to keep selected level visible
+            scroll_offset = max(0, self.multiplayer_level_selection - visible_levels + 1)
+            if self.multiplayer_level_selection < scroll_offset:
+                scroll_offset = self.multiplayer_level_selection
+            
+            # Draw visible levels
+            for i in range(min(visible_levels, len(self.multiplayer_levels))):
+                level_index = i + scroll_offset
+                if level_index >= len(self.multiplayer_levels):
+                    break
+                
+                level = self.multiplayer_levels[level_index]
+                y_pos = list_y + i * line_height
+                
+                # Highlight selected level
+                is_selected = (level_index == self.multiplayer_level_selection)
+                
+                if is_selected:
+                    # Draw selection indicator
+                    indicator = self.font_small.render(">", True, NEON_YELLOW)
+                    self.screen.blit(indicator, (list_x - 15, y_pos))
+                
+                # Draw level number and name
+                level_text = "Level {:02d}".format(level['number'])
+                color = NEON_CYAN if is_selected else WHITE
+                
+                # Shadow
+                text_shadow = self.font_small.render(level_text, True, BLACK)
+                self.screen.blit(text_shadow, (list_x + 2, y_pos + 2))
+                
+                # Main text
+                text = self.font_small.render(level_text, True, color)
+                self.screen.blit(text, (list_x, y_pos))
+            
+            # Draw scroll indicators if needed
+            if scroll_offset > 0:
+                up_arrow = self.font_small.render("▲ More", True, NEON_YELLOW)
+                self.screen.blit(up_arrow, (list_x, list_y - 20))
+            
+            if scroll_offset + visible_levels < len(self.multiplayer_levels):
+                down_arrow = self.font_small.render("▼ More", True, NEON_YELLOW)
+                self.screen.blit(down_arrow, (list_x, list_y + visible_levels * line_height + 5))
+            
+            # Draw preview on the right side
+            preview_x = 280
+            preview_y = 100
+            
+            # Preview box background
+            preview_box = pygame.Surface((200, 200))
+            preview_box.fill(BLACK)
+            preview_box.set_alpha(200)
+            self.screen.blit(preview_box, (preview_x - 10, preview_y - 10))
+            
+            # Draw "PREVIEW" label
+            preview_label = self.font_small.render("PREVIEW", True, BLACK)
+            self.screen.blit(preview_label, (preview_x + 52, preview_y - 28))
+            preview_label = self.font_small.render("PREVIEW", True, NEON_YELLOW)
+            self.screen.blit(preview_label, (preview_x + 50, preview_y - 30))
+            
+            # Generate and display preview
+            preview_surface = self.generate_level_preview(self.multiplayer_level_selection)
+            if preview_surface:
+                self.screen.blit(preview_surface, (preview_x, preview_y))
+            
+            # Draw selected level info below preview
+            selected_level = self.multiplayer_levels[self.multiplayer_level_selection]
+            info_y = preview_y + 190
+            
+            # Level number
+            level_info = "Level {:02d}".format(selected_level['number'])
+            info_shadow = self.font_medium.render(level_info, True, BLACK)
+            self.screen.blit(info_shadow, (preview_x + 32, info_y + 2))
+            info_text = self.font_medium.render(level_info, True, NEON_CYAN)
+            self.screen.blit(info_text, (preview_x + 30, info_y))
+            
+            # Wall count
+            wall_count = len(selected_level['walls'])
+            walls_text = "{} walls".format(wall_count)
+            walls_shadow = self.font_small.render(walls_text, True, BLACK)
+            self.screen.blit(walls_shadow, (preview_x + 52, info_y + 32))
+            walls_display = self.font_small.render(walls_text, True, WHITE)
+            self.screen.blit(walls_display, (preview_x + 50, info_y + 30))
+        
+        # Hint text
+        hint_text = self.font_small.render("Start to select, Back to cancel", True, BLACK)
+        hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+2, 452))
+        self.screen.blit(hint_text, hint_rect)
+        hint_text = self.font_small.render("Start to select, Back to cancel", True, NEON_PURPLE)
         hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 450))
         self.screen.blit(hint_text, hint_rect)
     
@@ -6743,6 +7135,17 @@ class SnakeGame:
                     wall_rect = pygame.Rect(wx * GRID_SIZE, wy * GRID_SIZE + GAME_OFFSET_Y, GRID_SIZE, GRID_SIZE)
                     pygame.draw.rect(self.screen, NEON_PURPLE, wall_rect)
                     pygame.draw.rect(self.screen, (100, 50, 150), wall_rect, 2)
+        
+        # Draw walls in Multiplayer mode
+        if self.is_multiplayer and self.walls:
+            for wx, wy in self.walls:
+                if self.wall_img:
+                    self.screen.blit(self.wall_img, (wx * GRID_SIZE, wy * GRID_SIZE + GAME_OFFSET_Y))
+                else:
+                    # Fallback to colored rectangles
+                    wall_rect = pygame.Rect(wx * GRID_SIZE, wy * GRID_SIZE + GAME_OFFSET_Y, GRID_SIZE, GRID_SIZE)
+                    pygame.draw.rect(self.screen, NEON_CYAN, wall_rect)
+                    pygame.draw.rect(self.screen, NEON_BLUE, wall_rect, 2)
         
         # Draw worms and bonus fruits in Adventure mode (from food_items list)
         if self.game_mode == "adventure" and self.food_items:
@@ -7327,6 +7730,52 @@ class SnakeGame:
             
             # Decrement timer
             self.isotope_message_timer -= 1
+        
+        # Draw achievement notification if active
+        if self.achievement_notification_active:
+            # Position at bottom of screen
+            notification_y = SCREEN_HEIGHT - 60
+            
+            # Calculate fade effect for first and last 30 frames
+            fade_duration = 30
+            if self.achievement_notification_timer > 270:  # First 30 frames (300-270)
+                fade_progress = (300 - self.achievement_notification_timer) / fade_duration
+                alpha = int(255 * fade_progress)
+            elif self.achievement_notification_timer < 30:  # Last 30 frames
+                fade_progress = self.achievement_notification_timer / fade_duration
+                alpha = int(255 * fade_progress)
+            else:
+                alpha = 255
+            
+            # Draw "Achievement Unlocked!" text
+            achievement_text = "Achievement Unlocked!"
+            text_shadow = self.font_small.render(achievement_text, True, BLACK)
+            text_shadow.set_alpha(alpha)
+            text_shadow_rect = text_shadow.get_rect(center=(SCREEN_WIDTH // 2 + 2, notification_y - 18))
+            self.screen.blit(text_shadow, text_shadow_rect)
+            
+            text_main = self.font_small.render(achievement_text, True, NEON_YELLOW)
+            text_main.set_alpha(alpha)
+            text_main_rect = text_main.get_rect(center=(SCREEN_WIDTH // 2, notification_y - 20))
+            self.screen.blit(text_main, text_main_rect)
+            
+            # Draw trophy icon next to achievement name
+            trophy_x = SCREEN_WIDTH // 2 - 80
+            if self.trophy_icon:
+                trophy_copy = self.trophy_icon.copy()
+                trophy_copy.set_alpha(alpha)
+                self.screen.blit(trophy_copy, (trophy_x, notification_y - 2))
+            
+            # Draw achievement name
+            name_shadow = self.font_medium.render(self.achievement_notification_name, True, BLACK)
+            name_shadow.set_alpha(alpha)
+            name_shadow_rect = name_shadow.get_rect(center=(SCREEN_WIDTH // 2 + 2, notification_y + 12))
+            self.screen.blit(name_shadow, name_shadow_rect)
+            
+            name_main = self.font_medium.render(self.achievement_notification_name, True, NEON_CYAN)
+            name_main.set_alpha(alpha)
+            name_main_rect = name_main.get_rect(center=(SCREEN_WIDTH // 2, notification_y + 10))
+            self.screen.blit(name_main, name_main_rect)
 
     def draw_pause(self):
         overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT))
@@ -7584,13 +8033,86 @@ class SnakeGame:
         title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 50))
         self.screen.blit(title, title_rect)
         
-        # Coming soon message
-        msg = self.font_medium.render("Coming Soon!", True, BLACK)
-        msg_rect = msg.get_rect(center=((SCREEN_WIDTH // 2)+2, 242))
-        self.screen.blit(msg, msg_rect)
-        msg = self.font_medium.render("Coming Soon!", True, NEON_CYAN)
-        msg_rect = msg.get_rect(center=(SCREEN_WIDTH // 2, 240))
-        self.screen.blit(msg, msg_rect)
+        # Get achievements list
+        achievements = self.get_achievement_list()
+        
+        if not achievements:
+            # No achievements defined
+            msg = self.font_medium.render("No achievements defined", True, BLACK)
+            msg_rect = msg.get_rect(center=((SCREEN_WIDTH // 2)+2, 242))
+            self.screen.blit(msg, msg_rect)
+            msg = self.font_medium.render("No achievements defined", True, NEON_CYAN)
+            msg_rect = msg.get_rect(center=(SCREEN_WIDTH // 2, 240))
+            self.screen.blit(msg, msg_rect)
+        else:
+            # Draw achievements list
+            start_y = 90
+            line_height = 28
+            
+            for i, achievement in enumerate(achievements):
+                y_pos = start_y + i * line_height
+                
+                # Determine color based on unlocked status
+                if achievement['unlocked']:
+                    color = NEON_CYAN
+                    # Draw trophy icon
+                    if self.trophy_icon:
+                        trophy_scaled = pygame.transform.scale(self.trophy_icon, (20, 20))
+                        self.screen.blit(trophy_scaled, (30, y_pos - 2))
+                else:
+                    color = GRAY
+                
+                # Highlight selected achievement
+                if i == self.achievement_selection:
+                    # Draw selection indicator
+                    indicator = self.font_small.render(">", True, NEON_YELLOW)
+                    self.screen.blit(indicator, (15, y_pos))
+                
+                # Draw achievement name with shadow
+                name_shadow = self.font_small.render(achievement['name'], True, BLACK)
+                self.screen.blit(name_shadow, (57, y_pos + 2))
+                
+                name_text = self.font_small.render(achievement['name'], True, color)
+                self.screen.blit(name_text, (55, y_pos))
+            
+            # Draw description box at bottom for selected achievement
+            if 0 <= self.achievement_selection < len(achievements):
+                selected = achievements[self.achievement_selection]
+                
+                # Description box background
+                desc_box_y = 320
+                desc_box_height = 100
+                desc_box = pygame.Surface((SCREEN_WIDTH - 40, desc_box_height))
+                desc_box.fill(BLACK)
+                desc_box.set_alpha(180)
+                self.screen.blit(desc_box, (20, desc_box_y))
+                
+                # Description title
+                desc_title = "Description:"
+                title_shadow = self.font_small.render(desc_title, True, BLACK)
+                self.screen.blit(title_shadow, (32, desc_box_y + 12))
+                title_text = self.font_small.render(desc_title, True, NEON_YELLOW)
+                self.screen.blit(title_text, (30, desc_box_y + 10))
+                
+                # Description text (word wrap if needed)
+                description = selected['description']
+                desc_shadow = self.font_small.render(description, True, BLACK)
+                self.screen.blit(desc_shadow, (32, desc_box_y + 42))
+                desc_text = self.font_small.render(description, True, WHITE)
+                self.screen.blit(desc_text, (30, desc_box_y + 40))
+                
+                # Status
+                if selected['unlocked']:
+                    status = "UNLOCKED"
+                    status_color = NEON_GREEN
+                else:
+                    status = "LOCKED"
+                    status_color = RED
+                
+                status_shadow = self.font_small.render(status, True, BLACK)
+                self.screen.blit(status_shadow, (32, desc_box_y + 72))
+                status_text = self.font_small.render(status, True, status_color)
+                self.screen.blit(status_text, (30, desc_box_y + 70))
         
         # Hint text
         hint_text = self.font_small.render("Press Start to go back", True, BLACK)

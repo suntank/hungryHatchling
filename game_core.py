@@ -70,15 +70,16 @@ class GameState(Enum):
     EGG_HATCHING = 9
     MULTIPLAYER_MENU = 10
     MULTIPLAYER_LOBBY = 11
-    SINGLE_PLAYER_MENU = 12
-    ADVENTURE_LEVEL_SELECT = 13
-    CREDITS = 14
-    EXTRAS_MENU = 15
-    ACHIEVEMENTS = 16
-    MUSIC_PLAYER = 17
-    LEVEL_EDITOR_MENU = 18
-    INTRO = 19
-    OUTRO = 20
+    MULTIPLAYER_LEVEL_SELECT = 12
+    SINGLE_PLAYER_MENU = 13
+    ADVENTURE_LEVEL_SELECT = 14
+    CREDITS = 15
+    EXTRAS_MENU = 16
+    ACHIEVEMENTS = 17
+    MUSIC_PLAYER = 18
+    LEVEL_EDITOR_MENU = 19
+    INTRO = 20
+    OUTRO = 21
 
 # Difficulty modes
 class Difficulty(Enum):
@@ -394,7 +395,8 @@ class SoundManager:
             'pickupCoin': os.path.join(SCRIPT_DIR, 'sound', 'sfx', 'pickupCoin.wav'),
             'pickupDiamond': os.path.join(SCRIPT_DIR, 'sound', 'sfx', 'pickupDiamond.wav'),
             'frogBossDeath': os.path.join(SCRIPT_DIR, 'sound', 'sfx', 'frogBossDeath.wav'),
-            'bossWormDeath': os.path.join(SCRIPT_DIR, 'sound', 'sfx', 'bossWormDeath.wav')
+            'bossWormDeath': os.path.join(SCRIPT_DIR, 'sound', 'sfx', 'bossWormDeath.wav'),
+            'achievement': os.path.join(SCRIPT_DIR, 'sound', 'sfx', 'achievement.wav')
         }
         
         for name, path in sound_files.items():
