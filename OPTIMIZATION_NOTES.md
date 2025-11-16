@@ -23,8 +23,8 @@ Set `LOW_MEMORY_MODE = True` to enable all optimizations below:
   - Food animations (worm)
 
 #### Performance Optimizations:
-- **FPS**: Reduced from 60 to 30 FPS (reduces CPU load by ~50%)
 - **Garbage Collection**: Forces cleanup after asset loading
+- **FPS**: Kept at 60 FPS (game logic is frame-rate dependent)
 
 ### 3. **Input Passthrough Fix (EmulationStation)**
 Critical fixes to prevent gamepad controls from passing through to the underlying EmulationStation:
@@ -79,9 +79,11 @@ pygame.mixer.init(frequency=22050, size=-16, channels=2, buffer=8192)
 ```
 
 ### Game still stuttering?
-- Reduce FPS further to 20 in LOW_MEMORY_MODE section
+- **Do NOT reduce FPS** - game logic is tied to 60 FPS (reducing it slows the game)
 - Close all background applications
 - Check system temperature (`vcgencmd measure_temp`)
+- Consider overclocking Pi Zero 2W to 1.2GHz
+- Disable visual effects or background layers if available
 
 ### Memory still too high?
 Additional optimizations possible:

@@ -7,12 +7,12 @@ import sys
 # Initialize Pygame
 pygame.init()
 
-# Constants
-GRID_SIZE = 40
+# Constants - scaled to match game's 240x240 resolution
+GRID_SIZE = 20  # Halved from 40 to match game scaling
 GRID_WIDTH = 15
 GRID_HEIGHT = 15
-SCREEN_WIDTH = GRID_WIDTH * GRID_SIZE
-SCREEN_HEIGHT = GRID_HEIGHT * GRID_SIZE + 100  # Extra space for toolbar
+SCREEN_WIDTH = GRID_WIDTH * GRID_SIZE  # 300px
+SCREEN_HEIGHT = GRID_HEIGHT * GRID_SIZE + 100  # 300px + 100 toolbar = 400px
 FPS = 60
 
 # Colors
@@ -81,8 +81,8 @@ class LevelEditor:
         self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
         pygame.display.set_caption("Level Editor - PySnake")
         self.clock = pygame.time.Clock()
-        self.font_small = pygame.font.Font(None, 24)
-        self.font_medium = pygame.font.Font(None, 36)
+        self.font_small = pygame.font.Font(None, 12)
+        self.font_medium = pygame.font.Font(None, 18)
         
         # Editor state
         self.current_tool = TOOL_WALL
@@ -114,13 +114,13 @@ class LevelEditor:
             os.makedirs(self.levels_dir)
         
         # UI elements
-        self.toolbar_height = 120
+        self.toolbar_height = 60  # Halved from 120
         self.category_buttons = self._create_category_buttons()
         # Action buttons - positioned in a row at the bottom
-        button_y = SCREEN_HEIGHT - 95
-        self.save_button = pygame.Rect(SCREEN_WIDTH - 85, button_y, 75, 28)
-        self.load_button = pygame.Rect(SCREEN_WIDTH - 170, button_y, 75, 28)
-        self.clear_button = pygame.Rect(SCREEN_WIDTH - 255, button_y, 75, 28)
+        button_y = SCREEN_HEIGHT - 48  # Adjusted for smaller toolbar
+        self.save_button = pygame.Rect(SCREEN_WIDTH - 43, button_y, 38, 14)
+        self.load_button = pygame.Rect(SCREEN_WIDTH - 85, button_y, 38, 14)
+        self.clear_button = pygame.Rect(SCREEN_WIDTH - 128, button_y, 38, 14)
         
         self.running = True
         self.mouse_down = False
@@ -144,11 +144,11 @@ class LevelEditor:
     def _create_category_buttons(self):
         """Create buttons for each category"""
         buttons = {}
-        button_width = 120
-        button_height = 34
-        spacing = 10
-        start_x = 10
-        y = GRID_HEIGHT * GRID_SIZE + 50  # Position relative to grid
+        button_width = 60  # Halved from 120
+        button_height = 17  # Halved from 34
+        spacing = 5  # Halved from 10
+        start_x = 5  # Halved from 10
+        y = GRID_HEIGHT * GRID_SIZE + 25  # Position relative to grid (halved from 50)
         
         category_ids = list(CATEGORIES.keys())
         for i, category_id in enumerate(category_ids):
@@ -720,29 +720,29 @@ class LevelEditor:
         self.screen.blit(overlay, (0, 0))
         
         # Input box
-        box_width = 400
-        box_height = 120
+        box_width = 200  # Halved from 400
+        box_height = 60  # Halved from 120
         box_x = (SCREEN_WIDTH - box_width) // 2
         box_y = (GRID_HEIGHT * GRID_SIZE - box_height) // 2
         
         # Draw box background
         pygame.draw.rect(self.screen, DARK_GRAY, (box_x, box_y, box_width, box_height))
-        pygame.draw.rect(self.screen, WHITE, (box_x, box_y, box_width, box_height), 3)
+        pygame.draw.rect(self.screen, WHITE, (box_x, box_y, box_width, box_height), 2)
         
         # Draw prompt
         prompt = self.font_small.render(self.input_prompt, True, WHITE)
-        prompt_rect = prompt.get_rect(center=(SCREEN_WIDTH // 2, box_y + 25))
+        prompt_rect = prompt.get_rect(center=(SCREEN_WIDTH // 2, box_y + 12))
         self.screen.blit(prompt, prompt_rect)
         
         # Draw input text with cursor
         input_display = self.input_text + "_"
         input_render = self.font_medium.render(input_display, True, CYAN)
-        input_rect = input_render.get_rect(center=(SCREEN_WIDTH // 2, box_y + 60))
+        input_rect = input_render.get_rect(center=(SCREEN_WIDTH // 2, box_y + 30))
         self.screen.blit(input_render, input_rect)
         
         # Draw instructions
         instructions = self.font_small.render("ENTER to save | ESC to cancel", True, LIGHT_GRAY)
-        inst_rect = instructions.get_rect(center=(SCREEN_WIDTH // 2, box_y + 95))
+        inst_rect = instructions.get_rect(center=(SCREEN_WIDTH // 2, box_y + 48))
         self.screen.blit(instructions, inst_rect)
     
     def _draw_selection_overlay(self):
@@ -754,22 +754,22 @@ class LevelEditor:
         self.screen.blit(overlay, (0, 0))
         
         # Selection box
-        box_width = 400
-        box_height = min(400, 120 + len(self.available_levels) * 35)
+        box_width = 200  # Halved from 400
+        box_height = min(200, 60 + len(self.available_levels) * 18)  # Scaled proportionally
         box_x = (SCREEN_WIDTH - box_width) // 2
         box_y = (GRID_HEIGHT * GRID_SIZE - box_height) // 2
         
         # Draw box background
         pygame.draw.rect(self.screen, DARK_GRAY, (box_x, box_y, box_width, box_height))
-        pygame.draw.rect(self.screen, WHITE, (box_x, box_y, box_width, box_height), 3)
+        pygame.draw.rect(self.screen, WHITE, (box_x, box_y, box_width, box_height), 2)
         
         # Draw title
         title = self.font_medium.render("Select Level to Load", True, WHITE)
-        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, box_y + 25))
+        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, box_y + 12))
         self.screen.blit(title, title_rect)
         
         # Draw level list
-        list_y = box_y + 60
+        list_y = box_y + 30
         max_visible = min(8, len(self.available_levels))
         start_index = max(0, min(self.selected_level_index - max_visible // 2, len(self.available_levels) - max_visible))
         
@@ -780,7 +780,7 @@ class LevelEditor:
             
             # Highlight selected item
             if i == self.selected_level_index:
-                highlight_rect = pygame.Rect(box_x + 10, list_y + (i - start_index) * 35, box_width - 20, 30)
+                highlight_rect = pygame.Rect(box_x + 5, list_y + (i - start_index) * 18, box_width - 10, 15)
                 pygame.draw.rect(self.screen, CYAN, highlight_rect)
                 text_color = BLACK
             else:
@@ -788,10 +788,10 @@ class LevelEditor:
             
             # Draw level name
             level_text = self.font_small.render(display_name, True, text_color)
-            self.screen.blit(level_text, (box_x + 20, list_y + (i - start_index) * 35 + 5))
+            self.screen.blit(level_text, (box_x + 10, list_y + (i - start_index) * 18 + 3))
         
         # Draw instructions
-        inst_y = box_y + box_height - 30
+        inst_y = box_y + box_height - 15
         instructions = self.font_small.render("↑↓: Navigate | ENTER: Load | ESC: Cancel", True, LIGHT_GRAY)
         inst_rect = instructions.get_rect(center=(SCREEN_WIDTH // 2, inst_y))
         self.screen.blit(instructions, inst_rect)
@@ -808,23 +808,23 @@ class LevelEditor:
         self.screen.blit(overlay, (0, 0))
         
         # Selection box
-        box_width = 450
-        box_height = min(450, 120 + len(self.available_items) * 40)
+        box_width = 225  # Halved from 450
+        box_height = min(225, 60 + len(self.available_items) * 20)  # Scaled proportionally
         box_x = (SCREEN_WIDTH - box_width) // 2
         box_y = (GRID_HEIGHT * GRID_SIZE - box_height) // 2
         
         # Draw box background
         pygame.draw.rect(self.screen, DARK_GRAY, (box_x, box_y, box_width, box_height))
-        pygame.draw.rect(self.screen, WHITE, (box_x, box_y, box_width, box_height), 3)
+        pygame.draw.rect(self.screen, WHITE, (box_x, box_y, box_width, box_height), 2)
         
         # Draw title with category name
         category_name = CATEGORIES[self.current_category]["name"]
         title = self.font_medium.render(f"Select {category_name} Item", True, WHITE)
-        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, box_y + 25))
+        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, box_y + 12))
         self.screen.blit(title, title_rect)
         
         # Draw item list
-        list_y = box_y + 60
+        list_y = box_y + 30
         max_visible = min(8, len(self.available_items))
         start_index = max(0, min(self.selected_item_index - max_visible // 2, len(self.available_items) - max_visible))
         
@@ -835,23 +835,23 @@ class LevelEditor:
             
             # Highlight selected item
             if i == self.selected_item_index:
-                highlight_rect = pygame.Rect(box_x + 10, list_y + (i - start_index) * 40, box_width - 20, 35)
+                highlight_rect = pygame.Rect(box_x + 5, list_y + (i - start_index) * 20, box_width - 10, 18)
                 pygame.draw.rect(self.screen, CYAN, highlight_rect)
                 text_color = BLACK
             else:
                 text_color = WHITE
             
             # Draw color preview square
-            color_square = pygame.Rect(box_x + 20, list_y + (i - start_index) * 40 + 5, 25, 25)
+            color_square = pygame.Rect(box_x + 10, list_y + (i - start_index) * 20 + 3, 12, 12)
             pygame.draw.rect(self.screen, item_color, color_square)
-            pygame.draw.rect(self.screen, WHITE, color_square, 2)
+            pygame.draw.rect(self.screen, WHITE, color_square, 1)
             
             # Draw item name
             item_text = self.font_small.render(item_name, True, text_color)
-            self.screen.blit(item_text, (box_x + 55, list_y + (i - start_index) * 40 + 8))
+            self.screen.blit(item_text, (box_x + 28, list_y + (i - start_index) * 20 + 4))
         
         # Draw instructions
-        inst_y = box_y + box_height - 30
+        inst_y = box_y + box_height - 15  # Scaled from 30
         instructions = self.font_small.render("↑↓: Navigate | ENTER: Select | ESC: Cancel", True, LIGHT_GRAY)
         inst_rect = instructions.get_rect(center=(SCREEN_WIDTH // 2, inst_y))
         self.screen.blit(instructions, inst_rect)

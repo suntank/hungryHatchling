@@ -35,14 +35,13 @@ FPS = 60
 # Set to False on more powerful systems for full quality
 LOW_MEMORY_MODE = True
 
-# Reduce FPS in low memory mode to improve performance
-if LOW_MEMORY_MODE:
-    FPS = 30  # Lower FPS reduces CPU load and stuttering
+# Note: FPS stays at 60 even in LOW_MEMORY_MODE because game logic is tied to frame rate
+# Reducing FPS would slow down the entire game. Memory savings come from asset optimizations.
 
 class SnakeGame:
     def __init__(self):
-        # Scaling factor
-        self.scale = 1
+        # Scaling factor - 2x to scale 240x240 base to 480x480 display
+        self.scale = 2
         
         # Create the actual display window (scaled up)
         self.display = pygame.display.set_mode((SCREEN_WIDTH * self.scale, SCREEN_HEIGHT * self.scale))
@@ -56,9 +55,9 @@ class SnakeGame:
         # CRITICAL: Grab input to prevent passthrough to EmulationStation
         pygame.event.set_grab(True)
         self.clock = pygame.time.Clock()
-        self.font_small = pygame.font.Font(None, 32)  # 2x larger (was 16)
-        self.font_medium = pygame.font.Font(None, 48)  # 2x larger (was 24)
-        self.font_large = pygame.font.Font(None, 66)  # 2x larger (was 36)
+        self.font_small = pygame.font.Font(None, 16)  # Scaled for 240x240 base resolution
+        self.font_medium = pygame.font.Font(None, 24)  # Scaled for 240x240 base resolution
+        self.font_large = pygame.font.Font(None, 33)  # Scaled for 240x240 base resolution
         
         # Load background image
         try:
@@ -191,8 +190,8 @@ class SnakeGame:
         try:
             tweetrix_path = os.path.join(SCRIPT_DIR, 'img', 'Tweetrix.png')
             self.tweetrix_logo = pygame.image.load(tweetrix_path).convert_alpha()
-            # Scale logo to reasonable size (e.g., 100px wide, maintain aspect ratio)
-            logo_width = 50
+            # Scale logo to reasonable size (e.g., 50px wide for 240x240, maintain aspect ratio)
+            logo_width = 25
             aspect_ratio = self.tweetrix_logo.get_height() / self.tweetrix_logo.get_width()
             logo_height = int(logo_width * aspect_ratio)
             self.tweetrix_logo = pygame.transform.scale(self.tweetrix_logo, (logo_width, logo_height))
@@ -205,7 +204,7 @@ class SnakeGame:
             trophy_path = os.path.join(SCRIPT_DIR, 'img', 'trophy.png')
             self.trophy_icon = pygame.image.load(trophy_path).convert_alpha()
             # Scale trophy to reasonable size
-            trophy_size = 32
+            trophy_size = 16
             self.trophy_icon = pygame.transform.scale(self.trophy_icon, (trophy_size, trophy_size))
         except:
             self.trophy_icon = None
@@ -215,7 +214,7 @@ class SnakeGame:
         try:
             lock_path = os.path.join(SCRIPT_DIR, 'img', 'lock.png')
             self.lock_icon = pygame.image.load(lock_path).convert_alpha()
-            self.lock_icon = pygame.transform.scale(self.lock_icon, (20, 20))
+            self.lock_icon = pygame.transform.scale(self.lock_icon, (10, 10))
         except:
             self.lock_icon = None
             print("Warning: lock.png not found")
@@ -224,7 +223,7 @@ class SnakeGame:
         try:
             hatchling_path = os.path.join(SCRIPT_DIR, 'img', 'HatchlingHead1.gif')
             self.hatchling_head_icon = pygame.image.load(hatchling_path).convert_alpha()
-            self.hatchling_head_icon = pygame.transform.scale(self.hatchling_head_icon, (20, 20))
+            self.hatchling_head_icon = pygame.transform.scale(self.hatchling_head_icon, (10, 10))
         except:
             self.hatchling_head_icon = None
             print("Warning: HatchlingHead1.gif not found")
@@ -247,13 +246,13 @@ class SnakeGame:
             self.egg_img = None
             print("Warning: egg.png not found")
         
-        # Load player-colored egg icons for lives display (small 20x20 icons)
+        # Load player-colored egg icons for lives display (small 10x10 icons for 240x240)
         self.player_egg_icons = []
         for player_num in range(1, 5):
             try:
                 egg_icon_path = os.path.join(SCRIPT_DIR, 'img', 'egg{}.png'.format(player_num))
                 egg_icon = pygame.image.load(egg_icon_path).convert_alpha()
-                egg_icon = pygame.transform.scale(egg_icon, (20, 20))
+                egg_icon = pygame.transform.scale(egg_icon, (10, 10))
                 self.player_egg_icons.append(egg_icon)
             except:
                 self.player_egg_icons.append(None)
@@ -843,7 +842,8 @@ class SnakeGame:
                         pygame_frame = pygame.image.frombytes(
                             frame.tobytes(), frame.size, frame.mode
                         ).convert_alpha()
-                        # Keep original 256x256 size for boss
+                        # Scale boss from 256x256 to 128x128 for 240x240 base resolution
+                        pygame_frame = pygame.transform.scale(pygame_frame, (128, 128))
                         frames.append(pygame_frame)
                         frame_count += 1
                         gif.seek(frame_count)
@@ -862,6 +862,8 @@ class SnakeGame:
             try:
                 img_path = os.path.join(SCRIPT_DIR, 'img', 'boss', '{}.png'.format(img_name))
                 img = pygame.image.load(img_path).convert_alpha()
+                # Scale boss from 256x256 to 128x128 for 240x240 base resolution
+                img = pygame.transform.scale(img, (128, 128))
                 # Store as single-frame "animation" for consistency
                 self.boss_animations[img_name] = [img]
                 print("Loaded static image: {}".format(img_name))
@@ -1753,9 +1755,9 @@ class SnakeGame:
         import math
         import random
         
-        # Boss position is in bottom right (256x256 sprite)
-        boss_center_x = self.boss_position[0] + 128  # Center of 256px boss
-        boss_center_y = self.boss_position[1] + 128  # Center of 256px boss
+        # Boss position is in bottom right (128x128 sprite for 240x240 resolution)
+        boss_center_x = self.boss_position[0] + 64  # Center of 128px boss
+        boss_center_y = self.boss_position[1] + 64  # Center of 128px boss
         
         # Player head position (convert to pixel coordinates)
         player_head = self.snake.body[0]
@@ -2906,10 +2908,10 @@ class SnakeGame:
                 self.boss_animation_loop = False  # Emergence plays once
                 
                 # Position boss: bottom right of screen
-                # Boss is 256x256, screen is 480 wide, 480 tall
+                # Boss is 128x128, screen is 240 wide, 240 tall
                 # Place it so it's in the bottom right corner
-                boss_x = SCREEN_WIDTH - 256  # Right edge at screen edge
-                boss_y = SCREEN_HEIGHT - 256  # Bottom edge at screen edge
+                boss_x = SCREEN_WIDTH - 128  # Right edge at screen edge
+                boss_y = SCREEN_HEIGHT - 128  # Bottom edge at screen edge
                 self.boss_position = (boss_x, boss_y)
                 
                 # Spawn 2 boss minions (hard AI CPU snakes)
@@ -2960,7 +2962,7 @@ class SnakeGame:
                                         self.boss_animation_frame = len(anim_frames) - 1
                                         self.boss_animation_loop = False
                                         # Initialize slide timer (320 frames = ~5.3 seconds at 60 FPS, 25% slower than before)
-                                        self.boss_slide_timer = 640
+                                        self.boss_slide_timer = 320  # Halved from 640 for scaled resolution
                                         self.boss_slide_offset_y = 0
                                         # Play boss worm death sound now that music has faded
                                         self.sound_manager.play('bossWormDeath')
@@ -3094,10 +3096,10 @@ class SnakeGame:
                 if self.boss_death_phase == 2 and self.boss_slide_timer > 0:
                     self.boss_slide_timer -= 1
                     self.screen_shake_intensity = 2
-                    # Calculate slide speed: need to move boss fully off screen (256px height + screen height)
-                    # Over 320 frames (~5.3 seconds), slide down (25% slower than before)
-                    # Total distance: SCREEN_HEIGHT (480) + boss height (256) = 736 pixels
-                    slide_speed = (SCREEN_HEIGHT + 256) / 640.0  # ~2.30 pixels per frame
+                    # Calculate slide speed: need to move boss fully off screen (128px height + screen height)
+                    # Over 320 frames (~5.3 seconds), slide down
+                    # Total distance: SCREEN_HEIGHT (240) + boss height (128) = 368 pixels
+                    slide_speed = (SCREEN_HEIGHT + 128) / 320.0  # ~1.15 pixels per frame
                     self.boss_slide_offset_y += slide_speed
                     
                     # Spawn white explosion particles continuously
@@ -3106,14 +3108,14 @@ class SnakeGame:
                         # Spawn white particles randomly on boss sprite
                         boss_x = self.boss_position[0]
                         boss_y = self.boss_position[1] + self.boss_slide_offset_y
-                        # Random position within boss sprite (256x256)
-                        rand_x = boss_x + random.randint(30, 226)
-                        rand_y = boss_y + random.randint(30, 226)
+                        # Random position within boss sprite (128x128)
+                        rand_x = boss_x + random.randint(15, 113)
+                        rand_y = boss_y + random.randint(15, 113)
                         # Create white explosion particles
                         self.create_particles(rand_x, rand_y, None, None, particle_type='white')
                     
                     # When slide timer reaches 0, transition to victory delay
-                    if self.boss_slide_timer < 320:
+                    if self.boss_slide_timer == 0:
                         print("Boss slide complete, waiting a few seconds before victory jingle")
                         self.boss_death_phase = 3
                         self.screen_shake_intensity = 0
@@ -3618,12 +3620,12 @@ class SnakeGame:
                 bullet_pixel_x = bullet.pixel_x
                 bullet_pixel_y = bullet.pixel_y - GAME_OFFSET_Y  # Adjust for HUD offset
                 
-                # Check wormBoss collision (256x256 sprite)
+                # Check wormBoss collision (128x128 sprite)
                 if self.boss_data == 'wormBoss':
                     boss_left = self.boss_position[0]
-                    boss_right = self.boss_position[0] + 256
+                    boss_right = self.boss_position[0] + 128
                     boss_top = self.boss_position[1]
-                    boss_bottom = self.boss_position[1] + 256
+                    boss_bottom = self.boss_position[1] + 128
                     
                     if (boss_left <= bullet_pixel_x <= boss_right and
                         boss_top <= bullet_pixel_y <= boss_bottom):
@@ -7817,33 +7819,32 @@ class SnakeGame:
             self.screen.blit(level_label, level_label_rect)
             self.screen.blit(level_value, level_value_rect)
             
-            fruits_label = self.font_small.render("WORMS:", True, BLACK)
-            fruits_label_rect = fruits_label.get_rect(center=(SCREEN_WIDTH // 2 + 62, 16))
-            self.screen.blit(fruits_label, fruits_label_rect)
-            fruits_label = self.font_small.render("WORMS:", True, NEON_YELLOW)
-            fruits_label_rect = fruits_label.get_rect(center=(SCREEN_WIDTH // 2 + 60, 14))
-            self.screen.blit(fruits_label, fruits_label_rect)
+            # Only show worms counter in endless mode (visible on screen in adventure mode)
+            if self.game_mode != "adventure":
+                fruits_label = self.font_small.render("WORMS:", True, BLACK)
+                fruits_label_rect = fruits_label.get_rect(center=(SCREEN_WIDTH // 2 + 62, 16))
+                self.screen.blit(fruits_label, fruits_label_rect)
+                fruits_label = self.font_small.render("WORMS:", True, NEON_YELLOW)
+                fruits_label_rect = fruits_label.get_rect(center=(SCREEN_WIDTH // 2 + 60, 14))
+                self.screen.blit(fruits_label, fruits_label_rect)
 
-            # Show correct count based on game mode
-            if self.game_mode == "adventure":
-                worm_count_text = "{}/{}".format(self.worms_collected, self.worms_required)
-            else:
+                # Endless mode: show fruits eaten / 12
                 worm_count_text = "{}/12".format(self.fruits_eaten_this_level)
-            
-            fruits_value = self.font_small.render(worm_count_text, True, BLACK)
-            fruits_value_rect = fruits_value.get_rect(center=(SCREEN_WIDTH // 2 + 135, 16))
-            self.screen.blit(fruits_value, fruits_value_rect)
-            fruits_value = self.font_small.render(worm_count_text, True, WHITE)
-            fruits_value_rect = fruits_value.get_rect(center=(SCREEN_WIDTH // 2 + 133, 14))
-            self.screen.blit(fruits_value, fruits_value_rect)
+                
+                fruits_value = self.font_small.render(worm_count_text, True, BLACK)
+                fruits_value_rect = fruits_value.get_rect(center=(SCREEN_WIDTH // 2 + 135, 16))
+                self.screen.blit(fruits_value, fruits_value_rect)
+                fruits_value = self.font_small.render(worm_count_text, True, WHITE)
+                fruits_value_rect = fruits_value.get_rect(center=(SCREEN_WIDTH // 2 + 133, 14))
+                self.screen.blit(fruits_value, fruits_value_rect)
             
             # Show coins in adventure mode
             if self.game_mode == "adventure":
                 coins_label = self.font_small.render("COINS:", True, BLACK)
-                coins_label_rect = coins_label.get_rect(center=(SCREEN_WIDTH - 60, 16))
+                coins_label_rect = coins_label.get_rect(center=(SCREEN_WIDTH // 2 +2, 16))
                 self.screen.blit(coins_label, coins_label_rect)
                 coins_label = self.font_small.render("COINS:", True, YELLOW)
-                coins_label_rect = coins_label.get_rect(center=(SCREEN_WIDTH - 62, 14))
+                coins_label_rect = coins_label.get_rect(center=(SCREEN_WIDTH // 2, 14))
                 self.screen.blit(coins_label, coins_label_rect)
                 
                 coins_value = self.font_small.render("{}".format(getattr(self, 'total_coins', 0)), True, BLACK)
@@ -8215,7 +8216,7 @@ class SnakeGame:
                     color = NEON_CYAN
                     # Draw trophy icon
                     if self.trophy_icon:
-                        trophy_scaled = pygame.transform.scale(self.trophy_icon, (20, 20))
+                        trophy_scaled = pygame.transform.scale(self.trophy_icon, (10, 10))
                         self.screen.blit(trophy_scaled, (30, y_pos - 2))
                 else:
                     color = GRAY

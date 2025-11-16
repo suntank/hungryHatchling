@@ -8,11 +8,11 @@ import colorsys
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
 # Constants
-SCREEN_WIDTH = 480
-SCREEN_HEIGHT = 480  # Square screen for Raspberry Pi
-HUD_HEIGHT = 32  # HUD overlay height (top portion of screen)
+SCREEN_WIDTH = 240  # Base resolution (scaled 2x to 480x480 for display)
+SCREEN_HEIGHT = 240  # Square screen for Raspberry Pi
+HUD_HEIGHT = 16  # HUD overlay height (top portion of screen)
 GAME_OFFSET_Y = 0  # Game uses full screen, HUD is overlaid
-GRID_SIZE = 32  
+GRID_SIZE = 16  # Half of original 32 for 240x240 base resolution  
 GRID_WIDTH = SCREEN_WIDTH // GRID_SIZE
 GRID_HEIGHT = SCREEN_HEIGHT // GRID_SIZE  # Grid uses full height
 
