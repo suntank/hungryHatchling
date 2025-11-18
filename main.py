@@ -315,6 +315,15 @@ class SnakeGame:
         # Keep original for backwards compatibility
         self.snake_body_img = self.snake_body_imgs[0] if self.snake_body_imgs else None
         
+        # Load glowing body image for isotope power-up
+        try:
+            glow_path = os.path.join(SCRIPT_DIR, 'img', 'HatchlingBodyGlow.png')
+            glow_img = pygame.image.load(glow_path).convert_alpha()
+            self.snake_body_glow_img = pygame.transform.scale(glow_img, (self.snake_sprite_size, self.snake_sprite_size))
+        except Exception as e:
+            self.snake_body_glow_img = None
+            print("Warning: HatchlingBodyGlow.png not found: {}".format(e))
+        
         # Load snake head animations (GIF) for all 4 players
         self.snake_head_frames_all = []  # List of frame lists for each player
         
@@ -1025,7 +1034,7 @@ class SnakeGame:
         
         # Load UI icons for multiplayer lobby
         # Star rating icons for difficulty
-        self.icon_size = 48  # Standard icon size (2x for better visibility)
+        self.icon_size = 24  # Halved from 48 for 240x240 resolution
         self.star_icons = {}
         star_names = ['starEmpty', 'easy', 'medium', 'hard', 'brutal']
         for star_name in star_names:
@@ -1468,7 +1477,7 @@ class SnakeGame:
         walls = level['walls']
         
         # Create small preview surface (scale down 15x15 grid to fit in preview area)
-        preview_size = 180  # Preview area size in pixels
+        preview_size = 90  # Preview area size in pixels (halved from 180)
         cell_size = preview_size // 15  # Each grid cell size
         
         preview_surface = pygame.Surface((preview_size, preview_size))
@@ -4228,10 +4237,13 @@ class SnakeGame:
                                 self.food_items.pop(i)
                                 # Diamonds don't grow snake or count toward completion
                             elif food_type == 'isotope':
-                                # Isotope collectible - grants shooting ability and 10 segments
+                                # Isotope collectible - grants shooting ability
                                 self.sound_manager.play('powerup')
                                 self.snake.can_shoot = True
-                                self.snake.grow(10)  # Grant 10 segments
+                                # In adventure mode, don't grow - just swap to glowing body
+                                # In other modes (boss battles), grant 10 segments
+                                if self.game_mode != 'adventure':
+                                    self.snake.grow(10)  # Grant 10 segments in boss mode
                                 fx, fy = food_pos
                                 self.create_particles(fx * GRID_SIZE + GRID_SIZE // 2,
                                                     fy * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y, 
@@ -6071,7 +6083,7 @@ class SnakeGame:
             img_height = outro_img.get_height()
             
             # Calculate max pan offset (image height - screen height)
-            max_pan = img_height - SCREEN_HEIGHT - 128
+            max_pan = img_height - SCREEN_HEIGHT - 64  # Halved from 128
             
             if not self.outro_pan_complete:
                 # Pan down from top to bottom
@@ -6381,20 +6393,20 @@ class SnakeGame:
         for i, option in enumerate(self.menu_options):
             color = NEON_YELLOW if i == self.menu_selection else NEON_CYAN
             text = self.font_medium.render(option, True, BLACK)
-            text_rect = text.get_rect(center=((SCREEN_WIDTH // 2)+3, 323 + i * 60))
+            text_rect = text.get_rect(center=((SCREEN_WIDTH // 2)+1, 81 + i * 15))  # Halved from 162, 30
             
             # Draw text
             self.screen.blit(text, text_rect)
             text = self.font_medium.render(option, True, color)
-            text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, 320 + i * 60))
+            text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, 80 + i * 15))  # Halved from 160, 30
             
             # Draw text
             self.screen.blit(text, text_rect)
         
         # Draw Tweetrix logo at bottom left
         if self.tweetrix_logo:
-            logo_x = 10  # 10 pixels from left edge
-            logo_y = SCREEN_HEIGHT - self.tweetrix_logo.get_height() - 10  # 10 pixels from bottom
+            logo_x = 5  # 5 pixels from left edge
+            logo_y = SCREEN_HEIGHT - self.tweetrix_logo.get_height() - 5  # 5 pixels from bottom
             self.screen.blit(self.tweetrix_logo, (logo_x, logo_y))
     
     def draw_single_player_menu(self):
@@ -6409,29 +6421,29 @@ class SnakeGame:
         
         # Title
         title = self.font_large.render("SINGLE PLAYER", True, BLACK)
-        title_rect = title.get_rect(center=((SCREEN_WIDTH // 2)+3, 103))
+        title_rect = title.get_rect(center=((SCREEN_WIDTH // 2)+2, 52))
         self.screen.blit(title, title_rect)
         title = self.font_large.render("SINGLE PLAYER", True, NEON_YELLOW)
-        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 100))
+        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 50))
         self.screen.blit(title, title_rect)
         
         # Render menu options
         for i, option in enumerate(self.single_player_options):
             color = NEON_YELLOW if i == self.single_player_selection else NEON_CYAN
             text = self.font_medium.render(option, True, BLACK)
-            text_rect = text.get_rect(center=((SCREEN_WIDTH // 2)+3, 253 + i * 60))
+            text_rect = text.get_rect(center=((SCREEN_WIDTH // 2)+1, 64 + i * 15))  # Halved from 127, 30
             self.screen.blit(text, text_rect)
             
             text = self.font_medium.render(option, True, color)
-            text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, 250 + i * 60))
+            text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, 63 + i * 15))  # Halved from 125, 30 (rounded)
             self.screen.blit(text, text_rect)
         
         # Hint text
         hint_text = self.font_small.render("Press B to go back", True, BLACK)
-        hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+2, 452))
+        hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+1, 113))  # Halved from 226
         self.screen.blit(hint_text, hint_rect)
         hint_text = self.font_small.render("Press B to go back", True, NEON_PURPLE)
-        hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 450))
+        hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 113))  # Halved from 225 (rounded)
         self.screen.blit(hint_text, hint_rect)
     
     def draw_adventure_level_select(self):
@@ -6446,19 +6458,19 @@ class SnakeGame:
         
         # Title
         title = self.font_large.render("LEVEL SELECT", True, BLACK)
-        title_rect = title.get_rect(center=((SCREEN_WIDTH // 2)+3, 33))
+        title_rect = title.get_rect(center=((SCREEN_WIDTH // 2)+2, 17))
         self.screen.blit(title, title_rect)
         title = self.font_large.render("LEVEL SELECT", True, NEON_YELLOW)
-        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 30))
+        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 15))
         self.screen.blit(title, title_rect)
         
         # Draw level grid (8 columns x 4 rows for 32 levels)
         cols = 8
         rows = 4
-        cell_size = 50
-        spacing = 10
+        cell_size = 25  # Halved from 50
+        spacing = 5  # Halved from 10
         start_x = (SCREEN_WIDTH - (cols * cell_size + (cols - 1) * spacing)) // 2
-        start_y = 80
+        start_y = 40  # Halved from 80
         
         for i in range(self.total_levels):
             row = i // cols
@@ -6506,7 +6518,7 @@ class SnakeGame:
         
         # Display selected level info
         selected_level = self.adventure_level_selection + 1
-        info_y = start_y + rows * (cell_size + spacing) + 20
+        info_y = start_y + rows * (cell_size + spacing) + 10
         
         info_text = self.font_medium.render("Level {}".format(selected_level), True, BLACK)
         info_rect = info_text.get_rect(center=((SCREEN_WIDTH // 2)+2, info_y + 2))
@@ -6517,19 +6529,19 @@ class SnakeGame:
         
         # Hint text
         hint_text = self.font_small.render("Press Start to begin", True, BLACK)
-        hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+2, 432))
+        hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+1, 108))  # Halved from 216
         self.screen.blit(hint_text, hint_rect)
         hint_text = self.font_small.render("Press Start to begin", True, NEON_PURPLE)
-        hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 430))
+        hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 108))  # Halved from 215 (rounded)
         self.screen.blit(hint_text, hint_rect)
         
         # View Intro button (if intro images are available)
         if len(self.intro_images) > 0:
             intro_text = self.font_small.render("Press Y to view intro", True, BLACK)
-            intro_rect = intro_text.get_rect(center=((SCREEN_WIDTH // 2)+2, 452))
+            intro_rect = intro_text.get_rect(center=((SCREEN_WIDTH // 2)+1, 226))
             self.screen.blit(intro_text, intro_rect)
             intro_text = self.font_small.render("Press Y to view intro", True, NEON_CYAN)
-            intro_rect = intro_text.get_rect(center=(SCREEN_WIDTH // 2, 450))
+            intro_rect = intro_text.get_rect(center=(SCREEN_WIDTH // 2, 225))
             self.screen.blit(intro_text, intro_rect)
     
     def draw_multiplayer_menu(self):
@@ -6546,10 +6558,10 @@ class SnakeGame:
         
         # Title
         title = self.font_large.render("MULTIPLAYER", True, BLACK)
-        title_rect = title.get_rect(center=((SCREEN_WIDTH // 2)+3, 78))
+        title_rect = title.get_rect(center=((SCREEN_WIDTH // 2)+2, 39))
         self.screen.blit(title, title_rect)
         title = self.font_large.render("MULTIPLAYER", True, NEON_YELLOW)
-        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 75))
+        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 37))
         self.screen.blit(title, title_rect)
         
         # Render menu options
@@ -6560,19 +6572,19 @@ class SnakeGame:
                 color = NEON_YELLOW if i == self.multiplayer_menu_selection else NEON_CYAN
             
             text = self.font_medium.render(option, True, BLACK)
-            text_rect = text.get_rect(center=((SCREEN_WIDTH // 2)+3, 280 + i * 55))
+            text_rect = text.get_rect(center=((SCREEN_WIDTH // 2)+1, 70 + i * 14))  # Halved from 140, 28
             self.screen.blit(text, text_rect)
             
             text = self.font_medium.render(option, True, color)
-            text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, 277 + i * 55))
+            text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, 69 + i * 14))  # Halved from 138, 28
             self.screen.blit(text, text_rect)
         
         # Hint text
         hint_text = self.font_small.render("Press B to go back", True, BLACK)
-        hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+2, 452))
+        hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+1, 226))  # Halved from 452
         self.screen.blit(hint_text, hint_rect)
         hint_text = self.font_small.render("Press B to go back", True, NEON_PURPLE)
-        hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 450))
+        hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 225))  # Halved from 450
         self.screen.blit(hint_text, hint_rect)
     
     def draw_extras_menu(self):
@@ -6587,10 +6599,10 @@ class SnakeGame:
         
         # Title
         title = self.font_large.render("EXTRAS", True, BLACK)
-        title_rect = title.get_rect(center=((SCREEN_WIDTH // 2)+3, 78))
+        title_rect = title.get_rect(center=((SCREEN_WIDTH // 2)+2, 39))
         self.screen.blit(title, title_rect)
         title = self.font_large.render("EXTRAS", True, NEON_YELLOW)
-        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 75))
+        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 37))
         self.screen.blit(title, title_rect)
         
         # Render menu options
@@ -6598,19 +6610,19 @@ class SnakeGame:
             color = NEON_YELLOW if i == self.extras_menu_selection else NEON_CYAN
             
             text = self.font_medium.render(option, True, BLACK)
-            text_rect = text.get_rect(center=((SCREEN_WIDTH // 2)+3, 230 + i * 50))
+            text_rect = text.get_rect(center=((SCREEN_WIDTH // 2)+1, 58 + i * 13))  # Halved from 115, 25 (rounded)
             self.screen.blit(text, text_rect)
             
             text = self.font_medium.render(option, True, color)
-            text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, 227 + i * 50))
+            text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, 57 + i * 13))  # Halved from 113, 25 (rounded)
             self.screen.blit(text, text_rect)
         
         # Hint text
         hint_text = self.font_small.render("Press B to go back", True, BLACK)
-        hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+2, 452))
+        hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+1, 113))  # Halved from 226
         self.screen.blit(hint_text, hint_rect)
         hint_text = self.font_small.render("Press B to go back", True, NEON_PURPLE)
-        hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 450))
+        hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 113))  # Halved from 225 (rounded)
         self.screen.blit(hint_text, hint_rect)
     
     def draw_multiplayer_level_select(self):
@@ -6632,16 +6644,16 @@ class SnakeGame:
         if len(self.multiplayer_levels) == 0:
             # No levels available
             msg = self.font_medium.render("No multiplayer levels found", True, BLACK)
-            msg_rect = msg.get_rect(center=((SCREEN_WIDTH // 2)+2, 242))
+            msg_rect = msg.get_rect(center=((SCREEN_WIDTH // 2)+1, 121))  # Halved from 242
             self.screen.blit(msg, msg_rect)
             msg = self.font_medium.render("No multiplayer levels found", True, NEON_CYAN)
-            msg_rect = msg.get_rect(center=(SCREEN_WIDTH // 2, 240))
+            msg_rect = msg.get_rect(center=(SCREEN_WIDTH // 2, 120))  # Halved from 240
             self.screen.blit(msg, msg_rect)
         else:
             # Draw level list on the left side
-            list_x = 30
-            list_y = 100
-            line_height = 28
+            list_x = 15  # Halved from 30
+            list_y = 50  # Halved from 100
+            line_height = 14  # Halved from 28
             visible_levels = 10  # Show 10 levels at a time
             
             # Calculate scroll offset to keep selected level visible
@@ -6729,10 +6741,10 @@ class SnakeGame:
         
         # Hint text
         hint_text = self.font_small.render("Start to select, Back to cancel", True, BLACK)
-        hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+2, 452))
+        hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+1, 226))  # Halved from 452
         self.screen.blit(hint_text, hint_rect)
         hint_text = self.font_small.render("Start to select, Back to cancel", True, NEON_PURPLE)
-        hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 450))
+        hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 225))  # Halved from 450
         self.screen.blit(hint_text, hint_rect)
     
     def draw_multiplayer_lobby(self):
@@ -6763,17 +6775,17 @@ class SnakeGame:
         
         # Draw "Lives" label
         label = self.font_small.render("Lives:", True, BLACK)
-        label_rect = label.get_rect(midright=(center_x - 100 + 2, y + 2))
+        label_rect = label.get_rect(midright=(center_x - 50 + 1, y + 1))
         self.screen.blit(label, label_rect)
         label = self.font_small.render("Lives:", True, color)
-        label_rect = label.get_rect(midright=(center_x - 100, y))
+        label_rect = label.get_rect(midright=(center_x - 50, y))
         self.screen.blit(label, label_rect)
         
         # Draw egg icons for lives (show all eggs, not capped at 5)
         lives = self.lobby_settings['lives']
-        egg_size = 28  # Slightly smaller to fit better
-        egg_spacing = 32
-        start_x = center_x - 80
+        egg_size = 14  # Halved from 28
+        egg_spacing = 16  # Halved from 32
+        start_x = center_x - 40  # Halved from 80
         max_eggs_per_row = 10  # Display up to 10 eggs
         
         for i in range(max_eggs_per_row):
@@ -6789,7 +6801,7 @@ class SnakeGame:
                     egg.set_alpha(50)  # Dim the egg
                     self.screen.blit(egg, (start_x + i * egg_spacing, y - egg_size // 2))
         
-        y += 40  # Reduced spacing
+        y += 20  # Halved from 40
         
         # Item Spawn setting with apple icons (1-3 apples)
         is_selected = (self.lobby_selection == 1)
@@ -6797,18 +6809,18 @@ class SnakeGame:
         
         # Draw "Item Spawn" label
         label = self.font_small.render("Item Spawn:", True, BLACK)
-        label_rect = label.get_rect(midright=(center_x - 100 + 2, y + 2))
+        label_rect = label.get_rect(midright=(center_x - 50 + 1, y + 1))
         self.screen.blit(label, label_rect)
         label = self.font_small.render("Item Spawn:", True, color)
-        label_rect = label.get_rect(midright=(center_x - 100, y))
+        label_rect = label.get_rect(midright=(center_x - 50, y))
         self.screen.blit(label, label_rect)
         
         # Draw apple icons (1=Low, 2=Normal, 3=High) using bonus.png
         item_freq = self.lobby_settings['item_frequency']
         num_apples = item_freq + 1  # 0→1, 1→2, 2→3
-        apple_size = 28  # Smaller to match eggs
-        apple_spacing = 32
-        start_x = center_x - 80
+        apple_size = 14  # Halved from 28
+        apple_spacing = 16  # Halved from 32
+        start_x = center_x - 40  # Halved from 80
         
         for i in range(3):  # Max 3 apples
             if self.bonus_img:
@@ -6822,7 +6834,7 @@ class SnakeGame:
                     apple.set_alpha(50)
                     self.screen.blit(apple, (start_x + i * apple_spacing, y - apple_size // 2))
         
-        y += 40  # Reduced spacing
+        y += 20  # Halved from 40
         
         # CPU Difficulty with star rating
         is_selected = (self.lobby_selection == 2)
@@ -6830,16 +6842,16 @@ class SnakeGame:
         
         # Draw "CPU Difficulty" label
         label = self.font_small.render("CPU Level:", True, BLACK)
-        label_rect = label.get_rect(midright=(center_x - 100 + 2, y + 2))
+        label_rect = label.get_rect(midright=(center_x - 50 + 1, y + 1))
         self.screen.blit(label, label_rect)
         label = self.font_small.render("CPU Level:", True, color)
-        label_rect = label.get_rect(midright=(center_x - 100, y))
+        label_rect = label.get_rect(midright=(center_x - 50, y))
         self.screen.blit(label, label_rect)
         
         # Draw star rating (4 stars total: easy, medium, hard, brutal)
         difficulty_level = self.lobby_settings['cpu_difficulty']
-        star_spacing = 38  # Adjusted for smaller icons
-        start_x = center_x - 80
+        star_spacing = 19  # Halved from 38
+        start_x = center_x - 40  # Halved from 80
         star_names = ['easy', 'medium', 'hard', 'brutal']
         
         for i, star_name in enumerate(star_names):
@@ -6851,14 +6863,14 @@ class SnakeGame:
             
             if star_img:
                 # Scale star down slightly for better fit
-                star_scaled = pygame.transform.scale(star_img, (36, 36))
-                self.screen.blit(star_scaled, (start_x + i * star_spacing, y - 18))
+                star_scaled = pygame.transform.scale(star_img, (18, 18))  # Halved from 36
+                self.screen.blit(star_scaled, (start_x + i * star_spacing, y - 9))  # Halved from 18
         
-        y += 45  # Reduced spacing
+        y += 23  # Halved from 45 (rounded)
         
         # Player slots (starting at selection index 3)
         # Use hatchling heads with input icons
-        head_size = 48  # Reduced from 64 to fit better
+        head_size = 24  # Halved from 48 for 240x240 resolution
         for i in range(4):
             player_name = self.player_names[i]
             player_color = self.player_colors[i]
@@ -6877,7 +6889,7 @@ class SnakeGame:
                         head_scaled = head_scaled.copy()
                         head_scaled.set_alpha(80)
                     
-                    head_x = center_x - 130
+                    head_x = center_x - 65  # Halved from 130
                     head_y = y - head_size // 2
                     self.screen.blit(head_scaled, (head_x, head_y))
                     
@@ -6892,10 +6904,10 @@ class SnakeGame:
                 name_color = NEON_YELLOW
             
             text = self.font_small.render(player_name, True, BLACK)
-            rect = text.get_rect(left=center_x - 50 + 2, centery=y + 2)
+            rect = text.get_rect(left=center_x - 25 + 1, centery=y + 1)
             self.screen.blit(text, rect)
             text = self.font_small.render(player_name, True, name_color)
-            rect = text.get_rect(left=center_x - 50, centery=y)
+            rect = text.get_rect(left=center_x - 25, centery=y)
             self.screen.blit(text, rect)
             
             # Draw input icon (keyboard/gamepad/robot/off)
@@ -6916,16 +6928,16 @@ class SnakeGame:
             # else: slot_type == 'off', no icon
             
             if icon and slot_type != 'off':
-                icon_x = center_x + 70
-                icon_y = y - 18  # Adjusted for smaller icons
+                icon_x = center_x + 35  # Halved from 70
+                icon_y = y - 9  # Halved from 18
                 # Scale icon down to match other elements
-                icon_scaled = pygame.transform.scale(icon, (36, 36))
+                icon_scaled = pygame.transform.scale(icon, (18, 18))  # Halved from 36
                 self.screen.blit(icon_scaled, (icon_x, icon_y))
             
-            y += 58  # Increased spacing to prevent overlap (head_size is 48)
+            y += 29  # Halved from 58 (head_size is now 24)
         
         # Instructions - positioned at bottom
-        y = SCREEN_HEIGHT - 60  # Start from bottom up
+        y = SCREEN_HEIGHT - 30  # Start from bottom up (halved from 60)
         hints = [
             "UP/DOWN: Navigate | LEFT/RIGHT: Change",
             "START: Begin Game",
@@ -6938,7 +6950,7 @@ class SnakeGame:
             text = self.font_small.render(hint, True, NEON_CYAN)
             rect = text.get_rect(center=(SCREEN_WIDTH // 2, y))
             self.screen.blit(text, rect)
-            y += 22  # Slightly tighter spacing for instructions
+            y += 11  # Halved from 22
     
     def draw_difficulty_select(self):
         # Draw difficulty screen image as background
@@ -6967,8 +6979,8 @@ class SnakeGame:
         ]
         
         # Render difficulty options with better spacing
-        start_y = 280
-        spacing = 40  # Increased spacing between options
+        start_y = 140  # Halved from 280
+        spacing = 20  # Halved from 40
         
         for i, option in enumerate(self.difficulty_options):
             color = NEON_YELLOW if i == self.difficulty_selection else NEON_GREEN
@@ -6991,11 +7003,11 @@ class SnakeGame:
 
         # Draw description text based on difficulty selected
         desc_text = self.font_small.render(descriptions[self.difficulty_selection], True, BLACK)
-        desc_rect = desc_text.get_rect(center=((SCREEN_WIDTH // 2)+2, 452))
+        desc_rect = desc_text.get_rect(center=((SCREEN_WIDTH // 2)+1, 226))  # Halved from 452
         self.screen.blit(desc_text, desc_rect)
         # Draw description text based on difficulty selected
         desc_text = self.font_small.render(descriptions[self.difficulty_selection], True, NEON_PURPLE)
-        desc_rect = desc_text.get_rect(center=(SCREEN_WIDTH // 2, 450))
+        desc_rect = desc_text.get_rect(center=(SCREEN_WIDTH // 2, 225))  # Halved from 450
         self.screen.blit(desc_text, desc_rect)
 
 
@@ -7031,10 +7043,10 @@ class SnakeGame:
             instruction_text = "Choose direction! Auto-hatch in {}s".format(time_left)
         
         instruction = self.font_medium.render(instruction_text, True, BLACK)
-        instruction_rect = instruction.get_rect(center=((SCREEN_WIDTH // 2)+3, SCREEN_HEIGHT - 37))
+        instruction_rect = instruction.get_rect(center=((SCREEN_WIDTH // 2)+2, SCREEN_HEIGHT - 19))
         self.screen.blit(instruction, instruction_rect)
         instruction = self.font_medium.render(instruction_text, True, NEON_YELLOW)
-        instruction_rect = instruction.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT - 40))
+        instruction_rect = instruction.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT - 20))
         self.screen.blit(instruction, instruction_rect)
     
     def draw_snake(self, snake, player_id):
@@ -7176,8 +7188,13 @@ class SnakeGame:
                     pygame.draw.circle(self.screen, NEON_CYAN, eye2, 2)
             else:
                 # Draw body segments
-                if body_img:
-                    self.screen.blit(body_img, (int(pixel_x), int(pixel_y)))
+                # Use glowing body image if snake has isotope ability in adventure mode
+                current_body_img = body_img
+                if has_isotope_ability and self.game_mode == 'adventure' and self.snake_body_glow_img:
+                    current_body_img = self.snake_body_glow_img
+                
+                if current_body_img:
+                    self.screen.blit(current_body_img, (int(pixel_x), int(pixel_y)))
                 else:
                     # Fallback to gradient rendering with player color
                     color = self.player_colors[player_id] if player_id < len(self.player_colors) else NEON_GREEN
@@ -7190,29 +7207,6 @@ class SnakeGame:
                     
                     rect = pygame.Rect(int(pixel_x), int(pixel_y), GRID_SIZE - 2, GRID_SIZE - 2)
                     pygame.draw.rect(self.screen, final_color, rect, border_radius=2)
-            
-            # Add pulsing glow effect when snake has isotope ability
-            if has_isotope_ability:
-                # Calculate pulse effect - smooth sine wave pulsing
-                pulse_timer = pygame.time.get_ticks() / 500.0  # Slower pulse (2 seconds per cycle)
-                import math
-                pulse = (math.sin(pulse_timer) + 1.0) / 2.0  # Pulse between 0 and 1
-                
-                # Draw soft circular glow around each segment
-                glow_color = WHITE
-                center_x = int(pixel_x + GRID_SIZE // 2)
-                center_y = int(pixel_y + GRID_SIZE // 2)
-                
-                # Draw multiple circles with decreasing size and increasing opacity for soft glow
-                max_radius = 32
-                for radius in range(max_radius, 4, -2):
-                    # Alpha increases as radius decreases (brighter in the center) - more visible but still transparent
-                    alpha = int((pulse * 90 + 60) * (1 - radius / max_radius))  # Increased from 50+30 to 90+60
-                    if alpha > 0:
-                        glow_surface = pygame.Surface((radius * 2 + 4, radius * 2 + 4), pygame.SRCALPHA)
-                        pygame.draw.circle(glow_surface, (*glow_color, alpha), (radius + 2, radius + 2), radius)
-                        # Use normal alpha blending instead of additive for proper transparency
-                        self.screen.blit(glow_surface, (center_x - radius - 2, center_y - radius - 2))
     
     def draw_game(self):
         # Draw background
@@ -7649,10 +7643,10 @@ class SnakeGame:
             
             if hasattr(self, 'boss_health') and hasattr(self, 'boss_max_health') and show_health_bar:
                 # Health bar dimensions and position
-                bar_width = 200
-                bar_height = 20
-                bar_x = SCREEN_WIDTH - bar_width - 10  # 10px from right edge
-                bar_y = 10  # 10px from top
+                bar_width = 100  # Halved from 200
+                bar_height = 10  # Halved from 20
+                bar_x = SCREEN_WIDTH - bar_width - 5  # Halved from 10
+                bar_y = 5  # Halved from 10
                 
                 # Background (dark gray)
                 bg_rect = pygame.Rect(bar_x - 2, bar_y - 2, bar_width + 4, bar_height + 4)
@@ -7795,64 +7789,67 @@ class SnakeGame:
             # Single player score - Left side: Score with label (hidden during boss battles)
             if not (hasattr(self, 'boss_active') and self.boss_active and self.boss_spawned):
                 score_label = self.font_small.render("SCORE:", True, BLACK)
-                self.screen.blit(score_label, (10, 4))
+                self.screen.blit(score_label, (5, 4))
                 score_label = self.font_small.render("SCORE:", True, NEON_YELLOW)
-                self.screen.blit(score_label, (8, 2))
+                self.screen.blit(score_label, (4, 3))
                 score_value = self.font_small.render("{}".format(self.score), True, BLACK)
-                self.screen.blit(score_value, (100, 4))
+                self.screen.blit(score_value, (50, 4))
                 score_value = self.font_small.render("{}".format(self.score), True, WHITE)
-                self.screen.blit(score_value, (98, 2))
+                self.screen.blit(score_value, (49, 3))
         
         # Single player HUD elements (level, worms counter) - hidden during boss battles
         if not self.is_multiplayer and not (hasattr(self, 'boss_active') and self.boss_active and self.boss_spawned):
-            # Center-left: Level
+            # Bottom right: Level
+            level_value_text = "{}".format(self.level)
+            level_value = self.font_small.render(level_value_text, True, BLACK)
+            level_value_rect = level_value.get_rect(right=SCREEN_WIDTH - 4, bottom=SCREEN_HEIGHT - 3)
+            self.screen.blit(level_value, level_value_rect)
+            level_value = self.font_small.render(level_value_text, True, WHITE)
+            level_value_rect = level_value.get_rect(right=SCREEN_WIDTH - 5, bottom=SCREEN_HEIGHT - 4)
+            self.screen.blit(level_value, level_value_rect)
+            
             level_label = self.font_small.render("LEVEL:", True, BLACK)
-            level_value = self.font_small.render("{}".format(self.level), True, BLACK)
-            level_label_rect = level_label.get_rect(center=(SCREEN_WIDTH // 2 + 62, SCREEN_HEIGHT - 7))
-            level_value_rect = level_value.get_rect(center=(SCREEN_WIDTH // 2 + 125, SCREEN_HEIGHT - 6))
+            level_label_rect = level_label.get_rect(right=level_value_rect.left - 2, bottom=SCREEN_HEIGHT - 3)
             self.screen.blit(level_label, level_label_rect)
-            self.screen.blit(level_value, level_value_rect)
             level_label = self.font_small.render("LEVEL:", True, NEON_YELLOW)
-            level_value = self.font_small.render("{}".format(self.level), True, WHITE)
-            level_label_rect = level_label.get_rect(center=(SCREEN_WIDTH // 2 + 60, SCREEN_HEIGHT - 9))
-            level_value_rect = level_value.get_rect(center=(SCREEN_WIDTH // 2 + 123, SCREEN_HEIGHT - 8))
+            level_label_rect = level_label.get_rect(right=level_value_rect.left - 3, bottom=SCREEN_HEIGHT - 4)
             self.screen.blit(level_label, level_label_rect)
-            self.screen.blit(level_value, level_value_rect)
             
             # Only show worms counter in endless mode (visible on screen in adventure mode)
             if self.game_mode != "adventure":
                 fruits_label = self.font_small.render("WORMS:", True, BLACK)
-                fruits_label_rect = fruits_label.get_rect(center=(SCREEN_WIDTH // 2 + 62, 16))
+                fruits_label_rect = fruits_label.get_rect(center=(SCREEN_WIDTH // 2 + 31, 8))  # Halved from 62, 16
                 self.screen.blit(fruits_label, fruits_label_rect)
                 fruits_label = self.font_small.render("WORMS:", True, NEON_YELLOW)
-                fruits_label_rect = fruits_label.get_rect(center=(SCREEN_WIDTH // 2 + 60, 14))
+                fruits_label_rect = fruits_label.get_rect(center=(SCREEN_WIDTH // 2 + 30, 7))  # Halved from 60, 14
                 self.screen.blit(fruits_label, fruits_label_rect)
 
                 # Endless mode: show fruits eaten / 12
                 worm_count_text = "{}/12".format(self.fruits_eaten_this_level)
                 
                 fruits_value = self.font_small.render(worm_count_text, True, BLACK)
-                fruits_value_rect = fruits_value.get_rect(center=(SCREEN_WIDTH // 2 + 135, 16))
+                fruits_value_rect = fruits_value.get_rect(center=(SCREEN_WIDTH // 2 + 68, 8))  # Halved from 135, 16 (rounded)
                 self.screen.blit(fruits_value, fruits_value_rect)
                 fruits_value = self.font_small.render(worm_count_text, True, WHITE)
-                fruits_value_rect = fruits_value.get_rect(center=(SCREEN_WIDTH // 2 + 133, 14))
+                fruits_value_rect = fruits_value.get_rect(center=(SCREEN_WIDTH // 2 + 67, 7))  # Halved from 133, 14 (rounded)
                 self.screen.blit(fruits_value, fruits_value_rect)
             
-            # Show coins in adventure mode
+            # Show coins in adventure mode (right side of top bar)
             if self.game_mode == "adventure":
+                coins_value_text = "{}".format(getattr(self, 'total_coins', 0))
+                coins_value = self.font_small.render(coins_value_text, True, BLACK)
+                coins_value_rect = coins_value.get_rect(right=SCREEN_WIDTH - 4, top=4)
+                self.screen.blit(coins_value, coins_value_rect)
+                coins_value = self.font_small.render(coins_value_text, True, WHITE)
+                coins_value_rect = coins_value.get_rect(right=SCREEN_WIDTH - 5, top=3)
+                self.screen.blit(coins_value, coins_value_rect)
+                
                 coins_label = self.font_small.render("COINS:", True, BLACK)
-                coins_label_rect = coins_label.get_rect(center=(SCREEN_WIDTH // 2 +2, 16))
+                coins_label_rect = coins_label.get_rect(right=coins_value_rect.left - 2, top=4)
                 self.screen.blit(coins_label, coins_label_rect)
                 coins_label = self.font_small.render("COINS:", True, YELLOW)
-                coins_label_rect = coins_label.get_rect(center=(SCREEN_WIDTH // 2, 14))
+                coins_label_rect = coins_label.get_rect(right=coins_value_rect.left - 3, top=3)
                 self.screen.blit(coins_label, coins_label_rect)
-                
-                coins_value = self.font_small.render("{}".format(getattr(self, 'total_coins', 0)), True, BLACK)
-                coins_value_rect = coins_value.get_rect(center=(SCREEN_WIDTH - 10, 16))
-                self.screen.blit(coins_value, coins_value_rect)
-                coins_value = self.font_small.render("{}".format(getattr(self, 'total_coins', 0)), True, WHITE)
-                coins_value_rect = coins_value.get_rect(center=(SCREEN_WIDTH - 12, 14))
-                self.screen.blit(coins_value, coins_value_rect)
         
         # Lives with label (only in single player) - hidden during egg hatching in boss mode
         if not self.is_multiplayer:
@@ -7863,13 +7860,13 @@ class SnakeGame:
             
             if show_lives:
                 lives_label = self.font_small.render("LIVES:", True, BLACK)
-                self.screen.blit(lives_label, (10, SCREEN_HEIGHT - 19))
+                self.screen.blit(lives_label, (5, SCREEN_HEIGHT - 9))
                 lives_label = self.font_small.render("LIVES:", True, NEON_YELLOW)
-                self.screen.blit(lives_label, (8, SCREEN_HEIGHT - 21))
+                self.screen.blit(lives_label, (4, SCREEN_HEIGHT - 10))
                 lives_value = self.font_small.render("{}".format(self.lives), True, BLACK)
-                self.screen.blit(lives_value, (85, SCREEN_HEIGHT - 19))
+                self.screen.blit(lives_value, (38, SCREEN_HEIGHT - 9))
                 lives_value = self.font_small.render("{}".format(self.lives), True, WHITE)
-                self.screen.blit(lives_value, (83, SCREEN_HEIGHT - 21))
+                self.screen.blit(lives_value, (37, SCREEN_HEIGHT - 10))
         
         # Draw "Press A to Fire" message when isotope is collected
         if hasattr(self, 'isotope_message_timer') and self.isotope_message_timer > 0:
@@ -7877,14 +7874,14 @@ class SnakeGame:
             message_text = "Press A to Fire"
             # Shadow
             text = self.font_medium.render(message_text, True, BLACK)
-            text_rect = text.get_rect(center=(SCREEN_WIDTH // 2 + 2, SCREEN_HEIGHT - 18))
+            text_rect = text.get_rect(center=(SCREEN_WIDTH // 2 + 1, SCREEN_HEIGHT - 9))
             self.screen.blit(text, text_rect)
             # Main text with pulsing effect
             pulse = abs((self.isotope_message_timer % 60) - 30) / 30.0  # Pulse between 0 and 1
             alpha = int(200 + pulse * 55)  # Alpha between 200 and 255
             text = self.font_medium.render(message_text, True, NEON_YELLOW)
             text.set_alpha(alpha)
-            text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT - 20))
+            text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT - 10))
             self.screen.blit(text, text_rect)
             
             # Decrement timer
@@ -7893,7 +7890,7 @@ class SnakeGame:
         # Draw achievement notification if active
         if self.achievement_notification_active:
             # Position at bottom of screen
-            notification_y = SCREEN_HEIGHT - 60
+            notification_y = SCREEN_HEIGHT - 30  # Halved from 60
             
             # Calculate fade effect for first and last 30 frames
             fade_duration = 30
@@ -8010,7 +8007,7 @@ class SnakeGame:
                     text = self.font_medium.render(score_text, True, self.player_colors[snake.player_id])
                     rect = text.get_rect(center=(SCREEN_WIDTH // 2, y_offset))
                     self.screen.blit(text, rect)
-                    y_offset += 40
+                    y_offset += 20  # Halved from 40
             else:
                 # Single player results
                 score_text = self.font_medium.render("Score: {}".format(self.score), True, NEON_CYAN)
@@ -8022,7 +8019,7 @@ class SnakeGame:
                 self.screen.blit(level_text, level_rect)
             
             hint_text = self.font_small.render("Start to continue", True, NEON_YELLOW)
-            hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 400))
+            hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 200))  # Halved from 400
             self.screen.blit(hint_text, hint_rect)
     
     def draw_level_complete(self):
@@ -8106,10 +8103,10 @@ class SnakeGame:
                 self.screen.blit(new_high_text, new_high_rect)
             
             hint_text = self.font_small.render("Start to continue", True, BLACK)
-            hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+3, SCREEN_HEIGHT - 60+3))
+            hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+2, SCREEN_HEIGHT - 30+2))
             self.screen.blit(hint_text, hint_rect)
             hint_text = self.font_small.render("Start to continue", True, NEON_YELLOW)
-            hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT - 60))
+            hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT - 30))
             self.screen.blit(hint_text, hint_rect)
         elif self.is_multiplayer:
             # Show round results
@@ -8144,13 +8141,13 @@ class SnakeGame:
                 text = self.font_small.render(score_text, True, self.player_colors[i])
                 rect = text.get_rect(center=(SCREEN_WIDTH // 2, y_offset))
                 self.screen.blit(text, rect)
-                y_offset += 25
+                y_offset += 13  # Halved from 25 (rounded)
             
             hint_text = self.font_small.render("Start to continue", True, BLACK)
-            hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+3, SCREEN_HEIGHT - 60+3))
+            hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+2, SCREEN_HEIGHT - 30+2))
             self.screen.blit(hint_text, hint_rect)
             hint_text = self.font_small.render("Start to continue", True, NEON_YELLOW)
-            hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT - 60))
+            hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT - 30))
             self.screen.blit(hint_text, hint_rect)
         else:
             # Single player level complete
@@ -8205,8 +8202,8 @@ class SnakeGame:
             self.screen.blit(msg, msg_rect)
         else:
             # Draw achievements list
-            start_y = 90
-            line_height = 28
+            start_y = 45  # Halved from 90
+            line_height = 14  # Halved from 28
             
             for i, achievement in enumerate(achievements):
                 y_pos = start_y + i * line_height
@@ -8216,8 +8213,8 @@ class SnakeGame:
                     color = NEON_CYAN
                     # Draw trophy icon
                     if self.trophy_icon:
-                        trophy_scaled = pygame.transform.scale(self.trophy_icon, (10, 10))
-                        self.screen.blit(trophy_scaled, (30, y_pos - 2))
+                        trophy_scaled = pygame.transform.scale(self.trophy_icon, (5, 5))  # Halved from 10
+                        self.screen.blit(trophy_scaled, (15, y_pos - 1))  # Halved from 30
                 else:
                     color = GRAY
                 
@@ -8225,40 +8222,40 @@ class SnakeGame:
                 if i == self.achievement_selection:
                     # Draw selection indicator
                     indicator = self.font_small.render(">", True, NEON_YELLOW)
-                    self.screen.blit(indicator, (15, y_pos))
+                    self.screen.blit(indicator, (8, y_pos))  # Halved from 15
                 
                 # Draw achievement name with shadow
                 name_shadow = self.font_small.render(achievement['name'], True, BLACK)
-                self.screen.blit(name_shadow, (57, y_pos + 2))
+                self.screen.blit(name_shadow, (29, y_pos + 1))  # Halved from 57
                 
                 name_text = self.font_small.render(achievement['name'], True, color)
-                self.screen.blit(name_text, (55, y_pos))
+                self.screen.blit(name_text, (28, y_pos))  # Halved from 55
             
             # Draw description box at bottom for selected achievement
             if 0 <= self.achievement_selection < len(achievements):
                 selected = achievements[self.achievement_selection]
                 
                 # Description box background
-                desc_box_y = 320
-                desc_box_height = 100
-                desc_box = pygame.Surface((SCREEN_WIDTH - 40, desc_box_height))
+                desc_box_y = 160  # Halved from 320
+                desc_box_height = 50  # Halved from 100
+                desc_box = pygame.Surface((SCREEN_WIDTH - 20, desc_box_height))  # Halved from 40
                 desc_box.fill(BLACK)
                 desc_box.set_alpha(180)
-                self.screen.blit(desc_box, (20, desc_box_y))
+                self.screen.blit(desc_box, (10, desc_box_y))  # Halved from 20
                 
                 # Description title
                 desc_title = "Description:"
                 title_shadow = self.font_small.render(desc_title, True, BLACK)
-                self.screen.blit(title_shadow, (32, desc_box_y + 12))
+                self.screen.blit(title_shadow, (16, desc_box_y + 6))  # Halved from 32, 12
                 title_text = self.font_small.render(desc_title, True, NEON_YELLOW)
-                self.screen.blit(title_text, (30, desc_box_y + 10))
+                self.screen.blit(title_text, (15, desc_box_y + 5))  # Halved from 30, 10
                 
                 # Description text (word wrap if needed)
                 description = selected['description']
                 desc_shadow = self.font_small.render(description, True, BLACK)
-                self.screen.blit(desc_shadow, (32, desc_box_y + 42))
+                self.screen.blit(desc_shadow, (16, desc_box_y + 21))  # Halved from 32, 42
                 desc_text = self.font_small.render(description, True, WHITE)
-                self.screen.blit(desc_text, (30, desc_box_y + 40))
+                self.screen.blit(desc_text, (15, desc_box_y + 20))  # Halved from 30, 40
                 
                 # Status
                 if selected['unlocked']:
@@ -8269,16 +8266,16 @@ class SnakeGame:
                     status_color = RED
                 
                 status_shadow = self.font_small.render(status, True, BLACK)
-                self.screen.blit(status_shadow, (32, desc_box_y + 72))
+                self.screen.blit(status_shadow, (16, desc_box_y + 36))  # Halved from 32, 72
                 status_text = self.font_small.render(status, True, status_color)
-                self.screen.blit(status_text, (30, desc_box_y + 70))
+                self.screen.blit(status_text, (15, desc_box_y + 35))  # Halved from 30, 70
         
         # Hint text
         hint_text = self.font_small.render("Press Start to go back", True, BLACK)
-        hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+2, 452))
+        hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+1, 226))  # Halved from 452
         self.screen.blit(hint_text, hint_rect)
         hint_text = self.font_small.render("Press Start to go back", True, NEON_PURPLE)
-        hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 450))
+        hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 225))  # Halved from 450)
         self.screen.blit(hint_text, hint_rect)
     
     def draw_music_player(self):
@@ -8323,8 +8320,8 @@ class SnakeGame:
             self.screen.blit(no_tracks, no_tracks_rect)
         else:
             # Display up to 8 tracks at a time
-            start_y = 75
-            spacing = 32
+            start_y = 38  # Halved from 75 (rounded)
+            spacing = 16  # Halved from 32
             visible_tracks = 8
             
             # Calculate which tracks to show (center the selection)
@@ -8424,12 +8421,12 @@ class SnakeGame:
             self.screen.blit(info, info_rect)
         
         # Control buttons
-        button_y = 385
-        button_size = 30
+        button_y = 193  # Halved from 385
+        button_size = 15  # Halved from 30
         center_x = SCREEN_WIDTH // 2
         
         # Previous button (◄)
-        prev_x = center_x - 80
+        prev_x = center_x - 40  # Halved from 80
         pygame.draw.polygon(self.screen, BLACK, [
             (prev_x + 3, button_y + button_size // 2 + 3),
             (prev_x + button_size - 7, button_y + 3),
@@ -8466,7 +8463,7 @@ class SnakeGame:
             ])
         
         # Next button (►)
-        next_x = center_x + 50
+        next_x = center_x + 25  # Halved from 50
         pygame.draw.polygon(self.screen, BLACK, [
             (next_x + button_size - 7, button_y + button_size // 2 + 3),
             (next_x + 3, button_y + 3),
@@ -8480,7 +8477,7 @@ class SnakeGame:
         pygame.draw.rect(self.screen, NEON_CYAN, (next_x + button_size - 7, button_y, 3, button_size))
         
         # Control hints
-        hint_y = 440
+        hint_y = 220  # Halved from 440
         hint_text = self.font_medium.render("A: Play/Pause  |  L/R: Skip", True, BLACK)
         hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+2, hint_y+2))
         self.screen.blit(hint_text, hint_rect)
@@ -8528,10 +8525,10 @@ class SnakeGame:
         
         # Hint text
         hint_text = self.font_small.render("Press Start to go back", True, BLACK)
-        hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+2, 452))
+        hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+1, 226))  # Halved from 452
         self.screen.blit(hint_text, hint_rect)
         hint_text = self.font_small.render("Press Start to go back", True, NEON_PURPLE)
-        hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 450))
+        hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 225))  # Halved from 450)
         self.screen.blit(hint_text, hint_rect)
     
     def draw_credits(self):
@@ -8563,14 +8560,14 @@ class SnakeGame:
                 text = self.font_small.render(line_text, True, color)
                 text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, y_pos))
                 self.screen.blit(text, text_rect)
-            y_pos += 30
+            y_pos += 15  # Halved from 30
         
         # Bottom hint
         hint_text = self.font_small.render("Press Start to return to menu", True, BLACK)
-        hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2) + 2, SCREEN_HEIGHT - 42))
+        hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2) + 1, SCREEN_HEIGHT - 21))
         self.screen.blit(hint_text, hint_rect)
         hint_text = self.font_small.render("Press Start to return to menu", True, NEON_YELLOW)
-        hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT - 40))
+        hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT - 20))
         self.screen.blit(hint_text, hint_rect)
     
     def draw_high_score_entry(self):
@@ -8646,16 +8643,16 @@ class SnakeGame:
         # Legend at bottom
         hint_text = self.current_hint
         legend_text = self.font_small.render(hint_text, True, BLACK)
-        legend_rect = legend_text.get_rect(center=((SCREEN_WIDTH // 2)+3, 360+3))
+        legend_rect = legend_text.get_rect(center=((SCREEN_WIDTH // 2)+2, 181))  # Halved from 360+3
         self.screen.blit(legend_text, legend_rect)
         legend_text = self.font_small.render(hint_text, True, NEON_CYAN)
-        legend_rect = legend_text.get_rect(center=(SCREEN_WIDTH // 2, 360))
+        legend_rect = legend_text.get_rect(center=(SCREEN_WIDTH // 2, 180))  # Halved from 360
         self.screen.blit(legend_text, legend_rect)
         hint_text = self.font_small.render("Start to continue", True, BLACK)
-        hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+3, 452+3))
+        hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+2, 227))  # Halved from 452+3
         self.screen.blit(hint_text, hint_rect)
         hint_text = self.font_small.render("Start to continue", True, NEON_CYAN)
-        hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 452))
+        hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 226))  # Halved from 452
         self.screen.blit(hint_text, hint_rect)
     
     def draw_high_scores(self):
@@ -8683,8 +8680,8 @@ class SnakeGame:
             self.screen.blit(no_scores, no_scores_rect)
         else:
             # Score list with better spacing to fill the screen
-            start_y = 60
-            spacing = 38  # Increased spacing for medium font
+            start_y = 30  # Halved from 60
+            spacing = 19  # Halved from 38
             for i, entry in enumerate(self.high_scores[:10]):
                 name = entry['name']
                 score = entry['score']
@@ -8712,10 +8709,10 @@ class SnakeGame:
         
         # Hint text at bottom
         hint_text = self.font_small.render("Start to continue", True, BLACK)
-        hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+3, 452))
+        hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+2, 227))  # Halved from 452 + 1
         self.screen.blit(hint_text, hint_rect)
         hint_text = self.font_small.render("Start to continue", True, NEON_CYAN)
-        hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 450))
+        hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 225))  # Halved from 450
         self.screen.blit(hint_text, hint_rect)
 
 if __name__ == "__main__":

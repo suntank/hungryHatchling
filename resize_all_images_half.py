@@ -44,7 +44,7 @@ def resize_static_image(filepath, scale_factor=0.5):
         return False
 
 def resize_animated_gif(filepath, scale_factor=0.5):
-    """Resize an animated GIF by resizing each frame"""
+    """Resize an animated GIF by resizing each frame while preserving transparency"""
     try:
         gif = Image.open(filepath)
         original_size = gif.size
@@ -55,29 +55,46 @@ def resize_animated_gif(filepath, scale_factor=0.5):
         
         # Extract all frames
         try:
+            frame_index = 0
             while True:
                 # Get frame duration (default to 100ms if not specified)
                 duration = gif.info.get('duration', 100)
                 durations.append(duration)
                 
-                # Resize frame
-                resized_frame = gif.copy().resize(new_size, Image.Resampling.LANCZOS)
+                # Convert frame to RGBA to preserve transparency
+                frame = gif.copy().convert('RGBA')
+                
+                # Resize frame with high-quality resampling
+                resized_frame = frame.resize(new_size, Image.Resampling.LANCZOS)
                 frames.append(resized_frame)
                 
                 # Move to next frame
-                gif.seek(gif.tell() + 1)
+                frame_index += 1
+                gif.seek(frame_index)
         except EOFError:
             pass  # End of frames
         
-        # Save resized GIF
+        # Save resized GIF with transparency preserved
         if frames:
-            frames[0].save(
+            # Convert RGBA frames to P mode with transparency using PIL's quantize
+            frames_p = []
+            
+            for frame in frames:
+                # Use PIL's quantize method which properly handles alpha
+                # Method 2 (FASTOCTREE) for RGBA images
+                frame_p = frame.quantize(method=2, colors=256, dither=1)
+                frames_p.append(frame_p)
+            
+            # Save with proper transparency settings
+            # Get the transparency info from the quantized frames
+            frames_p[0].save(
                 filepath,
                 save_all=True,
-                append_images=frames[1:],
+                append_images=frames_p[1:],
                 duration=durations,
                 loop=gif.info.get('loop', 0),
-                optimize=False  # Don't optimize to preserve quality
+                disposal=2,  # Clear frame (dispose to background) before rendering next
+                optimize=False
             )
             print(f"  ✓ {os.path.basename(filepath)}: {original_size[0]}x{original_size[1]} -> {new_size[0]}x{new_size[1]} ({len(frames)} frames)")
             return True
