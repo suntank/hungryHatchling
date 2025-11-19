@@ -106,8 +106,16 @@ def resize_animated_gif(filepath, scale_factor=0.5):
         print(f"  ✗ Error resizing animated GIF {filepath}: {e}")
         return False
 
-def resize_all_images(img_dir, scale_factor=0.5, create_backup_first=True):
-    """Resize all images in the img directory by scale_factor"""
+def resize_all_images(img_dir, scale_factor=0.5, create_backup_first=True, folders_to_process=None):
+    """Resize all images in the img directory by scale_factor
+    
+    Args:
+        img_dir: Path to img directory
+        scale_factor: Scale factor (0.5 = 50%)
+        create_backup_first: Whether to create backup
+        folders_to_process: List of folder names to process (e.g., ['bg', 'intro', 'outro'])
+                          If None, processes all folders
+    """
     
     if not os.path.exists(img_dir):
         print(f"Error: Directory {img_dir} not found!")
@@ -121,7 +129,11 @@ def resize_all_images(img_dir, scale_factor=0.5, create_backup_first=True):
                 print("Operation cancelled")
                 return
     
-    print(f"\nResizing all images to {int(scale_factor * 100)}% of original size...")
+    print(f"\nResizing images to {int(scale_factor * 100)}% of original size...")
+    if folders_to_process:
+        print(f"Processing only folders: {', '.join(folders_to_process)}")
+    else:
+        print("Processing all folders")
     print("=" * 60)
     
     total_files = 0
@@ -131,6 +143,14 @@ def resize_all_images(img_dir, scale_factor=0.5, create_backup_first=True):
     for root, dirs, files in os.walk(img_dir):
         if files:
             rel_path = os.path.relpath(root, img_dir)
+            
+            # Skip if we're filtering folders and this isn't in the list
+            if folders_to_process is not None:
+                # Get the top-level folder name
+                folder_name = rel_path.split(os.sep)[0] if rel_path != '.' else '.'
+                if folder_name not in folders_to_process:
+                    continue  # Skip this folder
+            
             print(f"\nProcessing: {rel_path if rel_path != '.' else 'img/'}")
             
             for filename in sorted(files):
@@ -166,8 +186,11 @@ def main():
     print("=" * 60)
     print("Image Resizer for 240x240 Base Resolution")
     print("=" * 60)
-    print("\nThis script will resize ALL images in the img/ directory by 50%")
-    print("to match the new 240x240 base resolution (scaled 2x to 480x480).")
+    print("\nThis script will resize images in SPECIFIC FOLDERS ONLY:")
+    print("  - bg/")
+    print("  - Intro/")
+    print("  - outro/")
+    print("\nAll images will be resized by 50% (480x480 -> 240x240, etc.)")
     print("\nA backup will be created at img_backup/ before resizing.")
     print("\nPress Ctrl+C to cancel at any time.")
     print("=" * 60)
@@ -177,7 +200,9 @@ def main():
         print("Operation cancelled")
         return
     
-    resize_all_images(img_dir, scale_factor=0.5, create_backup_first=True)
+    # Only process bg, Intro, and outro folders
+    folders_to_process = ['bg', 'Intro', 'outro']
+    resize_all_images(img_dir, scale_factor=0.5, create_backup_first=True, folders_to_process=folders_to_process)
     
     print("\n" + "=" * 60)
     print("IMPORTANT: Test the game after resizing!")

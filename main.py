@@ -289,8 +289,8 @@ class SnakeGame:
         # Load snake body images for all 4 players
         self.snake_body_imgs = []  # List of body images for each player
         
-        # In LOW_MEMORY_MODE, only load player 1 graphics
-        player_range = range(1, 2) if LOW_MEMORY_MODE else range(1, 5)
+        # Always load all 4 player graphics for multiplayer support
+        player_range = range(1, 5)
         
         for player_num in player_range:  # Players 1-4 (or just 1 in LOW_MEMORY_MODE)
             try:
@@ -309,8 +309,7 @@ class SnakeGame:
                 self.snake_body_imgs.append(None)
                 print("Warning: HatchlingBody{}.png not found: {}".format(player_num if player_num > 1 else '', e))
         
-        if LOW_MEMORY_MODE:
-            print("LOW_MEMORY_MODE: Only loaded player 1 snake body")
+        # Note: All 4 player graphics are always loaded for multiplayer support
         
         # Keep original for backwards compatibility
         self.snake_body_img = self.snake_body_imgs[0] if self.snake_body_imgs else None
@@ -6393,12 +6392,12 @@ class SnakeGame:
         for i, option in enumerate(self.menu_options):
             color = NEON_YELLOW if i == self.menu_selection else NEON_CYAN
             text = self.font_medium.render(option, True, BLACK)
-            text_rect = text.get_rect(center=((SCREEN_WIDTH // 2)+1, 81 + i * 15))  # Halved from 162, 30
+            text_rect = text.get_rect(center=((SCREEN_WIDTH // 2)+1, 146 + i * 15))  # Moved lower to avoid snake
             
             # Draw text
             self.screen.blit(text, text_rect)
             text = self.font_medium.render(option, True, color)
-            text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, 80 + i * 15))  # Halved from 160, 30
+            text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, 145 + i * 15))  # Moved lower to avoid snake
             
             # Draw text
             self.screen.blit(text, text_rect)
@@ -6411,9 +6410,9 @@ class SnakeGame:
     
     def draw_single_player_menu(self):
         """Draw the single player mode selection menu."""
-        # Use title screen or background
-        if self.title_screen:
-            self.screen.blit(self.title_screen, (0, 0))
+        # Use difficulty screen as background (no text conflicts)
+        if self.difficulty_screen:
+            self.screen.blit(self.difficulty_screen, (0, 0))
         elif self.background:
             self.screen.blit(self.background, (0, 0))
         else:
@@ -6431,19 +6430,19 @@ class SnakeGame:
         for i, option in enumerate(self.single_player_options):
             color = NEON_YELLOW if i == self.single_player_selection else NEON_CYAN
             text = self.font_medium.render(option, True, BLACK)
-            text_rect = text.get_rect(center=((SCREEN_WIDTH // 2)+1, 64 + i * 15))  # Halved from 127, 30
+            text_rect = text.get_rect(center=((SCREEN_WIDTH // 2)+1, 131 + i * 15))  # Moved lower to avoid snake
             self.screen.blit(text, text_rect)
             
             text = self.font_medium.render(option, True, color)
-            text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, 63 + i * 15))  # Halved from 125, 30 (rounded)
+            text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, 130 + i * 15))  # Moved lower to avoid snake
             self.screen.blit(text, text_rect)
         
         # Hint text
         hint_text = self.font_small.render("Press B to go back", True, BLACK)
-        hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+1, 113))  # Halved from 226
+        hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+1, 201))  # Moved below menu options
         self.screen.blit(hint_text, hint_rect)
         hint_text = self.font_small.render("Press B to go back", True, NEON_PURPLE)
-        hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 113))  # Halved from 225 (rounded)
+        hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 200))  # Moved below menu options
         self.screen.blit(hint_text, hint_rect)
     
     def draw_adventure_level_select(self):
@@ -6529,10 +6528,10 @@ class SnakeGame:
         
         # Hint text
         hint_text = self.font_small.render("Press Start to begin", True, BLACK)
-        hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+1, 108))  # Halved from 216
+        hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+1, 201))  # Moved below level boxes
         self.screen.blit(hint_text, hint_rect)
         hint_text = self.font_small.render("Press Start to begin", True, NEON_PURPLE)
-        hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 108))  # Halved from 215 (rounded)
+        hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 200))  # Moved below level boxes
         self.screen.blit(hint_text, hint_rect)
         
         # View Intro button (if intro images are available)
@@ -6572,11 +6571,11 @@ class SnakeGame:
                 color = NEON_YELLOW if i == self.multiplayer_menu_selection else NEON_CYAN
             
             text = self.font_medium.render(option, True, BLACK)
-            text_rect = text.get_rect(center=((SCREEN_WIDTH // 2)+1, 70 + i * 14))  # Halved from 140, 28
+            text_rect = text.get_rect(center=((SCREEN_WIDTH // 2)+1, 131 + i * 15))  # Moved lower to avoid snake
             self.screen.blit(text, text_rect)
             
             text = self.font_medium.render(option, True, color)
-            text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, 69 + i * 14))  # Halved from 138, 28
+            text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, 130 + i * 15))  # Moved lower to avoid snake
             self.screen.blit(text, text_rect)
         
         # Hint text
@@ -6589,9 +6588,9 @@ class SnakeGame:
     
     def draw_extras_menu(self):
         """Draw the extras menu."""
-        # Use title screen or background
-        if self.title_screen:
-            self.screen.blit(self.title_screen, (0, 0))
+        # Use difficulty screen as background (no text conflicts)
+        if self.difficulty_screen:
+            self.screen.blit(self.difficulty_screen, (0, 0))
         elif self.background:
             self.screen.blit(self.background, (0, 0))
         else:
@@ -6610,19 +6609,19 @@ class SnakeGame:
             color = NEON_YELLOW if i == self.extras_menu_selection else NEON_CYAN
             
             text = self.font_medium.render(option, True, BLACK)
-            text_rect = text.get_rect(center=((SCREEN_WIDTH // 2)+1, 58 + i * 13))  # Halved from 115, 25 (rounded)
+            text_rect = text.get_rect(center=((SCREEN_WIDTH // 2)+1, 125 + i * 17))  # Moved lower and spread out more
             self.screen.blit(text, text_rect)
             
             text = self.font_medium.render(option, True, color)
-            text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, 57 + i * 13))  # Halved from 113, 25 (rounded)
+            text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, 124 + i * 17))  # Moved lower and spread out more
             self.screen.blit(text, text_rect)
         
         # Hint text
         hint_text = self.font_small.render("Press B to go back", True, BLACK)
-        hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+1, 113))  # Halved from 226
+        hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+1, 211))  # Moved below menu options
         self.screen.blit(hint_text, hint_rect)
         hint_text = self.font_small.render("Press B to go back", True, NEON_PURPLE)
-        hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 113))  # Halved from 225 (rounded)
+        hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 210))  # Moved below menu options
         self.screen.blit(hint_text, hint_rect)
     
     def draw_multiplayer_level_select(self):
