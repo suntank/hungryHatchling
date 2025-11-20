@@ -5004,6 +5004,23 @@ class SnakeGame:
             elif self.state == GameState.PLAYING:
                 if button == GamepadButton.BTN_START:
                     self.state = GameState.PAUSED
+                elif button == GamepadButton.BTN_A:
+                    # Shooting in adventure mode
+                    if self.game_mode == "adventure" and self.snake.can_shoot:
+                        # Check if player has enough segments (need more than 3)
+                        if len(self.snake.body) > 3:
+                            # Fire a bullet in the current direction
+                            head_x, head_y = self.snake.body[0]
+                            bullet = Bullet(head_x, head_y, self.snake.direction)
+                            self.bullets.append(bullet)
+                            # Remove a segment from the snake
+                            if self.snake.body:
+                                self.snake.body.pop()
+                            # Play shoot sound (using blip_select as placeholder)
+                            self.sound_manager.play('blip_select')
+                            # If segments are now 3 or less, lose shooting ability
+                            if len(self.snake.body) <= 3:
+                                self.snake.can_shoot = False
             elif self.state == GameState.PAUSED:
                 if button == GamepadButton.BTN_START:
                     self.state = GameState.PLAYING
