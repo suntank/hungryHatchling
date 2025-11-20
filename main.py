@@ -26,17 +26,12 @@ pygame.mixer.init(frequency=22050, size=-16, channels=2, buffer=4096)
 
 FPS = 60
 
-# LOW MEMORY MODE for Raspberry Pi Zero 2W
-# Reduces memory usage by ~70% by limiting animations and resources:
-# - Skips intro/outro sequences (saves ~50-100MB)
-# - Loads only player 1 graphics (saves ~30MB)
-# - Loads every other GIF frame (saves ~150-200MB)
-# - Optimizes audio buffer for Pi hardware
-# Set to False on more powerful systems for full quality
-LOW_MEMORY_MODE = True
-
-# Note: FPS stays at 60 even in LOW_MEMORY_MODE because game logic is tied to frame rate
-# Reducing FPS would slow down the entire game. Memory savings come from asset optimizations.
+# MEMORY OPTIMIZATION STRATEGY
+# Uses lazy loading approach - assets loaded only when needed:
+# - Intro/outro sequences not preloaded (can be loaded on-demand if needed)
+# - All animations load full frames for smooth playback
+# - Game assets loaded at startup, can be extended to lazy load per-level
+# Note: FPS stays at 60 because game logic is tied to frame rate
 
 class SnakeGame:
     def __init__(self):
@@ -149,42 +144,13 @@ class SnakeGame:
             self.splash_screen = None
             print("Warning: splashAMS.png not found, skipping splash screen")
         
-        # Load intro sequence images
+        # Intro sequence images - not preloaded (lazy loading)
         self.intro_images = []
-        if not LOW_MEMORY_MODE:
-            for i in range(1, 8):  # intro1 through intro7 (jpg or png)
-                loaded = False
-                # Try both .jpg and .png extensions
-                for ext in ['.jpg', '.png']:
-                    try:
-                        intro_path = os.path.join(SCRIPT_DIR, 'img', 'Intro', 'intro{}{}'.format(i, ext))
-                        intro_img = pygame.image.load(intro_path).convert()
-                        intro_img = pygame.transform.scale(intro_img, (SCREEN_WIDTH, SCREEN_HEIGHT))
-                        self.intro_images.append(intro_img)
-                        loaded = True
-                        break
-                    except:
-                        pass
-                if not loaded:
-                    print("Warning: intro{} not found (tried .jpg and .png)".format(i))
-            print("Loaded {} intro images".format(len(self.intro_images)))
-        else:
-            print("LOW_MEMORY_MODE: Skipping intro images")
+        print("Lazy loading: Skipping intro images (can load on-demand if needed)")
         
-        # Load outro sequence images
+        # Outro sequence images - not preloaded (lazy loading)
         self.outro_images = []
-        if not LOW_MEMORY_MODE:
-            for i in range(1, 5):  # outro1 through outro4 (jpg)
-                try:
-                    outro_path = os.path.join(SCRIPT_DIR, 'img', 'outro', 'outro{}.jpg'.format(i))
-                    outro_img = pygame.image.load(outro_path).convert()
-                    # Don't scale here - we'll handle it in draw_outro for panning
-                    self.outro_images.append(outro_img)
-                except:
-                    print("Warning: outro{}.jpg not found".format(i))
-            print("Loaded {} outro images".format(len(self.outro_images)))
-        else:
-            print("LOW_MEMORY_MODE: Skipping outro images")
+        print("Lazy loading: Skipping outro images (can load on-demand if needed)")
         
         # Load Tweetrix logo
         try:
@@ -292,7 +258,7 @@ class SnakeGame:
         # Always load all 4 player graphics for multiplayer support
         player_range = range(1, 5)
         
-        for player_num in player_range:  # Players 1-4 (or just 1 in LOW_MEMORY_MODE)
+        for player_num in player_range:  # Players 1-4
             try:
                 if player_num == 1:
                     body_path = os.path.join(SCRIPT_DIR, 'img', 'HatchlingBody.png')
@@ -326,7 +292,7 @@ class SnakeGame:
         # Load snake head animations (GIF) for all 4 players
         self.snake_head_frames_all = []  # List of frame lists for each player
         
-        for player_num in player_range:  # Players 1-4 (or just 1 in LOW_MEMORY_MODE)
+        for player_num in player_range:  # Players 1-4
             try:
                 from PIL import Image
                 head_path = os.path.join(SCRIPT_DIR, 'img', 'HatchlingHead{}.gif'.format(player_num))
@@ -337,12 +303,6 @@ class SnakeGame:
                 frame_count = 0
                 try:
                     while True:
-                        # In LOW_MEMORY_MODE, skip every other frame to reduce memory
-                        if LOW_MEMORY_MODE and frame_count % 2 != 0:
-                            frame_count += 1
-                            gif.seek(frame_count)
-                            continue
-                        
                         # Convert PIL image to pygame surface
                         frame = gif.copy().convert('RGBA')
                         pygame_frame = pygame.image.frombytes(
@@ -356,8 +316,7 @@ class SnakeGame:
                     pass  # End of frames
                 
                 self.snake_head_frames_all.append(frames)
-                print("Loaded {} frames for player {} head animation{}".format(
-                    len(frames), player_num, " (reduced)" if LOW_MEMORY_MODE else ""))
+                print("Loaded {} frames for player {} head animation".format(len(frames), player_num))
             except Exception as e:
                 self.snake_head_frames_all.append([])
                 print("Warning: HatchlingHead{}.gif not found or could not be loaded: {}".format(player_num, e))
@@ -379,11 +338,6 @@ class SnakeGame:
             frame_count = 0
             try:
                 while True:
-                    # In LOW_MEMORY_MODE, skip every other frame
-                    if LOW_MEMORY_MODE and frame_count % 2 != 0:
-                        frame_count += 1
-                        gif.seek(frame_count)
-                        continue
                     
                     # Get the current frame and convert to RGBA
                     frame = gif.copy().convert('RGBA')
@@ -398,8 +352,7 @@ class SnakeGame:
             except EOFError:
                 pass  # End of frames
             
-            print("Loaded {} frames for particle animation{}".format(
-                len(self.particle_frames), " (reduced)" if LOW_MEMORY_MODE else ""))
+            print("Loaded {} frames for particle animation".format(len(self.particle_frames)))
         except Exception as e:
             self.particle_frames = []
             print("Warning: particlesRed.gif not found or could not be loaded: {}".format(e))
@@ -415,11 +368,6 @@ class SnakeGame:
             frame_count = 0
             try:
                 while True:
-                    # In LOW_MEMORY_MODE, skip every other frame
-                    if LOW_MEMORY_MODE and frame_count % 2 != 0:
-                        frame_count += 1
-                        gif.seek(frame_count)
-                        continue
                     
                     # Get the current frame and convert to RGBA
                     frame = gif.copy().convert('RGBA')
@@ -434,8 +382,7 @@ class SnakeGame:
             except EOFError:
                 pass
             
-            print("Loaded {} frames for white particle animation{}".format(
-                len(self.particle_white_frames), " (reduced)" if LOW_MEMORY_MODE else ""))
+            print("Loaded {} frames for white particle animation".format(len(self.particle_white_frames)))
         except Exception as e:
             self.particle_white_frames = []
             print("Warning: particlesWhite.gif not found or could not be loaded: {}".format(e))
@@ -451,11 +398,6 @@ class SnakeGame:
             frame_count = 0
             try:
                 while True:
-                    # In LOW_MEMORY_MODE, skip every other frame
-                    if LOW_MEMORY_MODE and frame_count % 2 != 0:
-                        frame_count += 1
-                        gif.seek(frame_count)
-                        continue
                     
                     # Get the current frame and convert to RGBA
                     frame = gif.copy().convert('RGBA')
@@ -470,8 +412,7 @@ class SnakeGame:
             except EOFError:
                 pass
             
-            print("Loaded {} frames for rainbow particle animation{}".format(
-                len(self.particle_rainbow_frames), " (reduced)" if LOW_MEMORY_MODE else ""))
+            print("Loaded {} frames for rainbow particle animation".format(len(self.particle_rainbow_frames)))
         except Exception as e:
             self.particle_rainbow_frames = []
             print("Warning: particlesRainbow.gif not found or could not be loaded: {}".format(e))
@@ -487,11 +428,6 @@ class SnakeGame:
             frame_count = 0
             try:
                 while True:
-                    # In LOW_MEMORY_MODE, skip every other frame
-                    if LOW_MEMORY_MODE and frame_count % 2 != 0:
-                        frame_count += 1
-                        gif.seek(frame_count)
-                        continue
                     
                     # Convert PIL image to pygame surface
                     frame = gif.copy().convert('RGBA')
@@ -509,8 +445,7 @@ class SnakeGame:
             self.worm_frame_index = 0
             self.worm_animation_speed = 5  # Change frame every N game frames
             self.worm_animation_counter = 0
-            print("Loaded {} frames for worm animation{}".format(
-                len(self.worm_frames), " (reduced)" if LOW_MEMORY_MODE else ""))
+            print("Loaded {} frames for worm animation".format(len(self.worm_frames)))
         except Exception as e:
             self.worm_frames = []
             print("Warning: worm.gif not found or could not be loaded: {}".format(e))
@@ -526,11 +461,6 @@ class SnakeGame:
             frame_count = 0
             try:
                 while True:
-                    # In LOW_MEMORY_MODE, skip every other frame
-                    if LOW_MEMORY_MODE and frame_count % 2 != 0:
-                        frame_count += 1
-                        gif.seek(frame_count)
-                        continue
                     
                     # Convert PIL image to pygame surface
                     frame = gif.copy().convert('RGBA')
@@ -548,8 +478,7 @@ class SnakeGame:
             self.ant_frame_index = 0
             self.ant_animation_speed = 1  # Change frame every N game frames (fast animation)
             self.ant_animation_counter = 0
-            print("Loaded {} frames for ant animation{}".format(
-                len(self.ant_frames), " (reduced)" if LOW_MEMORY_MODE else ""))
+            print("Loaded {} frames for ant animation".format(len(self.ant_frames)))
         except Exception as e:
             self.ant_frames = []
             print("Warning: ant.gif not found or could not be loaded: {}".format(e))
@@ -565,11 +494,6 @@ class SnakeGame:
             frame_count = 0
             try:
                 while True:
-                    # In LOW_MEMORY_MODE, skip every other frame
-                    if LOW_MEMORY_MODE and frame_count % 2 != 0:
-                        frame_count += 1
-                        gif.seek(frame_count)
-                        continue
                     
                     # Convert PIL image to pygame surface
                     frame = gif.copy().convert('RGBA')
@@ -587,8 +511,7 @@ class SnakeGame:
             self.spider_frame_index = 0
             self.spider_animation_speed = 1  # Change frame every N game frames (fast animation)
             self.spider_animation_counter = 0
-            print("Loaded {} frames for spider animation{}".format(
-                len(self.spider_frames), " (reduced)" if LOW_MEMORY_MODE else ""))
+            print("Loaded {} frames for spider animation".format(len(self.spider_frames)))
         except Exception as e:
             self.spider_frames = []
             print("Warning: spider.gif not found or could not be loaded: {}".format(e))
@@ -604,11 +527,6 @@ class SnakeGame:
             frame_count = 0
             try:
                 while True:
-                    # In LOW_MEMORY_MODE, skip every other frame
-                    if LOW_MEMORY_MODE and frame_count % 2 != 0:
-                        frame_count += 1
-                        gif.seek(frame_count)
-                        continue
                     
                     # Convert PIL image to pygame surface
                     frame = gif.copy().convert('RGBA')
@@ -627,8 +545,7 @@ class SnakeGame:
             # Fast animation for wasps - update every frame for rapid wing movement
             self.wasp_animation_speed = 1  # Change frame every game frame (~60 FPS)
             self.wasp_animation_counter = 0
-            print("Loaded {} frames for wasp animation{}".format(
-                len(self.wasp_frames), " (reduced)" if LOW_MEMORY_MODE else ""))
+            print("Loaded {} frames for wasp animation".format(len(self.wasp_frames)))
         except Exception as e:
             self.wasp_frames = []
             print("Warning: wasp.gif not found or could not be loaded: {}".format(e))
@@ -644,11 +561,6 @@ class SnakeGame:
             frame_count = 0
             try:
                 while True:
-                    # In LOW_MEMORY_MODE, skip every other frame
-                    if LOW_MEMORY_MODE and frame_count % 2 != 0:
-                        frame_count += 1
-                        gif.seek(frame_count)
-                        continue
                     
                     # Convert PIL image to pygame surface
                     frame = gif.copy().convert('RGBA')
@@ -666,8 +578,7 @@ class SnakeGame:
             self.scorpion_frame_index = 0
             self.scorpion_animation_speed = 1  # Change frame every N game frames
             self.scorpion_animation_counter = 0
-            print("Loaded {} frames for scorpion animation{}".format(
-                len(self.scorpion_frames), " (reduced)" if LOW_MEMORY_MODE else ""))
+            print("Loaded {} frames for scorpion animation".format(len(self.scorpion_frames)))
         except Exception as e:
             self.scorpion_frames = []
             print("Warning: scorpion.gif not found or could not be loaded: {}".format(e))
@@ -683,11 +594,6 @@ class SnakeGame:
             frame_count = 0
             try:
                 while True:
-                    # In LOW_MEMORY_MODE, skip every other frame
-                    if LOW_MEMORY_MODE and frame_count % 2 != 0:
-                        frame_count += 1
-                        gif.seek(frame_count)
-                        continue
                     
                     # Convert PIL image to pygame surface
                     frame = gif.copy().convert('RGBA')
@@ -702,8 +608,7 @@ class SnakeGame:
             except EOFError:
                 pass  # End of frames
             
-            print("Loaded {} frames for scorpion attack animation{}".format(
-                len(self.scorpion_attack_frames), " (reduced)" if LOW_MEMORY_MODE else ""))
+            print("Loaded {} frames for scorpion attack animation".format(len(self.scorpion_attack_frames)))
         except Exception as e:
             self.scorpion_attack_frames = []
             print("Warning: scorpionAttack.gif not found or could not be loaded: {}".format(e))
@@ -719,11 +624,6 @@ class SnakeGame:
             frame_count = 0
             try:
                 while True:
-                    # In LOW_MEMORY_MODE, skip every other frame
-                    if LOW_MEMORY_MODE and frame_count % 2 != 0:
-                        frame_count += 1
-                        gif.seek(frame_count)
-                        continue
                     
                     # Convert PIL image to pygame surface
                     frame = gif.copy().convert('RGBA')
@@ -738,8 +638,7 @@ class SnakeGame:
             except EOFError:
                 pass  # End of frames
             
-            print("Loaded {} frames for beetle animation{}".format(
-                len(self.beetle_frames), " (reduced)" if LOW_MEMORY_MODE else ""))
+            print("Loaded {} frames for beetle animation".format(len(self.beetle_frames)))
         except Exception as e:
             self.beetle_frames = []
             print("Warning: beetle.gif not found or could not be loaded: {}".format(e))
@@ -755,11 +654,6 @@ class SnakeGame:
             frame_count = 0
             try:
                 while True:
-                    # In LOW_MEMORY_MODE, skip every other frame
-                    if LOW_MEMORY_MODE and frame_count % 2 != 0:
-                        frame_count += 1
-                        gif.seek(frame_count)
-                        continue
                     
                     # Convert PIL image to pygame surface
                     frame = gif.copy().convert('RGBA')
@@ -774,8 +668,7 @@ class SnakeGame:
             except EOFError:
                 pass  # End of frames
             
-            print("Loaded {} frames for beetle attack animation{}".format(
-                len(self.beetle_attack_frames), " (reduced)" if LOW_MEMORY_MODE else ""))
+            print("Loaded {} frames for beetle attack animation".format(len(self.beetle_attack_frames)))
         except Exception as e:
             self.beetle_attack_frames = []
             print("Warning: beetleAttack.gif not found or could not be loaded: {}".format(e))
@@ -791,11 +684,6 @@ class SnakeGame:
             frame_count = 0
             try:
                 while True:
-                    # In LOW_MEMORY_MODE, skip every other frame
-                    if LOW_MEMORY_MODE and frame_count % 2 != 0:
-                        frame_count += 1
-                        gif.seek(frame_count)
-                        continue
                     
                     # Convert PIL image to pygame surface
                     frame = gif.copy().convert('RGBA')
@@ -810,8 +698,7 @@ class SnakeGame:
             except EOFError:
                 pass  # End of frames
             
-            print("Loaded {} frames for beetle open animation{}".format(
-                len(self.beetle_open_frames), " (reduced)" if LOW_MEMORY_MODE else ""))
+            print("Loaded {} frames for beetle open animation".format(len(self.beetle_open_frames)))
         except Exception as e:
             self.beetle_open_frames = []
             print("Warning: beetleOpen.gif not found or could not be loaded: {}".format(e))
@@ -840,11 +727,6 @@ class SnakeGame:
                 frame_count = 0
                 try:
                     while True:
-                        # In LOW_MEMORY_MODE, skip every other frame
-                        if LOW_MEMORY_MODE and frame_count % 2 != 0:
-                            frame_count += 1
-                            gif.seek(frame_count)
-                            continue
                         
                         frame = gif.copy().convert('RGBA')
                         pygame_frame = pygame.image.frombytes(
@@ -858,8 +740,7 @@ class SnakeGame:
                 except EOFError:
                     pass
                 self.boss_animations[anim_name] = frames
-                print("Loaded {} frames for {} animation{}".format(
-                    len(frames), anim_name, " (reduced)" if LOW_MEMORY_MODE else ""))
+                print("Loaded {} frames for {} animation".format(len(frames), anim_name))
             except Exception as e:
                 self.boss_animations[anim_name] = []
                 print("Warning: {}.gif not found or could not be loaded: {}".format(anim_name, e))
@@ -888,11 +769,6 @@ class SnakeGame:
             frame_count = 0
             try:
                 while True:
-                    # In LOW_MEMORY_MODE, skip every other frame
-                    if LOW_MEMORY_MODE and frame_count % 2 != 0:
-                        frame_count += 1
-                        gif.seek(frame_count)
-                        continue
                     
                     frame = gif.copy().convert('RGBA')
                     pygame_frame = pygame.image.frombytes(
@@ -903,8 +779,7 @@ class SnakeGame:
                     gif.seek(frame_count)
             except EOFError:
                 pass
-            print("Loaded {} frames for bossSpewtum animation{}".format(
-                len(self.spewtum_frames), " (reduced)" if LOW_MEMORY_MODE else ""))
+            print("Loaded {} frames for bossSpewtum animation".format(len(self.spewtum_frames)))
         except Exception as e:
             print("Warning: bossSpewtum.gif not found or could not be loaded: {}".format(e))
         
@@ -1219,9 +1094,8 @@ class SnakeGame:
         self.spawn_food()
         
         # Force garbage collection after loading all assets to free temporary memory
-        if LOW_MEMORY_MODE:
-            gc.collect()
-            print("LOW_MEMORY_MODE: Garbage collection completed")
+        gc.collect()
+        print("Asset loading complete - garbage collection done")
     
     def load_high_scores(self):
         try:
@@ -6409,12 +6283,12 @@ class SnakeGame:
         for i, option in enumerate(self.menu_options):
             color = NEON_YELLOW if i == self.menu_selection else NEON_CYAN
             text = self.font_medium.render(option, True, BLACK)
-            text_rect = text.get_rect(center=((SCREEN_WIDTH // 2)+1, 146 + i * 15))  # Moved lower to avoid snake
+            text_rect = text.get_rect(center=((SCREEN_WIDTH // 2)+1, 146 + i * 25))  # Moved lower to avoid snake
             
             # Draw text
             self.screen.blit(text, text_rect)
             text = self.font_medium.render(option, True, color)
-            text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, 145 + i * 15))  # Moved lower to avoid snake
+            text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, 145 + i * 25))  # Moved lower to avoid snake
             
             # Draw text
             self.screen.blit(text, text_rect)
@@ -6447,11 +6321,11 @@ class SnakeGame:
         for i, option in enumerate(self.single_player_options):
             color = NEON_YELLOW if i == self.single_player_selection else NEON_CYAN
             text = self.font_medium.render(option, True, BLACK)
-            text_rect = text.get_rect(center=((SCREEN_WIDTH // 2)+1, 131 + i * 15))  # Moved lower to avoid snake
+            text_rect = text.get_rect(center=((SCREEN_WIDTH // 2)+1, 131 + i * 25))  # Moved lower to avoid snake
             self.screen.blit(text, text_rect)
             
             text = self.font_medium.render(option, True, color)
-            text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, 130 + i * 15))  # Moved lower to avoid snake
+            text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, 130 + i * 25))  # Moved lower to avoid snake
             self.screen.blit(text, text_rect)
         
         # Hint text
