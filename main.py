@@ -16,7 +16,7 @@ from game_core import BLACK, WHITE, GREEN, DARK_GREEN, RED, YELLOW, ORANGE, GRAY
 from game_core import NEON_GREEN, NEON_LIME, NEON_PINK, NEON_CYAN, NEON_ORANGE, NEON_PURPLE, NEON_YELLOW, NEON_BLUE
 from game_core import GRID_COLOR, HUD_BG, DARK_BG
 from network_manager import NetworkManager, NetworkRole
-from network_protocol import MessageType, create_input_message, create_game_state_message, create_game_start_message, create_game_end_message, create_player_assigned_message
+from network_protocol import MessageType, create_input_message, create_game_state_message, create_game_start_message, create_game_end_message, create_player_assigned_message, create_lobby_state_message, create_return_to_lobby_message
 
 # Get the directory where this script is located
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -3257,10 +3257,31 @@ class SnakeGame:
         if hasattr(self, 'multiplayer_end_timer') and self.multiplayer_end_timer > 0:
             self.multiplayer_end_timer -= 1
             if self.multiplayer_end_timer == 0:
-                # Timer expired, transition to game over
-                self.music_manager.play_game_over_music()
-                self.state = GameState.GAME_OVER
-                self.game_over_timer = self.game_over_delay
+                # Timer expired, transition to game over or back to lobby
+                if self.is_network_game and self.network_manager.is_host():
+                    # Network game: send everyone back to lobby after brief delay
+                    self.multiplayer_end_timer = 180  # 3 seconds before returning to lobby
+                    self.multiplayer_end_timer_phase = 2  # Mark that we're in phase 2 (showing game over)
+                else:
+                    # Local multiplayer or single player
+                    self.music_manager.play_game_over_music()
+                    self.state = GameState.GAME_OVER
+                    self.game_over_timer = self.game_over_delay
+        
+        # Handle network multiplayer return to lobby (phase 2)
+        if hasattr(self, 'multiplayer_end_timer_phase') and self.multiplayer_end_timer_phase == 2:
+            if self.multiplayer_end_timer > 0:
+                self.multiplayer_end_timer -= 1
+                if self.multiplayer_end_timer == 0:
+                    # Time to return to lobby
+                    if self.is_network_game and self.network_manager.is_host():
+                        return_msg = create_return_to_lobby_message()
+                        self.network_manager.broadcast_to_clients(return_msg)
+                        # Host also returns to lobby
+                        self.state = GameState.MULTIPLAYER_LOBBY
+                        self.is_multiplayer = True
+                        self.multiplayer_end_timer_phase = 0
+                        self.broadcast_lobby_state()  # Send current lobby state
         
         # Handle boss death phases 3-4 (outside boss_active block)
         # These need to continue after boss_active is set to False
@@ -4904,7 +4925,11 @@ class SnakeGame:
                             self.network_status_message = f"Hosting on {result}"
                             self.is_multiplayer = True
                             self.is_network_game = True
-                            self.state = GameState.NETWORK_HOST_LOBBY
+                            # Initialize default lobby settings
+                            self.player_slots = ['player', 'cpu', 'cpu', 'cpu']  # Host is player 1, rest are CPU
+                            self.lobby_selection = 0
+                            # Go to multiplayer lobby (setup screen)
+                            self.state = GameState.MULTIPLAYER_LOBBY
                         else:
                             self.network_status_message = f"Failed to host: {result}"
                     elif self.network_menu_selection == 1:
@@ -4999,23 +5024,39 @@ class SnakeGame:
                     self.sound_manager.play('blip_select')
                     self.state = GameState.MULTIPLAYER_MENU
             elif self.state == GameState.MULTIPLAYER_LOBBY:
-                if event.key == pygame.K_UP:
+                # Only host can navigate and change settings in network games
+                can_change = not self.is_network_game or self.network_manager.is_host()
+                
+                if event.key == pygame.K_UP and can_change:
                     self.lobby_selection = (self.lobby_selection - 1) % 7  # 3 settings + 4 players
                     self.sound_manager.play('blip_select')
-                elif event.key == pygame.K_DOWN:
+                elif event.key == pygame.K_DOWN and can_change:
                     self.lobby_selection = (self.lobby_selection + 1) % 7
                     self.sound_manager.play('blip_select')
-                elif event.key == pygame.K_LEFT or event.key == pygame.K_RIGHT:
+                elif (event.key == pygame.K_LEFT or event.key == pygame.K_RIGHT) and can_change:
                     direction = 1 if event.key == pygame.K_RIGHT else -1
                     self.change_lobby_setting(self.lobby_selection, direction)
                 elif event.key == pygame.K_RETURN:
-                    # Start the multiplayer game directly (no difficulty select)
-                    self.sound_manager.play('start_game')
-                    self.music_manager.stop_game_over_music()
-                    self.reset_game()
+                    # Only host can start game in network mode
+                    if not self.is_network_game or self.network_manager.is_host():
+                        self.sound_manager.play('start_game')
+                        # Broadcast game start to network clients
+                        if self.is_network_game:
+                            num_players = self.network_manager.get_connected_players()
+                            start_msg = create_game_start_message(num_players)
+                            self.network_manager.broadcast_to_clients(start_msg)
+                        self.music_manager.stop_game_over_music()
+                        self.reset_game()
                 elif event.key == pygame.K_ESCAPE:
                     self.sound_manager.play('blip_select')
-                    self.state = GameState.MULTIPLAYER_MENU
+                    # Network clients disconnect, host cancels
+                    if self.is_network_game:
+                        self.network_manager.cleanup()
+                        self.is_network_game = False
+                        self.is_multiplayer = False
+                        self.state = GameState.NETWORK_MENU if self.network_manager.role == NetworkRole.CLIENT else GameState.NETWORK_MENU
+                    else:
+                        self.state = GameState.MULTIPLAYER_MENU
             elif self.state == GameState.DIFFICULTY_SELECT:
                 if event.key == pygame.K_UP:
                     self.difficulty_selection = (self.difficulty_selection - 1) % 3
@@ -5764,6 +5805,10 @@ class SnakeGame:
                 if player_idx >= len(self.player_controllers):
                     # No controller - switch to CPU
                     self.player_slots[player_idx] = 'cpu'
+        
+        # Broadcast lobby state to all clients in network game
+        if self.is_network_game and self.network_manager.is_host():
+            self.broadcast_lobby_state()
     
     def setup_multiplayer_game(self):
         """Initialize multiplayer game based on lobby settings."""
@@ -6407,6 +6452,23 @@ class SnakeGame:
                 if self.network_manager.is_client():
                     self.network_player_id = message.get('player_id', 1)
                     print(f"Assigned as Player {self.network_player_id + 1}")
+                    # After assignment, transition to lobby
+                    self.is_multiplayer = True
+                    self.is_network_game = True
+                    self.state = GameState.MULTIPLAYER_LOBBY
+            
+            elif msg_type == MessageType.LOBBY_STATE.value:
+                # Client receives lobby state update from host
+                if self.network_manager.is_client():
+                    self.player_slots = message.get('player_slots', ['player'] * 4)
+                    self.lobby_settings = message.get('lobby_settings', self.lobby_settings)
+                    # Update player count display
+                    self.num_players = message.get('num_connected', 2)
+            
+            elif msg_type == MessageType.RETURN_TO_LOBBY.value:
+                # Host sent everyone back to lobby
+                self.state = GameState.MULTIPLAYER_LOBBY
+                self.is_multiplayer = True
             
             elif msg_type == 'player_joined':
                 # New player joined (from NetworkManager)
@@ -6416,6 +6478,12 @@ class SnakeGame:
                 # Assign player ID to the new client
                 assign_msg = create_player_assigned_message(player_id, player_id)
                 self.network_manager.send_to_client(player_id - 1, assign_msg)
+                # Mark their slot as 'player' (connected)
+                if player_id < len(self.player_slots):
+                    self.player_slots[player_id] = 'player'
+                # Broadcast updated lobby state to all clients
+                if self.network_manager.is_host():
+                    self.broadcast_lobby_state()
             
             elif msg_type == 'player_left':
                 # Player disconnected
@@ -6457,6 +6525,15 @@ class SnakeGame:
         message = create_input_message(self.network_player_id, direction.name)
         self.network_manager.send_to_host(message)
     
+    def broadcast_lobby_state(self):
+        """Host broadcasts lobby state to all clients"""
+        if not self.network_manager.is_host():
+            return
+        
+        num_connected = self.network_manager.get_connected_players()
+        message = create_lobby_state_message(self.player_slots, self.lobby_settings, num_connected)
+        self.network_manager.broadcast_to_clients(message)
+    
     def broadcast_game_state(self):
         """Host broadcasts current game state to all clients"""
         if not self.network_manager.is_host():
@@ -6468,7 +6545,7 @@ class SnakeGame:
         
         # Create and send game state message
         frame = getattr(self, 'network_frame', 0)
-        message = create_game_state_message(self.snakes, self.food_items, frame)
+        message = create_game_state_message(self.snakes, self.food_items, frame, self.respawning_players)
         self.network_manager.broadcast_to_clients(message)
         self.network_frame = frame + 1
     
@@ -6492,6 +6569,17 @@ class SnakeGame:
         # Update food items
         food_data = message.get('food_items', [])
         self.food_items = [(tuple(item['pos']), item['type']) for item in food_data]
+        
+        # Update respawning players (eggs)
+        egg_data = message.get('respawning_players', [])
+        self.respawning_players = {}
+        for egg in egg_data:
+            player_id = egg.get('player_id')
+            self.respawning_players[player_id] = {
+                'pos': tuple(egg.get('pos')),
+                'timer': egg.get('timer', 0),
+                'direction': None
+            }
     
     def handle_network_game_start(self, message):
         """Client handles game start message from host"""
@@ -6503,6 +6591,7 @@ class SnakeGame:
         self.food_items = []
         self.particles = []
         self.bullets = []
+        self.respawning_players = {}
         
         # Initialize snakes for all players
         self.snakes = []
@@ -6512,6 +6601,9 @@ class SnakeGame:
             self.snakes.append(snake)
         self.snake = self.snakes[0]  # For backwards compatibility
         
+        # Setup player controllers (keyboard for client)
+        self.player_controllers = [('keyboard', 0)] * num_players
+        
         self.state = GameState.PLAYING
         self.music_manager.stop_game_over_music()
         if not self.music_manager.theme_mode:
@@ -6520,8 +6612,12 @@ class SnakeGame:
     def handle_network_game_end(self, message):
         """Client handles game end message from host"""
         winner = message.get('winner')
-        print(f"Game over! Player {winner + 1} wins!")
+        if winner >= 0:
+            print(f"Game over! Player {winner + 1} wins!")
+        else:
+            print(f"Game over! Draw!")
         self.state = GameState.GAME_OVER
+        # After a short delay, will receive return_to_lobby message
     
     def run(self):
         running = True

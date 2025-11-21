@@ -16,6 +16,8 @@ class MessageType(Enum):
     GAME_START = "game_start"        # Game is starting
     GAME_END = "game_end"            # Game has ended
     PLAYER_ASSIGNED = "player_assigned"  # Assign player ID to client
+    LOBBY_STATE = "lobby_state"      # Lobby settings update
+    RETURN_TO_LOBBY = "return_to_lobby"  # Return to lobby after game
     
     # Bidirectional
     PING = "ping"                    # Keep-alive
@@ -80,7 +82,7 @@ def create_input_message(player_id, direction):
         "direction": direction
     }
 
-def create_game_state_message(snakes, food_items, frame):
+def create_game_state_message(snakes, food_items, frame, respawning_players=None):
     """Create a game state message from host to clients"""
     snake_data = []
     for snake in snakes:
@@ -99,10 +101,21 @@ def create_game_state_message(snakes, food_items, frame):
             "type": food_type
         })
     
+    # Include respawning players (eggs)
+    egg_data = []
+    if respawning_players:
+        for player_id, egg_info in respawning_players.items():
+            egg_data.append({
+                "player_id": player_id,
+                "pos": list(egg_info['pos']),
+                "timer": egg_info.get('timer', 0)
+            })
+    
     return {
         "type": MessageType.GAME_STATE.value,
         "snakes": snake_data,
         "food_items": food_data,
+        "respawning_players": egg_data,
         "frame": frame
     }
 
@@ -127,4 +140,19 @@ def create_player_assigned_message(player_id, player_slot):
         "type": MessageType.PLAYER_ASSIGNED.value,
         "player_id": player_id,
         "player_slot": player_slot
+    }
+
+def create_lobby_state_message(player_slots, lobby_settings, num_connected):
+    """Create a lobby state message from host to clients"""
+    return {
+        "type": MessageType.LOBBY_STATE.value,
+        "player_slots": player_slots,
+        "lobby_settings": lobby_settings,
+        "num_connected": num_connected
+    }
+
+def create_return_to_lobby_message():
+    """Create a return to lobby message from host to clients"""
+    return {
+        "type": MessageType.RETURN_TO_LOBBY.value
     }
