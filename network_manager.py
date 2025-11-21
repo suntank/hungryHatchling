@@ -89,13 +89,18 @@ class NetworkManager:
     
     def _accept_clients_loop(self):
         """Background thread to accept incoming client connections (host only)"""
+        # Store per-client buffers for message parsing
+        client_buffers = {}
+        
         while self.running:
+            # Accept new connections
             try:
                 client_socket, address = self.socket.accept()
                 client_socket.setblocking(False)  # Non-blocking mode
                 
                 self.clients.append(client_socket)
                 self.client_addresses.append(f"{address[0]}:{address[1]}")
+                client_buffers[len(self.clients) - 1] = ""  # Initialize buffer for new client
                 
                 print(f"Client connected from {address}")
                 
@@ -107,10 +112,54 @@ class NetworkManager:
                 })
                 
             except socket.timeout:
-                continue
+                pass
             except Exception as e:
                 if self.running:
                     print(f"Error accepting client: {e}")
+            
+            # Read messages from all connected clients
+            disconnected = []
+            for i, client in enumerate(self.clients):
+                try:
+                    data = client.recv(self.buffer_size)
+                    if not data:
+                        # Client disconnected
+                        disconnected.append(i)
+                        continue
+                    
+                    # Initialize buffer if not exists
+                    if i not in client_buffers:
+                        client_buffers[i] = ""
+                    
+                    # Decode and add to buffer
+                    client_buffers[i] += data.decode('utf-8')
+                    
+                    # Process complete messages (delimited by newlines)
+                    while '\n' in client_buffers[i]:
+                        line, client_buffers[i] = client_buffers[i].split('\n', 1)
+                        if line.strip():
+                            try:
+                                message = json.loads(line)
+                                self.message_queue.append(message)
+                            except json.JSONDecodeError as e:
+                                print(f"JSON decode error from client {i}: {e}")
+                
+                except BlockingIOError:
+                    # No data available right now, that's fine
+                    pass
+                except Exception as e:
+                    if self.running:
+                        print(f"Error receiving from client {i}: {e}")
+                        disconnected.append(i)
+            
+            # Remove disconnected clients
+            for client_id in reversed(disconnected):
+                self._remove_client(client_id)
+                if client_id in client_buffers:
+                    del client_buffers[client_id]
+            
+            # Small sleep to prevent CPU spinning
+            time.sleep(0.001)
     
     def _receive_loop(self):
         """Background thread to receive messages (client only)"""

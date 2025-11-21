@@ -6547,13 +6547,17 @@ class SnakeGame:
     def send_input_to_host(self, direction):
         """Client sends input to the host"""
         if not self.network_manager.is_client():
+            print("ERROR: Not a client, can't send to host")  # DEBUG
             return
         
         if not hasattr(self, 'network_player_id'):
+            print("ERROR: No network_player_id assigned")  # DEBUG
             return
         
         message = create_input_message(self.network_player_id, direction.name)
+        print(f"Sending to network_manager: {message}")  # DEBUG
         self.network_manager.send_to_host(message)
+        print(f"Message sent to host")  # DEBUG
     
     def broadcast_lobby_state(self):
         """Host broadcasts lobby state to all clients"""
