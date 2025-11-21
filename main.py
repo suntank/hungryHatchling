@@ -2871,14 +2871,15 @@ class SnakeGame:
         # Update music - we're in gameplay (not menu)
         self.music_manager.update(in_menu=False)
         
-        # Broadcast game state to clients (host only, every 2 frames for 30 updates/sec)
+        # Network clients: only render state from host, don't run game logic
+        if self.is_network_game and self.network_manager.is_client():
+            # Skip all game logic updates for clients
+            return
+        
+        # Broadcast game state to clients (host only, every frame for 60 updates/sec)
         if self.is_network_game and self.network_manager.is_host():
-            if not hasattr(self, 'network_broadcast_counter'):
-                self.network_broadcast_counter = 0
-            self.network_broadcast_counter += 1
-            if self.network_broadcast_counter >= 2:  # Broadcast every 2 frames (30 times/sec)
-                self.broadcast_game_state()
-                self.network_broadcast_counter = 0
+            # Broadcast every frame for smoother sync
+            self.broadcast_game_state()
         
         # Update achievement notification timer
         if self.achievement_notification_active:
@@ -6464,6 +6465,10 @@ class SnakeGame:
                     self.lobby_settings = message.get('lobby_settings', self.lobby_settings)
                     # Update player count display
                     self.num_players = message.get('num_connected', 2)
+                    # Store host IP if provided
+                    host_ip = message.get('host_ip')
+                    if host_ip:
+                        self.network_host_ip = host_ip
             
             elif msg_type == MessageType.RETURN_TO_LOBBY.value:
                 # Host sent everyone back to lobby
@@ -6531,7 +6536,7 @@ class SnakeGame:
             return
         
         num_connected = self.network_manager.get_connected_players()
-        message = create_lobby_state_message(self.player_slots, self.lobby_settings, num_connected)
+        message = create_lobby_state_message(self.player_slots, self.lobby_settings, num_connected, self.network_host_ip)
         self.network_manager.broadcast_to_clients(message)
     
     def broadcast_game_state(self):
@@ -7521,16 +7526,30 @@ class SnakeGame:
             # Draw input icon (keyboard/gamepad/robot/off)
             icon = None
             if slot_type == 'player':
-                if i < len(self.player_controllers):
-                    ctrl_type, ctrl_idx = self.player_controllers[i]
-                    if ctrl_type == 'keyboard':
-                        icon = self.keyboard_icon
-                    else:
+                # For network games, connected players get gamepad icon
+                if self.is_network_game:
+                    # Host (player 0) or connected clients show gamepad icon
+                    if i == 0 or (self.network_manager.is_host() and i < self.network_manager.get_connected_players()):
                         icon = self.gamepad_icon
+                    elif self.network_manager.is_client() and i < self.num_players:
+                        # Clients see gamepad icons for all active players
+                        icon = self.gamepad_icon
+                    else:
+                        # Should be CPU if not connected
+                        self.player_slots[i] = 'cpu'
+                        icon = self.robot_icon
                 else:
-                    # No controller available - auto-switch to CPU
-                    self.player_slots[i] = 'cpu'
-                    icon = self.robot_icon
+                    # Local multiplayer: check controllers
+                    if i < len(self.player_controllers):
+                        ctrl_type, ctrl_idx = self.player_controllers[i]
+                        if ctrl_type == 'keyboard':
+                            icon = self.keyboard_icon
+                        else:
+                            icon = self.gamepad_icon
+                    else:
+                        # No controller available - auto-switch to CPU
+                        self.player_slots[i] = 'cpu'
+                        icon = self.robot_icon
             elif slot_type == 'cpu':
                 icon = self.robot_icon
             # else: slot_type == 'off', no icon
@@ -7544,6 +7563,15 @@ class SnakeGame:
             
             y += 26  # Reduced spacing between players
         
+        # Show host IP if in network game
+        if self.is_network_game and hasattr(self, 'network_host_ip') and self.network_host_ip:
+            ip_text = self.font_small.render(f"Host IP: {self.network_host_ip}", True, BLACK)
+            ip_rect = ip_text.get_rect(center=((SCREEN_WIDTH // 2)+1, SCREEN_HEIGHT - 39))
+            self.screen.blit(ip_text, ip_rect)
+            ip_text = self.font_small.render(f"Host IP: {self.network_host_ip}", True, NEON_ORANGE)
+            ip_rect = ip_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT - 40))
+            self.screen.blit(ip_text, ip_rect)
+        
         # Instructions - positioned at bottom
         y = SCREEN_HEIGHT - 28  # Start from bottom up
         hints = [
@@ -7551,6 +7579,10 @@ class SnakeGame:
             "START: Begin Game",
             "B: Back to Menu"
         ]
+        # Adjust for clients (can't change settings)
+        if self.is_network_game and self.network_manager.is_client():
+            hints[0] = "Waiting for host..."
+        
         for hint in hints:
             text = self.font_small.render(hint, True, BLACK)
             rect = text.get_rect(center=((SCREEN_WIDTH // 2)+2, y+2))

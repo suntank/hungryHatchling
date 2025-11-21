@@ -142,13 +142,14 @@ def create_player_assigned_message(player_id, player_slot):
         "player_slot": player_slot
     }
 
-def create_lobby_state_message(player_slots, lobby_settings, num_connected):
+def create_lobby_state_message(player_slots, lobby_settings, num_connected, host_ip=None):
     """Create a lobby state message from host to clients"""
     return {
         "type": MessageType.LOBBY_STATE.value,
         "player_slots": player_slots,
         "lobby_settings": lobby_settings,
-        "num_connected": num_connected
+        "num_connected": num_connected,
+        "host_ip": host_ip
     }
 
 def create_return_to_lobby_message():
