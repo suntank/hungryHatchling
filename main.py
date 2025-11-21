@@ -3290,8 +3290,8 @@ class SnakeGame:
             self.game_over_timer -= 1
             if self.game_over_timer == 0:
                 # Timer expired, transition to appropriate screen
-                # Only check for high score in endless mode, not adventure mode
-                if self.game_mode != "adventure" and self.is_high_score(self.score):
+                # Only check for high score in endless mode (not adventure or multiplayer)
+                if self.game_mode == "endless" and self.is_high_score(self.score):
                     self.state = GameState.HIGH_SCORE_ENTRY
                     self.player_name = ['A', 'A', 'A']
                     self.name_index = 0
@@ -5792,6 +5792,10 @@ class SnakeGame:
         # In multiplayer, skip egg hatching and go straight to playing
         if self.is_multiplayer:
             self.state = GameState.PLAYING
+            # Stop theme music and start gameplay music for multiplayer
+            if self.music_manager.theme_mode:
+                pygame.mixer.music.stop()
+                self.music_manager.play_next()
         else:
             # Don't reset snake yet - wait for egg hatching
             self.state = GameState.EGG_HATCHING
@@ -6321,8 +6325,8 @@ class SnakeGame:
                     self.game_over_timer -= 1
                     if self.game_over_timer == 0:
                         # Timer expired, transition to appropriate screen
-                        # Only check for high score in endless mode, not adventure mode
-                        if self.game_mode != "adventure" and self.is_high_score(self.score):
+                        # Only check for high score in endless mode (not adventure or multiplayer)
+                        if self.game_mode == "endless" and self.is_high_score(self.score):
                             self.state = GameState.HIGH_SCORE_ENTRY
                             self.player_name = ['A', 'A', 'A']
                             self.name_index = 0
