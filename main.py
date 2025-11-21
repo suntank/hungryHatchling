@@ -144,13 +144,42 @@ class SnakeGame:
             self.splash_screen = None
             print("Warning: splashAMS.png not found, skipping splash screen")
         
-        # Intro sequence images - not preloaded (lazy loading)
+        # Load intro sequence images (7 images)
         self.intro_images = []
-        print("Lazy loading: Skipping intro images (can load on-demand if needed)")
+        try:
+            intro_dir = os.path.join(SCRIPT_DIR, 'img', 'Intro')
+            for i in range(1, 8):  # intro1.jpg through intro7.jpg
+                intro_path = os.path.join(intro_dir, f'intro{i}.jpg')
+                if os.path.exists(intro_path):
+                    img = pygame.image.load(intro_path).convert()
+                    img = pygame.transform.scale(img, (SCREEN_WIDTH, SCREEN_HEIGHT))
+                    self.intro_images.append(img)
+            print(f"Loaded {len(self.intro_images)} intro images (~320KB total)")
+        except Exception as e:
+            print(f"Warning: Could not load intro images: {e}")
+            self.intro_images = []
         
-        # Outro sequence images - not preloaded (lazy loading)
+        # Load outro sequence images (4 images)
         self.outro_images = []
-        print("Lazy loading: Skipping outro images (can load on-demand if needed)")
+        try:
+            outro_dir = os.path.join(SCRIPT_DIR, 'img', 'outro')
+            for i in range(1, 5):  # outro1.jpg through outro4.jpg
+                outro_path = os.path.join(outro_dir, f'outro{i}.jpg')
+                if os.path.exists(outro_path):
+                    img = pygame.image.load(outro_path).convert()
+                    # Image 4 is tall and pans - only scale width, preserve height
+                    if i == 4:
+                        # Load at original size (will be scaled to width during rendering)
+                        # This preserves the tall aspect ratio for panning
+                        pass  # Don't scale, keep original size
+                    else:
+                        # Images 1-3: Scale to screen size
+                        img = pygame.transform.scale(img, (SCREEN_WIDTH, SCREEN_HEIGHT))
+                    self.outro_images.append(img)
+            print(f"Loaded {len(self.outro_images)} outro images (~100KB total)")
+        except Exception as e:
+            print(f"Warning: Could not load outro images: {e}")
+            self.outro_images = []
         
         # Load Tweetrix logo
         try:
@@ -6018,17 +6047,31 @@ class SnakeGame:
         # Special handling for image 4 (index 3) - the tall panning image
         if self.outro_current_image == 3 and len(self.outro_images) > 3:
             outro_img = self.outro_images[3]
+            img_width = outro_img.get_width()
             img_height = outro_img.get_height()
             
-            # Calculate max pan offset (image height - screen height)
-            max_pan = img_height - SCREEN_HEIGHT - 64  # Halved from 128
+            # Calculate scaled height (image is scaled to screen width in rendering)
+            scale_factor = SCREEN_WIDTH / img_width
+            scaled_height = int(img_height * scale_factor)
+            
+            # Calculate max pan offset (stop panning to reveal more of the bottom)
+            max_pan = scaled_height - SCREEN_HEIGHT - 32  # Stop earlier to show more content
+            
+            # DEBUG: Print on first frame only
+            if self.outro_pan_offset == 0:
+                print(f"DEBUG OUTRO: original={img_height}, scaled={scaled_height}, max_pan={max_pan}, SCREEN_HEIGHT={SCREEN_HEIGHT}")
             
             if not self.outro_pan_complete:
                 # Pan down from top to bottom
                 self.outro_pan_offset += self.outro_pan_speed
                 
+                # DEBUG: Print every 60 frames (once per second)
+                if int(self.outro_pan_offset) % 60 == 0:
+                    print(f"DEBUG PAN: offset={self.outro_pan_offset:.1f}, max_pan={max_pan}, complete={self.outro_pan_complete}")
+                
                 # Check if we've reached the bottom
                 if self.outro_pan_offset >= max_pan:
+                    print(f"DEBUG: Reached max_pan! Setting outro_pan_complete=True")
                     self.outro_pan_offset = max_pan
                     self.outro_pan_complete = True
             else:
@@ -7753,37 +7796,37 @@ class SnakeGame:
             # Bottom right: Level
             level_value_text = "{}".format(self.level)
             level_value = self.font_small.render(level_value_text, True, BLACK)
-            level_value_rect = level_value.get_rect(right=SCREEN_WIDTH - 4, bottom=SCREEN_HEIGHT - 3)
+            level_value_rect = level_value.get_rect(right=SCREEN_WIDTH - 4, bottom=SCREEN_HEIGHT )
             self.screen.blit(level_value, level_value_rect)
             level_value = self.font_small.render(level_value_text, True, WHITE)
-            level_value_rect = level_value.get_rect(right=SCREEN_WIDTH - 5, bottom=SCREEN_HEIGHT - 4)
+            level_value_rect = level_value.get_rect(right=SCREEN_WIDTH - 5, bottom=SCREEN_HEIGHT - 1)
             self.screen.blit(level_value, level_value_rect)
             
             level_label = self.font_small.render("LEVEL:", True, BLACK)
-            level_label_rect = level_label.get_rect(right=level_value_rect.left - 2, bottom=SCREEN_HEIGHT - 3)
+            level_label_rect = level_label.get_rect(right=level_value_rect.left - 3, bottom=SCREEN_HEIGHT )
             self.screen.blit(level_label, level_label_rect)
             level_label = self.font_small.render("LEVEL:", True, NEON_YELLOW)
-            level_label_rect = level_label.get_rect(right=level_value_rect.left - 3, bottom=SCREEN_HEIGHT - 4)
+            level_label_rect = level_label.get_rect(right=level_value_rect.left - 4, bottom=SCREEN_HEIGHT - 1)
             self.screen.blit(level_label, level_label_rect)
             
             # Only show worms counter in endless mode (visible on screen in adventure mode)
             if self.game_mode != "adventure":
-                fruits_label = self.font_small.render("WORMS:", True, BLACK)
-                fruits_label_rect = fruits_label.get_rect(center=(SCREEN_WIDTH // 2 + 31, 8))  # Halved from 62, 16
-                self.screen.blit(fruits_label, fruits_label_rect)
-                fruits_label = self.font_small.render("WORMS:", True, NEON_YELLOW)
-                fruits_label_rect = fruits_label.get_rect(center=(SCREEN_WIDTH // 2 + 30, 7))  # Halved from 60, 14
-                self.screen.blit(fruits_label, fruits_label_rect)
-
                 # Endless mode: show fruits eaten / 12
                 worm_count_text = "{}/12".format(self.fruits_eaten_this_level)
-                
-                fruits_value = self.font_small.render(worm_count_text, True, BLACK)
-                fruits_value_rect = fruits_value.get_rect(center=(SCREEN_WIDTH // 2 + 68, 8))  # Halved from 135, 16 (rounded)
-                self.screen.blit(fruits_value, fruits_value_rect)
-                fruits_value = self.font_small.render(worm_count_text, True, WHITE)
-                fruits_value_rect = fruits_value.get_rect(center=(SCREEN_WIDTH // 2 + 67, 7))  # Halved from 133, 14 (rounded)
-                self.screen.blit(fruits_value, fruits_value_rect)
+                # Draw full text centered
+                worms_text = self.font_small.render("WORMS:", True, BLACK)
+                worms_text_rect = worms_text.get_rect(right=level_value_rect.left - 19, top=4)
+                self.screen.blit(worms_text, worms_text_rect)
+                worms_text = self.font_small.render("WORMS:", True, NEON_YELLOW)
+                worms_text_rect = worms_text.get_rect(right=level_value_rect.left - 20, top=3)
+                self.screen.blit(worms_text, worms_text_rect)
+
+                fruits_text = self.font_small.render(worm_count_text, True, BLACK)
+                fruits_text_rect = fruits_text.get_rect(right=SCREEN_WIDTH - 4, top=4)
+                self.screen.blit(fruits_text, fruits_text_rect)
+                fruits_text = self.font_small.render(worm_count_text, True, WHITE)
+                fruits_text_rect = fruits_text.get_rect(right=SCREEN_WIDTH - 5, top=3)
+                self.screen.blit(fruits_text, fruits_text_rect)
             
             # Show coins in adventure mode (right side of top bar)
             if self.game_mode == "adventure":
@@ -7811,13 +7854,13 @@ class SnakeGame:
             
             if show_lives:
                 lives_label = self.font_small.render("LIVES:", True, BLACK)
-                self.screen.blit(lives_label, (5, SCREEN_HEIGHT - 9))
+                self.screen.blit(lives_label, (5, SCREEN_HEIGHT - 12))
                 lives_label = self.font_small.render("LIVES:", True, NEON_YELLOW)
-                self.screen.blit(lives_label, (4, SCREEN_HEIGHT - 10))
+                self.screen.blit(lives_label, (4, SCREEN_HEIGHT - 13))
                 lives_value = self.font_small.render("{}".format(self.lives), True, BLACK)
-                self.screen.blit(lives_value, (38, SCREEN_HEIGHT - 9))
+                self.screen.blit(lives_value, (42, SCREEN_HEIGHT - 12))  # Increased from 38 to add spacing
                 lives_value = self.font_small.render("{}".format(self.lives), True, WHITE)
-                self.screen.blit(lives_value, (37, SCREEN_HEIGHT - 10))
+                self.screen.blit(lives_value, (41, SCREEN_HEIGHT - 13))  # Increased from 37 to add spacing
         
         # Draw "Press A to Fire" message when isotope is collected
         if hasattr(self, 'isotope_message_timer') and self.isotope_message_timer > 0:
