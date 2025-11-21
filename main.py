@@ -346,6 +346,10 @@ class SnakeGame:
                     pygame_frame = pygame.image.frombytes(
                         frame.tobytes(), frame.size, frame.mode
                     ).convert_alpha()
+                    # Scale to 50% of original size
+                    scaled_width = frame.size[0] // 2
+                    scaled_height = frame.size[1] // 2
+                    pygame_frame = pygame.transform.scale(pygame_frame, (scaled_width, scaled_height))
                     self.particle_frames.append(pygame_frame)
                     frame_count += 1
                     gif.seek(frame_count)
@@ -376,6 +380,10 @@ class SnakeGame:
                     pygame_frame = pygame.image.frombytes(
                         frame.tobytes(), frame.size, frame.mode
                     ).convert_alpha()
+                    # Scale to 50% of original size
+                    scaled_width = frame.size[0] // 2
+                    scaled_height = frame.size[1] // 2
+                    pygame_frame = pygame.transform.scale(pygame_frame, (scaled_width, scaled_height))
                     self.particle_white_frames.append(pygame_frame)
                     frame_count += 1
                     gif.seek(frame_count)
@@ -406,6 +414,10 @@ class SnakeGame:
                     pygame_frame = pygame.image.frombytes(
                         frame.tobytes(), frame.size, frame.mode
                     ).convert_alpha()
+                    # Scale to 50% of original size
+                    scaled_width = frame.size[0] // 2
+                    scaled_height = frame.size[1] // 2
+                    pygame_frame = pygame.transform.scale(pygame_frame, (scaled_width, scaled_height))
                     self.particle_rainbow_frames.append(pygame_frame)
                     frame_count += 1
                     gif.seek(frame_count)
@@ -436,6 +448,10 @@ class SnakeGame:
                     pygame_frame = pygame.image.frombytes(
                         frame.tobytes(), frame.size, frame.mode
                     ).convert_alpha()
+                    # Scale to 50% of original size
+                    scaled_width = frame.size[0] // 2
+                    scaled_height = frame.size[1] // 2
+                    pygame_frame = pygame.transform.scale(pygame_frame, (scaled_width, scaled_height))
                     self.particle_yellow_frames.append(pygame_frame)
                     frame_count += 1
                     gif.seek(frame_count)
@@ -6557,10 +6573,10 @@ class SnakeGame:
         
         # Title
         title = self.font_large.render("SELECT LEVEL", True, BLACK)
-        title_rect = title.get_rect(center=((SCREEN_WIDTH // 2)+3, 53))
+        title_rect = title.get_rect(center=((SCREEN_WIDTH // 2)+3, 18))
         self.screen.blit(title, title_rect)
         title = self.font_large.render("SELECT LEVEL", True, NEON_YELLOW)
-        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 50))
+        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 15))
         self.screen.blit(title, title_rect)
         
         if len(self.multiplayer_levels) == 0:
@@ -6574,7 +6590,7 @@ class SnakeGame:
         else:
             # Draw level list on the left side
             list_x = 15  # Halved from 30
-            list_y = 50  # Halved from 100
+            list_y = 70  # Moved down to avoid title overlap
             line_height = 14  # Halved from 28
             visible_levels = 10  # Show 10 levels at a time
             
@@ -6615,27 +6631,27 @@ class SnakeGame:
             # Draw scroll indicators if needed
             if scroll_offset > 0:
                 up_arrow = self.font_small.render("▲ More", True, NEON_YELLOW)
-                self.screen.blit(up_arrow, (list_x, list_y - 20))
+                self.screen.blit(up_arrow, (list_x, 40))
             
             if scroll_offset + visible_levels < len(self.multiplayer_levels):
                 down_arrow = self.font_small.render("▼ More", True, NEON_YELLOW)
                 self.screen.blit(down_arrow, (list_x, list_y + visible_levels * line_height + 5))
             
             # Draw preview on the right side
-            preview_x = 280
-            preview_y = 100
+            preview_x = 135  # Centered in right half of screen
+            preview_y = 70   # Same starting height as level list
             
-            # Preview box background
-            preview_box = pygame.Surface((200, 200))
+            # Preview box background (adjusted size for 90px preview)
+            preview_box = pygame.Surface((110, 110))
             preview_box.fill(BLACK)
             preview_box.set_alpha(200)
             self.screen.blit(preview_box, (preview_x - 10, preview_y - 10))
             
             # Draw "PREVIEW" label
             preview_label = self.font_small.render("PREVIEW", True, BLACK)
-            self.screen.blit(preview_label, (preview_x + 52, preview_y - 28))
+            self.screen.blit(preview_label, (preview_x + 12, 45))
             preview_label = self.font_small.render("PREVIEW", True, NEON_YELLOW)
-            self.screen.blit(preview_label, (preview_x + 50, preview_y - 30))
+            self.screen.blit(preview_label, (preview_x + 10, 43))
             
             # Generate and display preview
             preview_surface = self.generate_level_preview(self.multiplayer_level_selection)
@@ -6644,22 +6660,22 @@ class SnakeGame:
             
             # Draw selected level info below preview
             selected_level = self.multiplayer_levels[self.multiplayer_level_selection]
-            info_y = preview_y + 190
+            info_y = preview_y + 100
             
             # Level number
             level_info = "Level {:02d}".format(selected_level['number'])
             info_shadow = self.font_medium.render(level_info, True, BLACK)
-            self.screen.blit(info_shadow, (preview_x + 32, info_y + 2))
+            self.screen.blit(info_shadow, (preview_x + 2, info_y + 2))
             info_text = self.font_medium.render(level_info, True, NEON_CYAN)
-            self.screen.blit(info_text, (preview_x + 30, info_y))
+            self.screen.blit(info_text, (preview_x, info_y))
             
             # Wall count
             wall_count = len(selected_level['walls'])
             walls_text = "{} walls".format(wall_count)
             walls_shadow = self.font_small.render(walls_text, True, BLACK)
-            self.screen.blit(walls_shadow, (preview_x + 52, info_y + 32))
+            self.screen.blit(walls_shadow, (preview_x + 12, info_y + 17))
             walls_display = self.font_small.render(walls_text, True, WHITE)
-            self.screen.blit(walls_display, (preview_x + 50, info_y + 30))
+            self.screen.blit(walls_display, (preview_x + 10, info_y + 15))
         
         # Hint text
         hint_text = self.font_small.render("Start to select, Back to cancel", True, BLACK)
@@ -6681,13 +6697,13 @@ class SnakeGame:
         
         # Title
         title = self.font_large.render("SETUP", True, BLACK)
-        title_rect = title.get_rect(center=((SCREEN_WIDTH // 2)+3, 34))
+        title_rect = title.get_rect(center=((SCREEN_WIDTH // 2)+3, 18))
         self.screen.blit(title, title_rect)
         title = self.font_large.render("SETUP", True, NEON_YELLOW)
-        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 32))
+        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 15))
         self.screen.blit(title, title_rect)
         
-        y = 80  # Start higher to fit everything
+        y = 45  # Start higher to fit everything
         center_x = SCREEN_WIDTH // 2
         
         # Settings section with visual icons
@@ -6723,7 +6739,7 @@ class SnakeGame:
                     egg.set_alpha(50)  # Dim the egg
                     self.screen.blit(egg, (start_x + i * egg_spacing, y - egg_size // 2))
         
-        y += 20  # Halved from 40
+        y += 18  # Compact spacing
         
         # Item Spawn setting with apple icons (1-3 apples)
         is_selected = (self.lobby_selection == 1)
@@ -6756,7 +6772,7 @@ class SnakeGame:
                     apple.set_alpha(50)
                     self.screen.blit(apple, (start_x + i * apple_spacing, y - apple_size // 2))
         
-        y += 20  # Halved from 40
+        y += 18  # Compact spacing
         
         # CPU Difficulty with star rating
         is_selected = (self.lobby_selection == 2)
@@ -6788,7 +6804,7 @@ class SnakeGame:
                 star_scaled = pygame.transform.scale(star_img, (18, 18))  # Halved from 36
                 self.screen.blit(star_scaled, (start_x + i * star_spacing, y - 9))  # Halved from 18
         
-        y += 23  # Halved from 45 (rounded)
+        y += 20  # Compact spacing
         
         # Player slots (starting at selection index 3)
         # Use hatchling heads with input icons
@@ -6856,10 +6872,10 @@ class SnakeGame:
                 icon_scaled = pygame.transform.scale(icon, (18, 18))  # Halved from 36
                 self.screen.blit(icon_scaled, (icon_x, icon_y))
             
-            y += 29  # Halved from 58 (head_size is now 24)
+            y += 26  # Reduced spacing between players
         
         # Instructions - positioned at bottom
-        y = SCREEN_HEIGHT - 30  # Start from bottom up (halved from 60)
+        y = SCREEN_HEIGHT - 28  # Start from bottom up
         hints = [
             "UP/DOWN: Navigate | LEFT/RIGHT: Change",
             "START: Begin Game",
@@ -6872,7 +6888,7 @@ class SnakeGame:
             text = self.font_small.render(hint, True, NEON_CYAN)
             rect = text.get_rect(center=(SCREEN_WIDTH // 2, y))
             self.screen.blit(text, rect)
-            y += 11  # Halved from 22
+            y += 10  # Compact instruction line spacing
     
     def draw_difficulty_select(self):
         # Draw difficulty screen image as background
@@ -7665,48 +7681,61 @@ class SnakeGame:
         
         # Draw HUD text (background now part of bg.png)
         if self.is_multiplayer:
-            # Draw multiplayer player info - show each player's lives with colored egg icons
-            y_start = 2
+            # Draw multiplayer player info in corners: P1 🥚: 10
+            # P1: top-left, P2: top-right, P3: bottom-left, P4: bottom-right
             for snake in self.snakes:
                 player_color = self.player_colors[snake.player_id] if snake.player_id < len(self.player_colors) else WHITE
                 
-                # Determine status
-                if snake.player_id in self.respawning_players:
-                    status_text = " (RESPAWNING)"
-                elif not snake.alive and snake.lives <= 0:
-                    status_text = " (OUT)"
-                elif not snake.alive:
-                    status_text = " (DEAD)"
-                else:
-                    status_text = ""
+                # Determine position based on player ID
+                if snake.player_id == 0:  # P1: top-left
+                    x_pos = 2
+                    y_pos = 1
+                elif snake.player_id == 1:  # P2: top-right
+                    x_pos = SCREEN_WIDTH - 80  # Right-aligned, adjusted for larger font
+                    y_pos = 1
+                elif snake.player_id == 2:  # P3: bottom-left
+                    x_pos = 2
+                    y_pos = SCREEN_HEIGHT - 20  # Adjusted for larger font
+                else:  # P4: bottom-right
+                    x_pos = SCREEN_WIDTH - 80
+                    y_pos = SCREEN_HEIGHT - 20  # Adjusted for larger font
                 
-                # Player name
-                player_text = "P{}:{}".format(snake.player_id + 1, status_text)
+                # Player name (e.g., "P1")
+                player_text = "P{}".format(snake.player_id + 1)
                 
                 # Shadow
-                text = self.font_small.render(player_text, True, BLACK)
-                self.screen.blit(text, (10, y_start + 2))
+                text = self.font_medium.render(player_text, True, BLACK)
+                self.screen.blit(text, (x_pos + 1, y_pos + 1))
                 # Main text with player color
-                text = self.font_small.render(player_text, True, player_color)
-                self.screen.blit(text, (8, y_start))
+                text = self.font_medium.render(player_text, True, player_color)
+                self.screen.blit(text, (x_pos, y_pos))
                 
-                # Draw egg icons for lives
+                # Draw single egg icon (slightly larger to match font)
                 text_width = text.get_width()
-                egg_x_start = 10 + text_width + 5  # Start drawing eggs after the player name
+                egg_x = x_pos + text_width + 3
                 egg_icon = self.player_egg_icons[snake.player_id] if snake.player_id < len(self.player_egg_icons) else None
                 
-                if snake.lives > 0 and egg_icon:
-                    for i in range(snake.lives):
-                        egg_x = egg_x_start + i * 22  # Space eggs 22 pixels apart
-                        self.screen.blit(egg_icon, (egg_x, y_start))
-                elif snake.lives <= 0:
-                    # Draw X for eliminated players
-                    x_text = self.font_small.render("X", True, BLACK)
-                    self.screen.blit(x_text, (egg_x_start + 2, y_start + 2))
-                    x_text = self.font_small.render("X", True, RED)
-                    self.screen.blit(x_text, (egg_x_start, y_start))
-                
-                y_start += 22
+                if egg_icon:
+                    # Scale egg slightly larger to match bigger font
+                    egg_scaled = pygame.transform.scale(egg_icon, (18, 18))
+                    self.screen.blit(egg_scaled, (egg_x, y_pos))
+                    
+                    # Lives count after colon
+                    count_x = egg_x + 18 + 2
+                    if snake.lives > 0:
+                        lives_text = ": {}".format(snake.lives)
+                        # Shadow
+                        lives_shadow = self.font_medium.render(lives_text, True, BLACK)
+                        self.screen.blit(lives_shadow, (count_x + 1, y_pos + 1))
+                        # Main text
+                        lives_label = self.font_medium.render(lives_text, True, player_color)
+                        self.screen.blit(lives_label, (count_x, y_pos))
+                    else:
+                        # Draw X for eliminated players
+                        x_text = self.font_medium.render(": X", True, BLACK)
+                        self.screen.blit(x_text, (count_x + 1, y_pos + 1))
+                        x_text = self.font_medium.render(": X", True, RED)
+                        self.screen.blit(x_text, (count_x, y_pos))
         else:
             # Single player score - Left side: Score with label (hidden during boss battles)
             if not (hasattr(self, 'boss_active') and self.boss_active and self.boss_spawned):

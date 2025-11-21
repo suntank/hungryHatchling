@@ -183,17 +183,25 @@ class GifParticle:
         self.y = y
         self.frames = frames
         self.frame_index = 0
+        self.animation_counter = 0
+        self.animation_speed = 2  # Change frame every N game frames (slower = smoother)
         self.alive = True if frames else False
     
     def update(self):
         if self.alive:
-            self.frame_index += 1
-            if self.frame_index >= len(self.frames):
-                self.alive = False
+            self.animation_counter += 1
+            if self.animation_counter >= self.animation_speed:
+                self.animation_counter = 0
+                self.frame_index += 1
+                # Keep last frame visible for animation_speed frames before dying
+                if self.frame_index > len(self.frames):
+                    self.alive = False
     
     def draw(self, screen):
-        if self.alive and self.frame_index < len(self.frames):
-            frame = self.frames[self.frame_index]
+        if self.alive and self.frames:
+            # Clamp frame_index to valid range (show last frame if we've gone past)
+            current_frame_index = min(self.frame_index, len(self.frames) - 1)
+            frame = self.frames[current_frame_index]
             # Center the particle effect on the position
             offset_x = frame.get_width() // 2
             offset_y = frame.get_height() // 2
