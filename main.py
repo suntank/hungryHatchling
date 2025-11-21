@@ -4412,30 +4412,32 @@ class SnakeGame:
             elif keys[pygame.K_RIGHT]:
                 self.hatch_egg(Direction.RIGHT)
         elif self.state == GameState.PLAYING:
+            # Special handling for network clients - they ALWAYS send inputs to host
+            if self.is_network_game and self.network_manager.is_client():
+                # Client: Send input to host instead of controlling locally
+                if hasattr(self, 'network_player_id'):
+                    # Track last sent direction to avoid spamming same input
+                    if not hasattr(self, 'last_sent_direction'):
+                        self.last_sent_direction = None
+                    
+                    new_direction = None
+                    if keys[pygame.K_UP]:
+                        new_direction = Direction.UP
+                    elif keys[pygame.K_DOWN]:
+                        new_direction = Direction.DOWN
+                    elif keys[pygame.K_LEFT]:
+                        new_direction = Direction.LEFT
+                    elif keys[pygame.K_RIGHT]:
+                        new_direction = Direction.RIGHT
+                    
+                    # Only send if direction changed
+                    if new_direction and new_direction != self.last_sent_direction:
+                        print(f"Client sending input: {new_direction.name}")  # DEBUG
+                        self.send_input_to_host(new_direction)
+                        self.last_sent_direction = new_direction
+                return  # Don't process local input for clients
+            
             if self.is_multiplayer:
-                # Network game: Clients only control their assigned snake and send inputs to host
-                if self.is_network_game and self.network_manager.is_client():
-                    # Client: Send input to host instead of controlling locally
-                    if hasattr(self, 'network_player_id'):
-                        # Track last sent direction to avoid spamming same input
-                        if not hasattr(self, 'last_sent_direction'):
-                            self.last_sent_direction = None
-                        
-                        new_direction = None
-                        if keys[pygame.K_UP]:
-                            new_direction = Direction.UP
-                        elif keys[pygame.K_DOWN]:
-                            new_direction = Direction.DOWN
-                        elif keys[pygame.K_LEFT]:
-                            new_direction = Direction.LEFT
-                        elif keys[pygame.K_RIGHT]:
-                            new_direction = Direction.RIGHT
-                        
-                        # Only send if direction changed
-                        if new_direction and new_direction != self.last_sent_direction:
-                            self.send_input_to_host(new_direction)
-                            self.last_sent_direction = new_direction
-                    return  # Don't process local input for clients
                 
                 # Handle input for each player based on their controller
                 for i, snake in enumerate(self.snakes):
@@ -5060,7 +5062,8 @@ class SnakeGame:
                         self.sound_manager.play('start_game')
                         # Broadcast game start to network clients
                         if self.is_network_game:
-                            num_players = self.network_manager.get_connected_players()
+                            # Count active player slots (not 'off')
+                            num_players = len([s for s in self.player_slots if s != 'off'])
                             start_msg = create_game_start_message(num_players)
                             self.network_manager.broadcast_to_clients(start_msg)
                         self.music_manager.stop_game_over_music()
@@ -6526,15 +6529,20 @@ class SnakeGame:
         # Apply input to the corresponding snake
         if player_id < len(self.snakes):
             snake = self.snakes[player_id]
+            print(f"Host received input from player {player_id}: {direction.name}, current dir: {snake.direction.name}")  # DEBUG
             # Only update if it's a valid direction change (not opposite)
             if direction == Direction.UP and snake.direction != Direction.DOWN:
                 snake.next_direction = direction
+                print(f"  -> Applied UP to player {player_id}")  # DEBUG
             elif direction == Direction.DOWN and snake.direction != Direction.UP:
                 snake.next_direction = direction
+                print(f"  -> Applied DOWN to player {player_id}")  # DEBUG
             elif direction == Direction.LEFT and snake.direction != Direction.RIGHT:
                 snake.next_direction = direction
+                print(f"  -> Applied LEFT to player {player_id}")  # DEBUG
             elif direction == Direction.RIGHT and snake.direction != Direction.LEFT:
                 snake.next_direction = direction
+                print(f"  -> Applied RIGHT to player {player_id}")  # DEBUG
     
     def send_input_to_host(self, direction):
         """Client sends input to the host"""
