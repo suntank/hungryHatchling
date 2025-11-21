@@ -3831,8 +3831,8 @@ class SnakeGame:
                     if self.snake.body[0] in self.snake.body[1:]:
                         hit_wall = True
                 else:
-                    # In endless mode, check boundary walls and self-collision
-                    hit_wall = self.snake.check_collision(wrap_around=False)
+                    # In endless mode, wrap around screen edges (no death from edges)
+                    hit_wall = self.snake.check_collision(wrap_around=True)
                 
                 if hit_wall:
                     self.sound_manager.play('die')
@@ -4287,8 +4287,9 @@ class SnakeGame:
                     self.fruits_eaten_this_level += 1
                     if self.fruits_eaten_this_level >= 12:
                         self.sound_manager.play('level_up')
-                        # Play victory jingle
-                        self.music_manager.play_victory_jingle()
+                        # In adventure mode, play victory jingle; in endless mode, just continue
+                        if self.game_mode == "adventure":
+                            self.music_manager.play_victory_jingle()
                         self.state = GameState.LEVEL_COMPLETE
                     ran = random.random()
                     if ran < 0.3:
@@ -5843,11 +5844,40 @@ class SnakeGame:
         self.spawn_food()
         self.bonus_food_pos = None
         self.bonus_food_timer = 0
+        
+        # In endless mode, cycle through backgrounds BG1-BG12
+        if self.game_mode == "endless":
+            # Calculate which background to use (cycles through 1-12)
+            bg_num = ((self.level - 1) % 12) + 1
+            bg_filename = "BG{}.png".format(bg_num)
+            
+            # Free old background from memory
+            if hasattr(self, 'background') and self.background is not None:
+                del self.background
+                self.background = None
+                gc.collect()
+            
+            # Lazy load new background
+            try:
+                bg_path = os.path.join(SCRIPT_DIR, 'img', 'bg', bg_filename)
+                self.background = pygame.image.load(bg_path).convert()
+                self.background = pygame.transform.scale(self.background, (SCREEN_WIDTH, SCREEN_HEIGHT))
+                print("Loaded background for level {}: {}".format(self.level, bg_filename))
+            except Exception as e:
+                print("Warning: Could not load background '{}': {}".format(bg_filename, e))
+                self.background = None
+        
         self.state = GameState.PLAYING
-        # If theme music was playing, switch to gameplay music
-        if self.music_manager.theme_mode:
-            pygame.mixer.music.stop()
-            self.music_manager.play_next()
+        
+        # Handle music/sound based on game mode
+        if self.game_mode == "endless":
+            # In endless mode, just play level up sound effect (don't change music)
+            self.sound_manager.play('level_up')
+        else:
+            # In adventure mode, if theme music was playing, switch to gameplay music
+            if self.music_manager.theme_mode:
+                pygame.mixer.music.stop()
+                self.music_manager.play_next()
     
     def start_intro(self):
         """Initialize intro sequence"""
