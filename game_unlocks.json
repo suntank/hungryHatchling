@@ -5,7 +5,7 @@
       "cost": 50
     },
     "Boss.mp3": {
-      "unlocked": false,
+      "unlocked": true,
       "cost": 100
     },
     "Final.mp3": {
@@ -25,7 +25,7 @@
       "cost": 0
     },
     "Victory.mp3": {
-      "unlocked": false,
+      "unlocked": true,
       "cost": 75
     },
     "music1.mp3": {
@@ -33,15 +33,15 @@
       "cost": 0
     },
     "music2.mp3": {
-      "unlocked": false,
+      "unlocked": true,
       "cost": 25
     },
     "music3.mp3": {
-      "unlocked": false,
+      "unlocked": true,
       "cost": 25
     },
     "victoryJingle.mp3": {
-      "unlocked": false,
+      "unlocked": true,
       "cost": 50
     }
   },

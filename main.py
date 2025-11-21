@@ -7933,32 +7933,21 @@ class SnakeGame:
                     winner = winners[0]
                     winner_text = "Player {} Wins!".format(winner.player_id + 1)
                     color = self.player_colors[winner.player_id]
-                else:
+                elif len(winners) > 1:
                     winner_text = "Draw!"
                     color = NEON_YELLOW
+                else:
+                    # All eliminated (shouldn't happen in normal gameplay)
+                    winner_text = "No Winner"
+                    color = GRAY
                 
+                # Center the winner text
                 text = self.font_large.render(winner_text, True, BLACK)
-                rect = text.get_rect(center=((SCREEN_WIDTH // 2) + 3, 180 + 3))
+                rect = text.get_rect(center=((SCREEN_WIDTH // 2) + 3, (SCREEN_HEIGHT // 2) + 3))
                 self.screen.blit(text, rect)
                 text = self.font_large.render(winner_text, True, color)
-                rect = text.get_rect(center=(SCREEN_WIDTH // 2, 180))
+                rect = text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2))
                 self.screen.blit(text, rect)
-                
-                # Show final player status
-                y_offset = 230
-                for snake in self.snakes:
-                    if snake.lives > 0:
-                        status = "WINNER ({} lives)".format(snake.lives)
-                    else:
-                        status = "ELIMINATED"
-                    score_text = "{}: {}".format(self.player_names[snake.player_id], status)
-                    text = self.font_medium.render(score_text, True, BLACK)
-                    rect = text.get_rect(center=((SCREEN_WIDTH // 2) + 2, y_offset + 2))
-                    self.screen.blit(text, rect)
-                    text = self.font_medium.render(score_text, True, self.player_colors[snake.player_id])
-                    rect = text.get_rect(center=(SCREEN_WIDTH // 2, y_offset))
-                    self.screen.blit(text, rect)
-                    y_offset += 20  # Halved from 40
             else:
                 # Single player results
                 score_text = self.font_medium.render("Score: {}".format(self.score), True, NEON_CYAN)
@@ -8238,30 +8227,30 @@ class SnakeGame:
             self.screen.fill(DARK_BG)
         
         # Title
-        title = self.font_medium.render("MUSIC PLAYER", True, BLACK)
-        title_rect = title.get_rect(center=((SCREEN_WIDTH // 2)+3, 33))
+        title = self.font_large.render("MUSIC PLAYER", True, BLACK)
+        title_rect = title.get_rect(center=((SCREEN_WIDTH // 2)+3, 13))
         self.screen.blit(title, title_rect)
-        title = self.font_medium.render("MUSIC PLAYER", True, NEON_YELLOW)
-        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 30))
+        title = self.font_large.render("MUSIC PLAYER", True, NEON_YELLOW)
+        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 10))
         self.screen.blit(title, title_rect)
         
-        # Display total coins at top right
-        coin_display_x = SCREEN_WIDTH - 80
-        coin_display_y = 35
+        # Display total coins below title (centered)
+        coin_display_x = SCREEN_WIDTH // 2
+        coin_display_y = 30
         
         # Draw coin icon
-        coin_radius = 10
-        pygame.draw.circle(self.screen, YELLOW, (coin_display_x, coin_display_y), coin_radius)
-        pygame.draw.circle(self.screen, (255, 165, 0), (coin_display_x, coin_display_y), coin_radius, 2)
-        pygame.draw.circle(self.screen, (255, 165, 0), (coin_display_x, coin_display_y), coin_radius - 4, 1)
+        coin_radius = 8
+        pygame.draw.circle(self.screen, YELLOW, (coin_display_x - 25, coin_display_y), coin_radius)
+        pygame.draw.circle(self.screen, (255, 165, 0), (coin_display_x - 25, coin_display_y), coin_radius, 2)
+        pygame.draw.circle(self.screen, (255, 165, 0), (coin_display_x - 25, coin_display_y), coin_radius - 3, 1)
         
-        # Draw coin count
+        # Draw coin count with medium font
         coins_text = self.font_medium.render(str(getattr(self, 'total_coins', 0)), True, BLACK)
-        coins_rect = coins_text.get_rect(left=coin_display_x + 15, centery=coin_display_y + 2)
+        coins_rect = coins_text.get_rect(left=coin_display_x - 14, centery=coin_display_y + 1)
         self.screen.blit(coins_text, coins_rect)
         
         coins_text = self.font_medium.render(str(getattr(self, 'total_coins', 0)), True, YELLOW)
-        coins_rect = coins_text.get_rect(left=coin_display_x + 14, centery=coin_display_y)
+        coins_rect = coins_text.get_rect(left=coin_display_x - 15, centery=coin_display_y)
         self.screen.blit(coins_text, coins_rect)
         
         # Track list
@@ -8270,9 +8259,9 @@ class SnakeGame:
             no_tracks_rect = no_tracks.get_rect(center=(SCREEN_WIDTH // 2, 200))
             self.screen.blit(no_tracks, no_tracks_rect)
         else:
-            # Display up to 8 tracks at a time
-            start_y = 38  # Halved from 75 (rounded)
-            spacing = 16  # Halved from 32
+            # Display up to 8 tracks at a time (larger font = fewer visible)
+            start_y = 52  # Start below coin display
+            spacing = 22  # Spacing between tracks (larger for bigger font)
             visible_tracks = 8
             
             # Calculate which tracks to show (center the selection)
@@ -8311,68 +8300,54 @@ class SnakeGame:
                     color = NEON_CYAN
                     prefix = "  "
                 
-                # Draw lock icon for locked tracks
+                # Draw lock icon for locked tracks (doubled size)
                 if not is_unlocked and self.lock_icon:
-                    self.screen.blit(self.lock_icon, (30, y + 4))
-                # Draw hatchling head icon for selected track
+                    scaled_lock = pygame.transform.scale(self.lock_icon, (28, 28))  # Double from 14x14
+                    self.screen.blit(scaled_lock, (20, y))
+                # Draw hatchling head icon for selected track (doubled size)
                 elif i == self.music_player_selection and self.hatchling_head_icon:
-                    self.screen.blit(self.hatchling_head_icon, (30, y + 4))
+                    scaled_head = pygame.transform.scale(self.hatchling_head_icon, (28, 28))  # Double from 14x14
+                    self.screen.blit(scaled_head, (20, y))
                 
                 # Truncate long track names to make room for cost
                 display_name = track_name
-                max_length = 15 if not is_unlocked else 20
+                max_length = 12 if not is_unlocked else 16
                 if len(display_name) > max_length:
                     display_name = display_name[:max_length-3] + "..."
                 
-                text = self.font_small.render(prefix + display_name, True, BLACK)
-                text_rect = text.get_rect(left=57, top=y+2)
+                text = self.font_medium.render(prefix + display_name, True, BLACK)
+                text_rect = text.get_rect(left=52, top=y+2)
                 self.screen.blit(text, text_rect)
                 
-                text = self.font_small.render(prefix + display_name, True, color)
-                text_rect = text.get_rect(left=55, top=y)
+                text = self.font_medium.render(prefix + display_name, True, color)
+                text_rect = text.get_rect(left=50, top=y)
                 self.screen.blit(text, text_rect)
                 
                 # Draw coin cost for locked tracks
                 if not is_unlocked:
                     # Draw coin icon
-                    coin_x = SCREEN_WIDTH - 85
+                    coin_x = SCREEN_WIDTH - 60
                     coin_y = y + 12
                     coin_radius = 8
                     pygame.draw.circle(self.screen, YELLOW, (coin_x, coin_y), coin_radius)
                     pygame.draw.circle(self.screen, (255, 165, 0), (coin_x, coin_y), coin_radius, 2)
                     pygame.draw.circle(self.screen, (255, 165, 0), (coin_x, coin_y), coin_radius - 3, 1)
                     
-                    # Draw cost
-                    cost_text = self.font_small.render(str(cost), True, BLACK)
-                    cost_rect = cost_text.get_rect(left=coin_x + 13, centery=coin_y + 2)
+                    # Draw cost with medium font
+                    cost_text = self.font_medium.render(str(cost), True, BLACK)
+                    cost_rect = cost_text.get_rect(left=coin_x + 12, centery=coin_y + 1)
                     self.screen.blit(cost_text, cost_rect)
                     
-                    cost_text = self.font_small.render(str(cost), True, YELLOW)
-                    cost_rect = cost_text.get_rect(left=coin_x + 12, centery=coin_y)
+                    cost_text = self.font_medium.render(str(cost), True, YELLOW)
+                    cost_rect = cost_text.get_rect(left=coin_x + 11, centery=coin_y)
                     self.screen.blit(cost_text, cost_rect)
         
         # Control section at bottom
-        controls_y = 350
+        # Removed "Playing:" status text to avoid overlap with hints
+        # The selected track is already highlighted in the list
         
-        # Current track info
-        if self.music_player_current_track is not None and self.music_player_current_track < len(self.music_player_tracks):
-            current_name = self.music_player_tracks[self.music_player_current_track][0]
-            if len(current_name) > 25:
-                current_name = current_name[:22] + "..."
-            
-            status = "Playing" if self.music_player_playing else "Paused"
-            info_text = f"{status}: {current_name}"
-            
-            info = self.font_small.render(info_text, True, BLACK)
-            info_rect = info.get_rect(center=((SCREEN_WIDTH // 2)+2, controls_y+2))
-            self.screen.blit(info, info_rect)
-            
-            info = self.font_small.render(info_text, True, NEON_GREEN if self.music_player_playing else NEON_ORANGE)
-            info_rect = info.get_rect(center=(SCREEN_WIDTH // 2, controls_y))
-            self.screen.blit(info, info_rect)
-        
-        # Control buttons
-        button_y = 193  # Halved from 385
+        # Control buttons (hidden - using text controls instead)
+        button_y = -100  # Off-screen
         button_size = 15  # Halved from 30
         center_x = SCREEN_WIDTH // 2
         
@@ -8428,18 +8403,11 @@ class SnakeGame:
         pygame.draw.rect(self.screen, NEON_CYAN, (next_x + button_size - 7, button_y, 3, button_size))
         
         # Control hints
-        hint_y = 220  # Halved from 440
-        hint_text = self.font_medium.render("A: Play/Pause  |  L/R: Skip", True, BLACK)
-        hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+2, hint_y+2))
+        hint_y = SCREEN_HEIGHT - 12
+        hint_text = self.font_small.render("A: Play/Pause  |  L/R: Skip", True, BLACK)
+        hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+1, hint_y+1))
         self.screen.blit(hint_text, hint_rect)
-        hint_text = self.font_medium.render("A: Play/Pause  |  L/R: Skip", True, NEON_PURPLE)
-        hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, hint_y))
-        self.screen.blit(hint_text, hint_rect)
-        hint_y = 470
-        hint_text = self.font_medium.render("B: Back", True, BLACK)
-        hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+2, hint_y+2))
-        self.screen.blit(hint_text, hint_rect)
-        hint_text = self.font_medium.render("B: Back", True, NEON_PURPLE)
+        hint_text = self.font_small.render("A: Play/Pause  |  L/R: Skip", True, NEON_PURPLE)
         hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, hint_y))
         self.screen.blit(hint_text, hint_rect)
     
