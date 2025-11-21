@@ -1712,6 +1712,11 @@ class SnakeGame:
         import math
         import random
         
+        # Safety check: Don't spawn if player has no body (died)
+        if not self.snake.body or len(self.snake.body) == 0:
+            print("Boss attack skipped: player has no body")
+            return
+        
         # Boss position is in bottom right (128x128 sprite for 240x240 resolution)
         boss_center_x = self.boss_position[0] + 64  # Center of 128px boss
         boss_center_y = self.boss_position[1] + 64  # Center of 128px boss
@@ -2442,6 +2447,16 @@ class SnakeGame:
             return 2.0
         return 1.0
     def get_difficulty_length_modifier(self):
+        # In endless mode, growth varies by difficulty
+        if self.game_mode == "endless":
+            if self.difficulty == Difficulty.HARD:
+                return 4
+            elif self.difficulty == Difficulty.MEDIUM:
+                return 2
+            else:  # EASY
+                return 1
+        
+        # In other modes (adventure/multiplayer), keep original behavior
         # Hard mode: grow by 2 instead of 1 (fills faster)
         if self.difficulty == Difficulty.HARD:
             return 2
@@ -2985,26 +3000,7 @@ class SnakeGame:
                                     self.sound_manager.play('eat')
                                     print("Boss minion {} killed, will respawn in 5 seconds".format(minion_idx + 1))
                             
-                            # Check if minion ate food
-                            minion_head = minion.body[0]
-                            for food_idx, (food_pos, food_type) in enumerate(self.food_items):
-                                if minion_head == food_pos:
-                                    # Minion ate the food!
-                                    if food_type == 'worm':
-                                        minion.grow()  # Grow the minion
-                                        self.sound_manager.play('eat')
-                                        # Remove eaten food
-                                        self.food_items.pop(food_idx)
-                                        # Spawn new worm
-                                        self.spawn_adventure_food()
-                                        print("Boss minion {} ate a worm and grew!".format(minion_idx + 1))
-                                    elif food_type == 'bonus':
-                                        minion.grow()
-                                        self.sound_manager.play('bonus')
-                                        self.food_items.pop(food_idx)
-                                        self.bonus_fruits_collected += 1
-                                        print("Boss minion {} ate a bonus fruit!".format(minion_idx + 1))
-                                    break
+                            # Boss minions don't eat food - they just wander as obstacles
                     else:
                         # Minion is dead, check respawn timer
                         if minion_idx in self.boss_minion_respawn_timers:
@@ -4096,7 +4092,7 @@ class SnakeGame:
                                                 None, None, particle_type='rainbow')
                         elif food_type == 'black_apple':
                             # Black apple - slow down
-                            self.sound_manager.play('die')
+                            self.sound_manager.play('power_down')
                             snake.speed_modifier += 3  # Slower (higher interval)
                             print("Player {} ate black apple, speed_modifier: {}".format(snake.player_id + 1, snake.speed_modifier))
                             self.create_particles(fx * GRID_SIZE + GRID_SIZE // 2,
@@ -4190,9 +4186,10 @@ class SnakeGame:
                                 # Isotope collectible - grants shooting ability
                                 self.sound_manager.play('powerup')
                                 self.snake.can_shoot = True
-                                # In adventure mode, don't grow - just swap to glowing body
-                                # In other modes (boss battles), grant 10 segments
-                                if self.game_mode != 'adventure':
+                                # Grow snake when collecting isotope
+                                if self.game_mode == 'adventure':
+                                    self.snake.grow(5)  # Grant 5 segments in adventure mode
+                                else:
                                     self.snake.grow(10)  # Grant 10 segments in boss mode
                                 fx, fy = food_pos
                                 self.create_particles(fx * GRID_SIZE + GRID_SIZE // 2,
@@ -4727,8 +4724,8 @@ class SnakeGame:
                             # Remove a segment from the snake
                             if self.snake.body:
                                 self.snake.body.pop()
-                            # Play shoot sound (using blip_select as placeholder)
-                            self.sound_manager.play('blip_select')
+                            # Play laser shoot sound
+                            self.sound_manager.play('laser_shoot')
                             # If segments are now 3 or less, lose shooting ability
                             if len(self.snake.body) <= 3:
                                 self.snake.can_shoot = False
@@ -4968,8 +4965,8 @@ class SnakeGame:
                             # Remove a segment from the snake
                             if self.snake.body:
                                 self.snake.body.pop()
-                            # Play shoot sound (using blip_select as placeholder)
-                            self.sound_manager.play('blip_select')
+                            # Play laser shoot sound
+                            self.sound_manager.play('laser_shoot')
                             # If segments are now 3 or less, lose shooting ability
                             if len(self.snake.body) <= 3:
                                 self.snake.can_shoot = False
@@ -5758,6 +5755,19 @@ class SnakeGame:
             self.snake = self.snakes[0]
             self.score = 0
             self.spawn_food()
+            
+            # Load appropriate background for game mode
+            if self.game_mode == "endless":
+                # Endless mode starts at level 1, so load BG1
+                try:
+                    bg_path = os.path.join(SCRIPT_DIR, 'img', 'bg', 'BG1.png')
+                    self.background = pygame.image.load(bg_path).convert()
+                    self.background = pygame.transform.scale(self.background, (SCREEN_WIDTH, SCREEN_HEIGHT))
+                    print("Loaded background for endless mode level 1: BG1.png")
+                except Exception as e:
+                    print("Warning: Could not load BG1.png: {}".format(e))
+                    self.background = None
+            # Adventure mode backgrounds are loaded when the level is loaded, not here
         
         self.level = 1
         self.lives = 3
@@ -5766,6 +5776,18 @@ class SnakeGame:
         self.bonus_food_timer = 0
         self.particles = []
         self.egg_pieces = []
+        
+        # Clear adventure mode specific flags that could interfere with endless mode
+        self.player_frozen = False
+        self.respawn_timer = 0
+        self.boss_active = False
+        self.boss_spawned = False
+        self.boss_minions = []
+        self.boss_minion_respawn_timers = {}
+        self.bullets = []
+        self.spewtums = []
+        self.enemy_walls = []
+        self.level_walls = []
         
         # In multiplayer, skip egg hatching and go straight to playing
         if self.is_multiplayer:
@@ -6976,7 +6998,7 @@ class SnakeGame:
         
         # Render title with more space from top
         title = self.font_large.render("SELECT DIFFICULTY", True, BLACK)
-        title_rect = title.get_rect(center=((SCREEN_WIDTH // 2)+3, 78))
+        title_rect = title.get_rect(center=((SCREEN_WIDTH // 2)+3, 77))
         self.screen.blit(title, title_rect)
         title = self.font_large.render("SELECT DIFFICULTY", True, NEON_YELLOW)
         title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 75))
@@ -6998,7 +7020,7 @@ class SnakeGame:
             
             # draw shadow
             text = self.font_medium.render(option, True, BLACK)
-            text_rect = text.get_rect(center=((SCREEN_WIDTH // 2)+3, start_y + i * spacing+3))
+            text_rect = text.get_rect(center=((SCREEN_WIDTH // 2)+3, start_y + i * spacing+2))
             self.screen.blit(text, text_rect)
             # Draw option text
             text = self.font_medium.render(option, True, color)
@@ -8571,25 +8593,25 @@ class SnakeGame:
         
         # Title at top with more space
         title = self.font_large.render("NEW HIGH SCORE!", True, BLACK)
-        title_rect = title.get_rect(center=((SCREEN_WIDTH // 2)+3, 48))
+        title_rect = title.get_rect(center=((SCREEN_WIDTH // 2)+3, 23))
         self.screen.blit(title, title_rect)
         title = self.font_large.render("NEW HIGH SCORE!", True, NEON_YELLOW)
-        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 45))
+        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 20))
         self.screen.blit(title, title_rect)
         
 
         # Score below title with proper spacing
         score_text = self.font_medium.render("Score: {}".format(self.score), True, BLACK)
-        score_rect = score_text.get_rect(center=((SCREEN_WIDTH // 2)+3, 93))
+        score_rect = score_text.get_rect(center=((SCREEN_WIDTH // 2)+3, 46))
         self.screen.blit(score_text, score_rect)
         # Score below title with proper spacing
         score_text = self.font_medium.render("Score: {}".format(self.score), True, NEON_CYAN)
-        score_rect = score_text.get_rect(center=(SCREEN_WIDTH // 2, 90))
+        score_rect = score_text.get_rect(center=(SCREEN_WIDTH // 2, 43))
         self.screen.blit(score_text, score_rect)
 
         
         # Name entry with better spacing
-        name_y = 135
+        name_y = 67
         for i, char in enumerate(self.player_name):
             x = SCREEN_WIDTH // 2 - 40 + i * 30
             color = WHITE if i == self.name_index else NEON_YELLOW
@@ -8602,9 +8624,9 @@ class SnakeGame:
             
         
         # Keyboard layout with better spacing - centered
-        key_y_start = 190
-        key_spacing_x = 45  # Horizontal spacing between keys
-        key_spacing_y = 40  # Vertical spacing between rows
+        key_y_start = 85
+        key_spacing_x = 20  # Horizontal spacing between keys
+        key_spacing_y = 28  # Vertical spacing between rows
         keyboard_width = len(self.keyboard_layout[0]) * key_spacing_x
         start_x = (SCREEN_WIDTH - keyboard_width) // 2 + key_spacing_x // 2
         
@@ -8635,16 +8657,16 @@ class SnakeGame:
         # Legend at bottom
         hint_text = self.current_hint
         legend_text = self.font_small.render(hint_text, True, BLACK)
-        legend_rect = legend_text.get_rect(center=((SCREEN_WIDTH // 2)+2, 181))  # Halved from 360+3
+        legend_rect = legend_text.get_rect(center=((SCREEN_WIDTH // 2)+2, 207))
         self.screen.blit(legend_text, legend_rect)
         legend_text = self.font_small.render(hint_text, True, NEON_CYAN)
-        legend_rect = legend_text.get_rect(center=(SCREEN_WIDTH // 2, 180))  # Halved from 360
+        legend_rect = legend_text.get_rect(center=(SCREEN_WIDTH // 2, 205))
         self.screen.blit(legend_text, legend_rect)
         hint_text = self.font_small.render("Start to continue", True, BLACK)
-        hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+2, 227))  # Halved from 452+3
+        hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+2, 227))
         self.screen.blit(hint_text, hint_rect)
         hint_text = self.font_small.render("Start to continue", True, NEON_CYAN)
-        hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 226))  # Halved from 452
+        hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 225))
         self.screen.blit(hint_text, hint_rect)
     
     def draw_high_scores(self):
@@ -8653,14 +8675,14 @@ class SnakeGame:
             self.screen.blit(self.highscore_screen, (0, 0))
         else:
             self.screen.fill(DARK_BG)
-        # Title shifted down
+        # Title at top
         title = self.font_large.render("HIGH SCORES", True, BLACK)
-        title_rect = title.get_rect(center=((SCREEN_WIDTH // 2)+3, 43))
+        title_rect = title.get_rect(center=((SCREEN_WIDTH // 2)+3, 17))
         self.screen.blit(title, title_rect)
 
-        # Title shifted down
+        # Title at top
         title = self.font_large.render("HIGH SCORES", True, NEON_YELLOW)
-        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 40))
+        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 15))
         self.screen.blit(title, title_rect)
         
         if not self.high_scores:
@@ -8672,8 +8694,8 @@ class SnakeGame:
             self.screen.blit(no_scores, no_scores_rect)
         else:
             # Score list with better spacing to fill the screen
-            start_y = 30  # Halved from 60
-            spacing = 19  # Halved from 38
+            start_y = 28
+            spacing = 19
             for i, entry in enumerate(self.high_scores[:10]):
                 name = entry['name']
                 score = entry['score']

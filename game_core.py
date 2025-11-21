@@ -404,7 +404,9 @@ class SoundManager:
             'pickupDiamond': os.path.join(SCRIPT_DIR, 'sound', 'sfx', 'pickupDiamond.wav'),
             'frogBossDeath': os.path.join(SCRIPT_DIR, 'sound', 'sfx', 'frogBossDeath.wav'),
             'bossWormDeath': os.path.join(SCRIPT_DIR, 'sound', 'sfx', 'bossWormDeath.wav'),
-            'achievement': os.path.join(SCRIPT_DIR, 'sound', 'sfx', 'achievement.wav')
+            'achievement': os.path.join(SCRIPT_DIR, 'sound', 'sfx', 'achievement.wav'),
+            'laser_shoot': os.path.join(SCRIPT_DIR, 'sound', 'sfx', 'laserShoot.wav'),
+            'power_down': os.path.join(SCRIPT_DIR, 'sound', 'sfx', 'powerDown.wav')
         }
         
         for name, path in sound_files.items():
