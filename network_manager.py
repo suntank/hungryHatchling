@@ -114,6 +114,7 @@ class NetworkManager:
     
     def _receive_loop(self):
         """Background thread to receive messages (client only)"""
+        buffer = ""
         while self.running:
             try:
                 data = self.socket.recv(self.buffer_size)
@@ -122,9 +123,18 @@ class NetworkManager:
                     self.connected = False
                     break
                 
-                # Decode and queue message
-                message = json.loads(data.decode('utf-8'))
-                self.message_queue.append(message)
+                # Decode and add to buffer
+                buffer += data.decode('utf-8')
+                
+                # Process complete messages (delimited by newlines)
+                while '\n' in buffer:
+                    line, buffer = buffer.split('\n', 1)
+                    if line.strip():
+                        try:
+                            message = json.loads(line)
+                            self.message_queue.append(message)
+                        except json.JSONDecodeError as e:
+                            print(f"JSON decode error: {e}")
                 
             except socket.timeout:
                 continue
@@ -140,7 +150,7 @@ class NetworkManager:
             return False
         
         try:
-            data = json.dumps(message).encode('utf-8')
+            data = (json.dumps(message) + '\n').encode('utf-8')
             self.socket.sendall(data)
             return True
         except Exception as e:
@@ -154,7 +164,7 @@ class NetworkManager:
             return False
         
         try:
-            data = json.dumps(message).encode('utf-8')
+            data = (json.dumps(message) + '\n').encode('utf-8')
             self.clients[client_id].sendall(data)
             return True
         except Exception as e:
@@ -168,7 +178,7 @@ class NetworkManager:
         if self.role != NetworkRole.HOST:
             return
         
-        data = json.dumps(message).encode('utf-8')
+        data = (json.dumps(message) + '\n').encode('utf-8')
         disconnected = []
         
         for i, client in enumerate(self.clients):

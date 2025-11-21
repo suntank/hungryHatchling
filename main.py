@@ -6496,6 +6496,22 @@ class SnakeGame:
     def handle_network_game_start(self, message):
         """Client handles game start message from host"""
         print("Game starting!")
+        num_players = message.get('num_players', 2)
+        
+        # Initialize client game state
+        self.walls = []  # No walls in network multiplayer for now
+        self.food_items = []
+        self.particles = []
+        self.bullets = []
+        
+        # Initialize snakes for all players
+        self.snakes = []
+        for i in range(num_players):
+            snake = Snake(player_id=i)
+            snake.lives = 3
+            self.snakes.append(snake)
+        self.snake = self.snakes[0]  # For backwards compatibility
+        
         self.state = GameState.PLAYING
         self.music_manager.stop_game_over_music()
         if not self.music_manager.theme_mode:
