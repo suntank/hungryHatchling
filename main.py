@@ -2873,7 +2873,14 @@ class SnakeGame:
         
         # Network clients: only render state from host, don't run game logic
         if self.is_network_game and self.network_manager.is_client():
-            # Skip all game logic updates for clients
+            # Clients only update timers for smooth interpolation
+            for snake in self.snakes:
+                if snake.alive:
+                    snake.move_timer += 1
+                    # Reset timer when it gets too high
+                    if snake.move_timer > 100:
+                        snake.move_timer = 0
+            # Skip all other game logic updates for clients
             return
         
         # Broadcast game state to clients (host only, every frame for 60 updates/sec)
@@ -4410,14 +4417,24 @@ class SnakeGame:
                 if self.is_network_game and self.network_manager.is_client():
                     # Client: Send input to host instead of controlling locally
                     if hasattr(self, 'network_player_id'):
+                        # Track last sent direction to avoid spamming same input
+                        if not hasattr(self, 'last_sent_direction'):
+                            self.last_sent_direction = None
+                        
+                        new_direction = None
                         if keys[pygame.K_UP]:
-                            self.send_input_to_host(Direction.UP)
+                            new_direction = Direction.UP
                         elif keys[pygame.K_DOWN]:
-                            self.send_input_to_host(Direction.DOWN)
+                            new_direction = Direction.DOWN
                         elif keys[pygame.K_LEFT]:
-                            self.send_input_to_host(Direction.LEFT)
+                            new_direction = Direction.LEFT
                         elif keys[pygame.K_RIGHT]:
-                            self.send_input_to_host(Direction.RIGHT)
+                            new_direction = Direction.RIGHT
+                        
+                        # Only send if direction changed
+                        if new_direction and new_direction != self.last_sent_direction:
+                            self.send_input_to_host(new_direction)
+                            self.last_sent_direction = new_direction
                     return  # Don't process local input for clients
                 
                 # Handle input for each player based on their controller
@@ -6562,14 +6579,27 @@ class SnakeGame:
             player_id = data.get('player_id')
             if player_id < len(self.snakes):
                 snake = self.snakes[player_id]
+                # Store previous body for interpolation
+                if hasattr(snake, 'body') and snake.body:
+                    snake.previous_body = snake.body.copy()
+                else:
+                    snake.previous_body = []
+                
+                # Update current body
                 snake.body = [tuple(pos) for pos in data.get('body', [])]
                 snake.alive = data.get('alive', True)
                 snake.lives = data.get('lives', 3)
+                
                 # Update direction
                 try:
                     snake.direction = Direction[data.get('direction', 'RIGHT')]
                 except:
                     pass
+                
+                # Reset move timer for smooth interpolation
+                snake.move_timer = 0
+                if not hasattr(snake, 'last_move_interval'):
+                    snake.last_move_interval = 16
         
         # Update food items
         food_data = message.get('food_items', [])
