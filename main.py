@@ -15,6 +15,8 @@ from game_core import SCREEN_WIDTH, SCREEN_HEIGHT, GRID_SIZE, GRID_WIDTH, GRID_H
 from game_core import BLACK, WHITE, GREEN, DARK_GREEN, RED, YELLOW, ORANGE, GRAY, DARK_GRAY
 from game_core import NEON_GREEN, NEON_LIME, NEON_PINK, NEON_CYAN, NEON_ORANGE, NEON_PURPLE, NEON_YELLOW, NEON_BLUE
 from game_core import GRID_COLOR, HUD_BG, DARK_BG
+from network_manager import NetworkManager, NetworkRole
+from network_protocol import MessageType, create_input_message, create_game_state_message, create_game_start_message, create_game_end_message, create_player_assigned_message
 
 # Get the directory where this script is located
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -1051,7 +1053,17 @@ class SnakeGame:
         
         # Multiplayer menu
         self.multiplayer_menu_selection = 0
-        self.multiplayer_menu_options = ["Same Screen", "Local Network (Coming Soon)", "Back"]
+        self.multiplayer_menu_options = ["Same Screen", "Network Game", "Back"]
+        
+        # Network multiplayer
+        self.network_manager = NetworkManager()
+        self.is_network_game = False  # True when playing over network
+        self.network_menu_selection = 0
+        self.network_menu_options = ["Host Game", "Join Game", "Back"]
+        self.network_host_ip = ""  # For displaying host IP
+        self.network_join_ip = "192.168.1."  # IP being typed for joining
+        self.network_join_ip_cursor = len(self.network_join_ip)  # Cursor position for IP entry
+        self.network_status_message = ""  # Status messages for connection
         
         # Multiplayer level selection
         self.multiplayer_level_selection = 0
@@ -2492,12 +2504,22 @@ class SnakeGame:
             winner = players_with_lives[0]
             print("Player {} wins the match!".format(winner.player_id + 1))
             self.sound_manager.play('level_up')
+            # Broadcast game end to network clients
+            if self.is_network_game and self.network_manager.is_host():
+                final_scores = [0] * len(self.snakes)  # TODO: Track actual scores
+                end_msg = create_game_end_message(winner.player_id, final_scores)
+                self.network_manager.broadcast_to_clients(end_msg)
             # Set a delay before transitioning to game over screen
             self.multiplayer_end_timer = 120  # 2 seconds at 60 FPS
         elif len(players_with_lives) == 0:
             # Everyone ran out of lives - draw
             print("Draw - all players eliminated!")
             self.sound_manager.play('no_lives')
+            # Broadcast game end to network clients (no winner)
+            if self.is_network_game and self.network_manager.is_host():
+                final_scores = [0] * len(self.snakes)
+                end_msg = create_game_end_message(-1, final_scores)  # -1 = draw
+                self.network_manager.broadcast_to_clients(end_msg)
             # Set a delay before transitioning to game over screen
             self.multiplayer_end_timer = 120  # 2 seconds at 60 FPS
     
@@ -2848,6 +2870,15 @@ class SnakeGame:
     def update_game(self):
         # Update music - we're in gameplay (not menu)
         self.music_manager.update(in_menu=False)
+        
+        # Broadcast game state to clients (host only, every 2 frames for 30 updates/sec)
+        if self.is_network_game and self.network_manager.is_host():
+            if not hasattr(self, 'network_broadcast_counter'):
+                self.network_broadcast_counter = 0
+            self.network_broadcast_counter += 1
+            if self.network_broadcast_counter >= 2:  # Broadcast every 2 frames (30 times/sec)
+                self.broadcast_game_state()
+                self.network_broadcast_counter = 0
         
         # Update achievement notification timer
         if self.achievement_notification_active:
@@ -4353,6 +4384,20 @@ class SnakeGame:
                 self.hatch_egg(Direction.RIGHT)
         elif self.state == GameState.PLAYING:
             if self.is_multiplayer:
+                # Network game: Clients only control their assigned snake and send inputs to host
+                if self.is_network_game and self.network_manager.is_client():
+                    # Client: Send input to host instead of controlling locally
+                    if hasattr(self, 'network_player_id'):
+                        if keys[pygame.K_UP]:
+                            self.send_input_to_host(Direction.UP)
+                        elif keys[pygame.K_DOWN]:
+                            self.send_input_to_host(Direction.DOWN)
+                        elif keys[pygame.K_LEFT]:
+                            self.send_input_to_host(Direction.LEFT)
+                        elif keys[pygame.K_RIGHT]:
+                            self.send_input_to_host(Direction.RIGHT)
+                    return  # Don't process local input for clients
+                
                 # Handle input for each player based on their controller
                 for i, snake in enumerate(self.snakes):
                     # Check if this player is respawning (has an egg)
@@ -4829,10 +4874,12 @@ class SnakeGame:
                         # Same Screen - Go to level selection first
                         self.sound_manager.play('blip_select')
                         self.is_multiplayer = True
+                        self.is_network_game = False
                         self.state = GameState.MULTIPLAYER_LEVEL_SELECT
                     elif self.multiplayer_menu_selection == 1:
-                        # Local Network - Coming soon
-                        pass
+                        # Network Game - Go to network menu
+                        self.sound_manager.play('blip_select')
+                        self.state = GameState.NETWORK_MENU
                     elif self.multiplayer_menu_selection == 2:
                         # Back to main menu
                         self.sound_manager.play('blip_select')
@@ -4840,6 +4887,89 @@ class SnakeGame:
                 elif event.key == pygame.K_ESCAPE:
                     self.sound_manager.play('blip_select')
                     self.state = GameState.MENU
+            elif self.state == GameState.NETWORK_MENU:
+                if event.key == pygame.K_UP:
+                    self.network_menu_selection = (self.network_menu_selection - 1) % len(self.network_menu_options)
+                    self.sound_manager.play('blip_select')
+                elif event.key == pygame.K_DOWN:
+                    self.network_menu_selection = (self.network_menu_selection + 1) % len(self.network_menu_options)
+                    self.sound_manager.play('blip_select')
+                elif event.key == pygame.K_RETURN:
+                    if self.network_menu_selection == 0:
+                        # Host Game
+                        self.sound_manager.play('blip_select')
+                        success, result = self.network_manager.start_host(max_players=4)
+                        if success:
+                            self.network_host_ip = result
+                            self.network_status_message = f"Hosting on {result}"
+                            self.is_multiplayer = True
+                            self.is_network_game = True
+                            self.state = GameState.NETWORK_HOST_LOBBY
+                        else:
+                            self.network_status_message = f"Failed to host: {result}"
+                    elif self.network_menu_selection == 1:
+                        # Join Game - go to IP entry screen
+                        self.sound_manager.play('blip_select')
+                        self.state = GameState.NETWORK_CLIENT_LOBBY
+                        self.network_status_message = "Enter host IP address"
+                    elif self.network_menu_selection == 2:
+                        # Back
+                        self.sound_manager.play('blip_select')
+                        self.state = GameState.MULTIPLAYER_MENU
+                elif event.key == pygame.K_ESCAPE:
+                    self.sound_manager.play('blip_select')
+                    self.state = GameState.MULTIPLAYER_MENU
+            elif self.state == GameState.NETWORK_HOST_LOBBY:
+                # Host lobby - waiting for players to join
+                if event.key == pygame.K_RETURN:
+                    # Start game if we have at least 2 players (host + 1 client)
+                    if self.network_manager.get_connected_players() >= 2:
+                        self.sound_manager.play('start_game')
+                        # Broadcast game start to all clients
+                        num_players = self.network_manager.get_connected_players()
+                        start_msg = create_game_start_message(num_players)
+                        self.network_manager.broadcast_to_clients(start_msg)
+                        # Start game on host
+                        self.music_manager.stop_game_over_music()
+                        self.reset_game()
+                    else:
+                        self.network_status_message = "Need at least 2 players"
+                elif event.key == pygame.K_ESCAPE:
+                    # Cancel hosting
+                    self.sound_manager.play('blip_select')
+                    self.network_manager.cleanup()
+                    self.is_multiplayer = False
+                    self.is_network_game = False
+                    self.state = GameState.NETWORK_MENU
+            elif self.state == GameState.NETWORK_CLIENT_LOBBY:
+                # Client - entering IP or connecting
+                if event.key == pygame.K_RETURN:
+                    # Try to connect
+                    self.sound_manager.play('blip_select')
+                    self.network_status_message = "Connecting..."
+                    success, result = self.network_manager.connect_to_host(self.network_join_ip)
+                    if success:
+                        self.network_status_message = "Connected! Waiting for host..."
+                        self.is_multiplayer = True
+                        self.is_network_game = True
+                    else:
+                        self.network_status_message = f"Failed: {result}"
+                        self.network_manager.cleanup()
+                elif event.key == pygame.K_ESCAPE:
+                    # Cancel
+                    self.sound_manager.play('blip_select')
+                    self.network_manager.cleanup()
+                    self.state = GameState.NETWORK_MENU
+                elif event.key == pygame.K_BACKSPACE:
+                    # Delete character
+                    if len(self.network_join_ip) > 0:
+                        self.network_join_ip = self.network_join_ip[:-1]
+                        self.sound_manager.play('select_letter')
+                elif event.unicode and event.unicode in '0123456789.':
+                    # Add character (IP address chars only)
+                    if len(self.network_join_ip) < 15:  # Max IP length
+                        self.network_join_ip += event.unicode
+                        self.sound_manager.play('select_letter')
             elif self.state == GameState.MULTIPLAYER_LEVEL_SELECT:
                 if event.key == pygame.K_UP:
                     if len(self.multiplayer_levels) > 0:
@@ -6245,6 +6375,138 @@ class SnakeGame:
                         next_scaled.set_alpha(int(self.outro_fade_alpha))
                         self.screen.blit(next_scaled, (0, 0))
     
+    def process_network_messages(self):
+        """Process all pending network messages"""
+        messages = self.network_manager.get_messages()
+        
+        for message in messages:
+            msg_type = message.get('type')
+            
+            if msg_type == MessageType.INPUT.value:
+                # Host receives input from client
+                if self.network_manager.is_host():
+                    self.handle_network_input(message)
+            
+            elif msg_type == MessageType.GAME_STATE.value:
+                # Client receives game state from host
+                if self.network_manager.is_client():
+                    self.apply_network_game_state(message)
+            
+            elif msg_type == MessageType.GAME_START.value:
+                # Client receives game start from host
+                if self.network_manager.is_client():
+                    self.handle_network_game_start(message)
+            
+            elif msg_type == MessageType.GAME_END.value:
+                # Client receives game end from host
+                if self.network_manager.is_client():
+                    self.handle_network_game_end(message)
+            
+            elif msg_type == MessageType.PLAYER_ASSIGNED.value:
+                # Client receives player ID assignment
+                if self.network_manager.is_client():
+                    self.network_player_id = message.get('player_id', 1)
+                    print(f"Assigned as Player {self.network_player_id + 1}")
+            
+            elif msg_type == 'player_joined':
+                # New player joined (from NetworkManager)
+                player_id = message.get('player_id')
+                address = message.get('address')
+                print(f"Player {player_id + 1} joined from {address}")
+                # Assign player ID to the new client
+                assign_msg = create_player_assigned_message(player_id, player_id)
+                self.network_manager.send_to_client(player_id - 1, assign_msg)
+            
+            elif msg_type == 'player_left':
+                # Player disconnected
+                player_id = message.get('player_id')
+                print(f"Player {player_id + 1} disconnected")
+    
+    def handle_network_input(self, message):
+        """Host processes input from a network client"""
+        player_id = message.get('player_id')
+        direction_str = message.get('direction')
+        
+        # Convert direction string to Direction enum
+        try:
+            direction = Direction[direction_str]
+        except:
+            return
+        
+        # Apply input to the corresponding snake
+        if player_id < len(self.snakes):
+            snake = self.snakes[player_id]
+            # Only update if it's a valid direction change (not opposite)
+            if direction == Direction.UP and snake.direction != Direction.DOWN:
+                snake.next_direction = direction
+            elif direction == Direction.DOWN and snake.direction != Direction.UP:
+                snake.next_direction = direction
+            elif direction == Direction.LEFT and snake.direction != Direction.RIGHT:
+                snake.next_direction = direction
+            elif direction == Direction.RIGHT and snake.direction != Direction.LEFT:
+                snake.next_direction = direction
+    
+    def send_input_to_host(self, direction):
+        """Client sends input to the host"""
+        if not self.network_manager.is_client():
+            return
+        
+        if not hasattr(self, 'network_player_id'):
+            return
+        
+        message = create_input_message(self.network_player_id, direction.name)
+        self.network_manager.send_to_host(message)
+    
+    def broadcast_game_state(self):
+        """Host broadcasts current game state to all clients"""
+        if not self.network_manager.is_host():
+            return
+        
+        # Only broadcast during active gameplay
+        if self.state != GameState.PLAYING:
+            return
+        
+        # Create and send game state message
+        frame = getattr(self, 'network_frame', 0)
+        message = create_game_state_message(self.snakes, self.food_items, frame)
+        self.network_manager.broadcast_to_clients(message)
+        self.network_frame = frame + 1
+    
+    def apply_network_game_state(self, message):
+        """Client applies received game state from host"""
+        # Update snake positions
+        snake_data = message.get('snakes', [])
+        for data in snake_data:
+            player_id = data.get('player_id')
+            if player_id < len(self.snakes):
+                snake = self.snakes[player_id]
+                snake.body = [tuple(pos) for pos in data.get('body', [])]
+                snake.alive = data.get('alive', True)
+                snake.lives = data.get('lives', 3)
+                # Update direction
+                try:
+                    snake.direction = Direction[data.get('direction', 'RIGHT')]
+                except:
+                    pass
+        
+        # Update food items
+        food_data = message.get('food_items', [])
+        self.food_items = [(tuple(item['pos']), item['type']) for item in food_data]
+    
+    def handle_network_game_start(self, message):
+        """Client handles game start message from host"""
+        print("Game starting!")
+        self.state = GameState.PLAYING
+        self.music_manager.stop_game_over_music()
+        if not self.music_manager.theme_mode:
+            self.music_manager.play_next()
+    
+    def handle_network_game_end(self, message):
+        """Client handles game end message from host"""
+        winner = message.get('winner')
+        print(f"Game over! Player {winner + 1} wins!")
+        self.state = GameState.GAME_OVER
+    
     def run(self):
         running = True
         while running:
@@ -6253,6 +6515,10 @@ class SnakeGame:
                     running = False
             
             self.handle_input()
+            
+            # Process network messages (if in network game)
+            if self.is_network_game:
+                self.process_network_messages()
             
             # Handle splash screen timer
             if self.state == GameState.SPLASH:
@@ -6362,6 +6628,12 @@ class SnakeGame:
             self.draw_adventure_level_select()
         elif self.state == GameState.MULTIPLAYER_MENU:
             self.draw_multiplayer_menu()
+        elif self.state == GameState.NETWORK_MENU:
+            self.draw_network_menu()
+        elif self.state == GameState.NETWORK_HOST_LOBBY:
+            self.draw_network_host_lobby()
+        elif self.state == GameState.NETWORK_CLIENT_LOBBY:
+            self.draw_network_client_lobby()
         elif self.state == GameState.MULTIPLAYER_LEVEL_SELECT:
             self.draw_multiplayer_level_select()
         elif self.state == GameState.MULTIPLAYER_LOBBY:
@@ -6623,6 +6895,193 @@ class SnakeGame:
         hint_text = self.font_small.render("Press B to go back", True, NEON_PURPLE)
         hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 225))  # Halved from 450
         self.screen.blit(hint_text, hint_rect)
+    
+    def draw_network_menu(self):
+        """Draw the network game menu (Host/Join)."""
+        # Use difficulty screen as background
+        if self.difficulty_screen:
+            self.screen.blit(self.difficulty_screen, (0, 0))
+        elif self.title_screen:
+            self.screen.blit(self.title_screen, (0, 0))
+        else:
+            self.screen.fill(DARK_BG)
+        
+        # Title
+        title = self.font_large.render("NETWORK GAME", True, BLACK)
+        title_rect = title.get_rect(center=((SCREEN_WIDTH // 2)+2, 39))
+        self.screen.blit(title, title_rect)
+        title = self.font_large.render("NETWORK GAME", True, NEON_CYAN)
+        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 37))
+        self.screen.blit(title, title_rect)
+        
+        # Render menu options
+        for i, option in enumerate(self.network_menu_options):
+            color = NEON_YELLOW if i == self.network_menu_selection else NEON_CYAN
+            
+            text = self.font_medium.render(option, True, BLACK)
+            text_rect = text.get_rect(center=((SCREEN_WIDTH // 2)+1, 121 + i * 20))
+            self.screen.blit(text, text_rect)
+            
+            text = self.font_medium.render(option, True, color)
+            text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, 120 + i * 20))
+            self.screen.blit(text, text_rect)
+        
+        # Status message if any
+        if self.network_status_message:
+            status_text = self.font_small.render(self.network_status_message, True, BLACK)
+            status_rect = status_text.get_rect(center=((SCREEN_WIDTH // 2)+1, 196))
+            self.screen.blit(status_text, status_rect)
+            status_text = self.font_small.render(self.network_status_message, True, NEON_ORANGE)
+            status_rect = status_text.get_rect(center=(SCREEN_WIDTH // 2, 195))
+            self.screen.blit(status_text, status_rect)
+        
+        # Hint text
+        hint_text = self.font_small.render("Press B to go back", True, BLACK)
+        hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+1, 226))
+        self.screen.blit(hint_text, hint_rect)
+        hint_text = self.font_small.render("Press B to go back", True, NEON_PURPLE)
+        hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 225))
+        self.screen.blit(hint_text, hint_rect)
+    
+    def draw_network_host_lobby(self):
+        """Draw the host lobby screen (waiting for players to join)."""
+        if self.difficulty_screen:
+            self.screen.blit(self.difficulty_screen, (0, 0))
+        else:
+            self.screen.fill(DARK_BG)
+        
+        # Title
+        title = self.font_large.render("HOSTING GAME", True, BLACK)
+        title_rect = title.get_rect(center=((SCREEN_WIDTH // 2)+2, 29))
+        self.screen.blit(title, title_rect)
+        title = self.font_large.render("HOSTING GAME", True, NEON_GREEN)
+        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 27))
+        self.screen.blit(title, title_rect)
+        
+        # Show host IP
+        ip_text = self.font_medium.render(f"Your IP: {self.network_host_ip}", True, BLACK)
+        ip_rect = ip_text.get_rect(center=((SCREEN_WIDTH // 2)+1, 61))
+        self.screen.blit(ip_text, ip_rect)
+        ip_text = self.font_medium.render(f"Your IP: {self.network_host_ip}", True, NEON_CYAN)
+        ip_rect = ip_text.get_rect(center=(SCREEN_WIDTH // 2, 60))
+        self.screen.blit(ip_text, ip_rect)
+        
+        # Show connected players count
+        player_count = self.network_manager.get_connected_players()
+        count_text = self.font_medium.render(f"Players: {player_count}/4", True, BLACK)
+        count_rect = count_text.get_rect(center=((SCREEN_WIDTH // 2)+1, 91))
+        self.screen.blit(count_text, count_rect)
+        count_text = self.font_medium.render(f"Players: {player_count}/4", True, NEON_YELLOW)
+        count_rect = count_text.get_rect(center=(SCREEN_WIDTH // 2, 90))
+        self.screen.blit(count_text, count_rect)
+        
+        # Show connected client addresses
+        y_offset = 120
+        for i, addr in enumerate(self.network_manager.client_addresses):
+            client_text = self.font_small.render(f"Player {i+2}: {addr}", True, BLACK)
+            client_rect = client_text.get_rect(center=((SCREEN_WIDTH // 2)+1, y_offset+1))
+            self.screen.blit(client_text, client_rect)
+            client_text = self.font_small.render(f"Player {i+2}: {addr}", True, WHITE)
+            client_rect = client_text.get_rect(center=(SCREEN_WIDTH // 2, y_offset))
+            self.screen.blit(client_text, client_rect)
+            y_offset += 15
+        
+        # Status message
+        if self.network_status_message:
+            status_text = self.font_small.render(self.network_status_message, True, BLACK)
+            status_rect = status_text.get_rect(center=((SCREEN_WIDTH // 2)+1, 186))
+            self.screen.blit(status_text, status_rect)
+            status_text = self.font_small.render(self.network_status_message, True, NEON_ORANGE)
+            status_rect = status_text.get_rect(center=(SCREEN_WIDTH // 2, 185))
+            self.screen.blit(status_text, status_rect)
+        
+        # Instructions
+        hint1 = self.font_small.render("Waiting for players to join...", True, BLACK)
+        hint1_rect = hint1.get_rect(center=((SCREEN_WIDTH // 2)+1, 206))
+        self.screen.blit(hint1, hint1_rect)
+        hint1 = self.font_small.render("Waiting for players to join...", True, NEON_PURPLE)
+        hint1_rect = hint1.get_rect(center=(SCREEN_WIDTH // 2, 205))
+        self.screen.blit(hint1, hint1_rect)
+        
+        hint2 = self.font_small.render("Press START to begin (2+ players)", True, BLACK)
+        hint2_rect = hint2.get_rect(center=((SCREEN_WIDTH // 2)+1, 221))
+        self.screen.blit(hint2, hint2_rect)
+        hint2 = self.font_small.render("Press START to begin (2+ players)", True, NEON_CYAN)
+        hint2_rect = hint2.get_rect(center=(SCREEN_WIDTH // 2, 220))
+        self.screen.blit(hint2, hint2_rect)
+    
+    def draw_network_client_lobby(self):
+        """Draw the client lobby screen (entering IP or waiting)."""
+        if self.difficulty_screen:
+            self.screen.blit(self.difficulty_screen, (0, 0))
+        else:
+            self.screen.fill(DARK_BG)
+        
+        # Title
+        title = self.font_large.render("JOIN GAME", True, BLACK)
+        title_rect = title.get_rect(center=((SCREEN_WIDTH // 2)+2, 29))
+        self.screen.blit(title, title_rect)
+        title = self.font_large.render("JOIN GAME", True, NEON_CYAN)
+        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 27))
+        self.screen.blit(title, title_rect)
+        
+        if self.network_manager.is_connected():
+            # Connected - waiting for host to start
+            status_text = self.font_medium.render("Connected!", True, BLACK)
+            status_rect = status_text.get_rect(center=((SCREEN_WIDTH // 2)+1, 91))
+            self.screen.blit(status_text, status_rect)
+            status_text = self.font_medium.render("Connected!", True, NEON_GREEN)
+            status_rect = status_text.get_rect(center=(SCREEN_WIDTH // 2, 90))
+            self.screen.blit(status_text, status_rect)
+            
+            wait_text = self.font_small.render("Waiting for host to start game...", True, BLACK)
+            wait_rect = wait_text.get_rect(center=((SCREEN_WIDTH // 2)+1, 121))
+            self.screen.blit(wait_text, wait_rect)
+            wait_text = self.font_small.render("Waiting for host to start game...", True, NEON_PURPLE)
+            wait_rect = wait_text.get_rect(center=(SCREEN_WIDTH // 2, 120))
+            self.screen.blit(wait_text, wait_rect)
+        else:
+            # Not connected - show IP entry
+            prompt_text = self.font_medium.render("Enter Host IP:", True, BLACK)
+            prompt_rect = prompt_text.get_rect(center=((SCREEN_WIDTH // 2)+1, 71))
+            self.screen.blit(prompt_text, prompt_rect)
+            prompt_text = self.font_medium.render("Enter Host IP:", True, NEON_YELLOW)
+            prompt_rect = prompt_text.get_rect(center=(SCREEN_WIDTH // 2, 70))
+            self.screen.blit(prompt_text, prompt_rect)
+            
+            # IP input box
+            ip_display = self.network_join_ip + "_"
+            ip_text = self.font_large.render(ip_display, True, BLACK)
+            ip_rect = ip_text.get_rect(center=((SCREEN_WIDTH // 2)+1, 101))
+            self.screen.blit(ip_text, ip_rect)
+            ip_text = self.font_large.render(ip_display, True, NEON_CYAN)
+            ip_rect = ip_text.get_rect(center=(SCREEN_WIDTH // 2, 100))
+            self.screen.blit(ip_text, ip_rect)
+            
+            # Instructions
+            hint1 = self.font_small.render("Type IP address (numbers and dots)", True, BLACK)
+            hint1_rect = hint1.get_rect(center=((SCREEN_WIDTH // 2)+1, 136))
+            self.screen.blit(hint1, hint1_rect)
+            hint1 = self.font_small.render("Type IP address (numbers and dots)", True, WHITE)
+            hint1_rect = hint1.get_rect(center=(SCREEN_WIDTH // 2, 135))
+            self.screen.blit(hint1, hint1_rect)
+        
+        # Status message
+        if self.network_status_message:
+            status_text = self.font_small.render(self.network_status_message, True, BLACK)
+            status_rect = status_text.get_rect(center=((SCREEN_WIDTH // 2)+1, 191))
+            self.screen.blit(status_text, status_rect)
+            status_text = self.font_small.render(self.network_status_message, True, NEON_ORANGE)
+            status_rect = status_text.get_rect(center=(SCREEN_WIDTH // 2, 190))
+            self.screen.blit(status_text, status_rect)
+        
+        # Bottom hints
+        hint2 = self.font_small.render("Press START to connect | B to cancel", True, BLACK)
+        hint2_rect = hint2.get_rect(center=((SCREEN_WIDTH // 2)+1, 221))
+        self.screen.blit(hint2, hint2_rect)
+        hint2 = self.font_small.render("Press START to connect | B to cancel", True, NEON_PURPLE)
+        hint2_rect = hint2.get_rect(center=(SCREEN_WIDTH // 2, 220))
+        self.screen.blit(hint2, hint2_rect)
     
     def draw_extras_menu(self):
         """Draw the extras menu."""

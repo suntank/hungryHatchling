@@ -80,6 +80,9 @@ class GameState(Enum):
     LEVEL_EDITOR_MENU = 19
     INTRO = 20
     OUTRO = 21
+    NETWORK_MENU = 22
+    NETWORK_HOST_LOBBY = 23
+    NETWORK_CLIENT_LOBBY = 24
 
 # Difficulty modes
 class Difficulty(Enum):
