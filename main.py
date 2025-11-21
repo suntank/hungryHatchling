@@ -157,7 +157,7 @@ class SnakeGame:
             tweetrix_path = os.path.join(SCRIPT_DIR, 'img', 'Tweetrix.png')
             self.tweetrix_logo = pygame.image.load(tweetrix_path).convert_alpha()
             # Scale logo to reasonable size (e.g., 50px wide for 240x240, maintain aspect ratio)
-            logo_width = 25
+            logo_width = 50
             aspect_ratio = self.tweetrix_logo.get_height() / self.tweetrix_logo.get_width()
             logo_height = int(logo_width * aspect_ratio)
             self.tweetrix_logo = pygame.transform.scale(self.tweetrix_logo, (logo_width, logo_height))
@@ -417,10 +417,40 @@ class SnakeGame:
             self.particle_rainbow_frames = []
             print("Warning: particlesRainbow.gif not found or could not be loaded: {}".format(e))
         
+        # Load yellow particle effect animation (GIF) - for coin/diamond collection
+        try:
+            from PIL import Image
+            particle_yellow_path = os.path.join(SCRIPT_DIR, 'img', 'particlesYellow.gif')
+            self.particle_yellow_frames = []
+            
+            # Load GIF frames using PIL
+            gif = Image.open(particle_yellow_path)
+            frame_count = 0
+            try:
+                while True:
+                    
+                    # Get the current frame and convert to RGBA
+                    frame = gif.copy().convert('RGBA')
+                    
+                    # Convert PIL image to pygame surface
+                    pygame_frame = pygame.image.frombytes(
+                        frame.tobytes(), frame.size, frame.mode
+                    ).convert_alpha()
+                    self.particle_yellow_frames.append(pygame_frame)
+                    frame_count += 1
+                    gif.seek(frame_count)
+            except EOFError:
+                pass
+            
+            print("Loaded {} frames for yellow particle animation".format(len(self.particle_yellow_frames)))
+        except Exception as e:
+            self.particle_yellow_frames = []
+            print("Warning: particlesYellow.gif not found or could not be loaded: {}".format(e))
+        
         # Load worm (food) animation (GIF)
         try:
             from PIL import Image
-            worm_path = os.path.join(SCRIPT_DIR, 'img', 'worm.gif')
+            worm_path = os.path.join(SCRIPT_DIR, 'img', 'worm.png')
             self.worm_frames = []
             
             # Load GIF frames using PIL
@@ -448,7 +478,7 @@ class SnakeGame:
             print("Loaded {} frames for worm animation".format(len(self.worm_frames)))
         except Exception as e:
             self.worm_frames = []
-            print("Warning: worm.gif not found or could not be loaded: {}".format(e))
+            print("Warning: worm.png not found or could not be loaded: {}".format(e))
         
         # Load ant enemy animation (GIF)
         try:
@@ -2704,11 +2734,13 @@ class SnakeGame:
     
     def create_particles(self, x, y, color=None, count=None, particle_type='red'):
         # Spawn a single GIF particle effect based on type
-        # particle_type can be 'red', 'white', or 'rainbow'
+        # particle_type can be 'red', 'white', 'rainbow', or 'yellow'
         if particle_type == 'white' and self.particle_white_frames:
             self.particles.append(GifParticle(x, y, self.particle_white_frames))
         elif particle_type == 'rainbow' and self.particle_rainbow_frames:
             self.particles.append(GifParticle(x, y, self.particle_rainbow_frames))
+        elif particle_type == 'yellow' and self.particle_yellow_frames:
+            self.particles.append(GifParticle(x, y, self.particle_yellow_frames))
         elif self.particle_frames:  # Default to red particles
             self.particles.append(GifParticle(x, y, self.particle_frames))
         # If particle frames not loaded, do nothing (silent fail for better performance)
@@ -4093,7 +4125,7 @@ class SnakeGame:
                                 fx, fy = food_pos
                                 self.create_particles(fx * GRID_SIZE + GRID_SIZE // 2,
                                                     fy * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y, 
-                                                    YELLOW, 8)
+                                                    None, None, particle_type='yellow')
                                 # Remove coin from list
                                 self.food_items.pop(i)
                                 # Coins don't grow snake or count toward completion
@@ -4105,7 +4137,7 @@ class SnakeGame:
                                 fx, fy = food_pos
                                 self.create_particles(fx * GRID_SIZE + GRID_SIZE // 2,
                                                     fy * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y, 
-                                                    NEON_CYAN, 12)
+                                                    None, None, particle_type='yellow')
                                 # Remove diamond from list
                                 self.food_items.pop(i)
                                 # Diamonds don't grow snake or count toward completion
@@ -7901,15 +7933,15 @@ class SnakeGame:
             else:
                 # Single player results
                 score_text = self.font_medium.render("Score: {}".format(self.score), True, NEON_CYAN)
-                score_rect = score_text.get_rect(center=(SCREEN_WIDTH // 2, 200))
+                score_rect = score_text.get_rect(center=(SCREEN_WIDTH // 2, 110))
                 self.screen.blit(score_text, score_rect)
                 
                 level_text = self.font_medium.render("Level: {}".format(self.level), True, NEON_GREEN)
-                level_rect = level_text.get_rect(center=(SCREEN_WIDTH // 2, 240))
+                level_rect = level_text.get_rect(center=(SCREEN_WIDTH // 2, 145))
                 self.screen.blit(level_text, level_rect)
             
             hint_text = self.font_small.render("Start to continue", True, NEON_YELLOW)
-            hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 200))  # Halved from 400
+            hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 220))
             self.screen.blit(hint_text, hint_rect)
     
     def draw_level_complete(self):
@@ -7921,24 +7953,24 @@ class SnakeGame:
         if self.game_mode == "adventure" and not self.is_multiplayer:
             # Adventure mode victory screen with completion percentage
             complete_text = self.font_large.render("VICTORY!", True, BLACK)
-            complete_rect = complete_text.get_rect(center=((SCREEN_WIDTH // 2)+3, SCREEN_HEIGHT // 2 - 90+3))
+            complete_rect = complete_text.get_rect(center=((SCREEN_WIDTH // 2)+3, 43))
             self.screen.blit(complete_text, complete_rect)
             complete_text = self.font_large.render("VICTORY!", True, NEON_YELLOW)
-            complete_rect = complete_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 90))
+            complete_rect = complete_text.get_rect(center=(SCREEN_WIDTH // 2, 40))
             self.screen.blit(complete_text, complete_rect)
             
             # Show completion percentage
             if hasattr(self, 'completion_percentage'):
                 percent_text = "{}% Complete".format(self.completion_percentage)
                 percent_label = self.font_large.render(percent_text, True, BLACK)
-                percent_rect = percent_label.get_rect(center=((SCREEN_WIDTH // 2)+2, SCREEN_HEIGHT // 2 - 35+2))
+                percent_rect = percent_label.get_rect(center=((SCREEN_WIDTH // 2)+2, 77))
                 self.screen.blit(percent_label, percent_rect)
                 percent_label = self.font_large.render(percent_text, True, NEON_GREEN)
-                percent_rect = percent_label.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT // 2 - 35))
+                percent_rect = percent_label.get_rect(center=(SCREEN_WIDTH // 2, 75))
                 self.screen.blit(percent_label, percent_rect)
             
             # Show breakdown
-            y_pos = SCREEN_HEIGHT // 2 + 10
+            y_pos = 115
             
             # Segments
             if hasattr(self, 'final_segments'):
@@ -7949,7 +7981,7 @@ class SnakeGame:
                 segments_label = self.font_medium.render(segments_text, True, NEON_CYAN)
                 segments_rect = segments_label.get_rect(center=(SCREEN_WIDTH // 2, y_pos))
                 self.screen.blit(segments_label, segments_rect)
-                y_pos += 35
+                y_pos += 30
             
             # Worms collected
             worms_text = "Worms: {}/{}".format(self.worms_collected, self.worms_required)
@@ -7959,7 +7991,7 @@ class SnakeGame:
             worms_label = self.font_medium.render(worms_text, True, WHITE)
             worms_rect = worms_label.get_rect(center=(SCREEN_WIDTH // 2, y_pos))
             self.screen.blit(worms_label, worms_rect)
-            y_pos += 35
+            y_pos += 30
             
             # Bonus fruits collected
             if hasattr(self, 'total_bonus_fruits') and self.total_bonus_fruits > 0:
@@ -7970,7 +8002,7 @@ class SnakeGame:
                 bonus_label = self.font_medium.render(bonus_text, True, NEON_ORANGE)
                 bonus_rect = bonus_label.get_rect(center=(SCREEN_WIDTH // 2, y_pos))
                 self.screen.blit(bonus_label, bonus_rect)
-                y_pos += 35
+                y_pos += 30
             
             # Show best completion for this level
             level_high = self.get_level_high_score(self.current_adventure_level)
@@ -7993,10 +8025,10 @@ class SnakeGame:
                 self.screen.blit(new_high_text, new_high_rect)
             
             hint_text = self.font_small.render("Start to continue", True, BLACK)
-            hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+2, SCREEN_HEIGHT - 30+2))
+            hint_rect = hint_text.get_rect(center=((SCREEN_WIDTH // 2)+2, 222))
             self.screen.blit(hint_text, hint_rect)
             hint_text = self.font_small.render("Start to continue", True, NEON_YELLOW)
-            hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, SCREEN_HEIGHT - 30))
+            hint_rect = hint_text.get_rect(center=(SCREEN_WIDTH // 2, 220))
             self.screen.blit(hint_text, hint_rect)
         elif self.is_multiplayer:
             # Show round results
