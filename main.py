@@ -3762,6 +3762,14 @@ class SnakeGame:
                     self.respawn_player(player_id, egg_data['pos'], egg_data['direction'])
                     continue
                 
+                # Auto-hatch human players when timer expires (reaches 0)
+                if egg_data['timer'] <= 0 and egg_data['direction'] is None:
+                    # Choose a safe direction for auto-hatch
+                    safe_direction = self.get_safe_cpu_direction(egg_data['pos'])
+                    self.respawn_player(player_id, egg_data['pos'], safe_direction)
+                    print(f"Auto-hatched player {player_id} with direction {safe_direction.name}")  # DEBUG
+                    continue
+                
                 # Auto-hatch in boss mode
                 if self.state == GameState.EGG_HATCHING:
                     if hasattr(self, 'boss_active') and self.boss_active:
@@ -4401,8 +4409,27 @@ class SnakeGame:
         
         keys = pygame.key.get_pressed()
         
-        if self.state == GameState.EGG_HATCHING:
-            # Wait for player to choose a direction to hatch
+        elif self.state == GameState.RESPAWNING:
+            # Egg hatching - choose direction
+            # Network clients send hatch input to host
+            if self.is_network_game and self.network_manager.is_client():
+                if hasattr(self, 'network_player_id'):
+                    new_direction = None
+                    if keys[pygame.K_UP]:
+                        new_direction = Direction.UP
+                    elif keys[pygame.K_DOWN]:
+                        new_direction = Direction.DOWN
+                    elif keys[pygame.K_LEFT]:
+                        new_direction = Direction.LEFT
+                    elif keys[pygame.K_RIGHT]:
+                        new_direction = Direction.RIGHT
+                    
+                    if new_direction:
+                        print(f"Client sending hatch input: {new_direction.name}")  # DEBUG
+                        self.send_input_to_host(new_direction)  # Send hatch direction
+                return
+            
+            # Local game or host: directly hatch
             if keys[pygame.K_UP]:
                 self.hatch_egg(Direction.UP)
             elif keys[pygame.K_DOWN]:
@@ -6529,6 +6556,16 @@ class SnakeGame:
         # Apply input to the corresponding snake
         if player_id < len(self.snakes):
             snake = self.snakes[player_id]
+            
+            # Check if this player is in an egg (respawning)
+            if player_id in self.respawning_players:
+                print(f"Host received HATCH input from player {player_id}: {direction.name}")  # DEBUG
+                egg_data = self.respawning_players[player_id]
+                # Respawn the player with chosen direction
+                self.respawn_player(player_id, egg_data['pos'], direction)
+                print(f"  -> Player {player_id} hatched!")  # DEBUG
+                return
+            
             print(f"Host received input from player {player_id}: {direction.name}, current dir: {snake.direction.name}")  # DEBUG
             # Only update if it's a valid direction change (not opposite)
             if direction == Direction.UP and snake.direction != Direction.DOWN:
