@@ -24,7 +24,7 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 pygame.init()
 # Optimized audio settings for Raspberry Pi to prevent ALSA underruns
 # Larger buffer (4096) and lower frequency (22050) help with slower hardware
-pygame.mixer.init(frequency=22050, size=-16, channels=2, buffer=4096)
+pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=4096)
 
 FPS = 60
 
@@ -1061,8 +1061,8 @@ class SnakeGame:
         self.network_menu_selection = 0
         self.network_menu_options = ["Host Game", "Join Game", "Back"]
         self.network_host_ip = ""  # For displaying host IP
-        self.network_join_ip = "192.168.1."  # IP being typed for joining
-        self.network_join_ip_cursor = len(self.network_join_ip)  # Cursor position for IP entry
+        self.network_join_ip = list("192.168.1.1")  # IP as list of chars for digit-by-digit editing
+        self.network_join_ip_cursor = len(self.network_join_ip) - 1  # Current digit position (0-indexed)
         self.network_status_message = ""  # Status messages for connection
         
         # Multiplayer level selection
@@ -4409,7 +4409,7 @@ class SnakeGame:
         
         keys = pygame.key.get_pressed()
         
-        elif self.state == GameState.RESPAWNING:
+        if self.state == GameState.EGG_HATCHING:
             # Egg hatching - choose direction
             # Network clients send hatch input to host
             if self.is_network_game and self.network_manager.is_client():
@@ -4643,6 +4643,95 @@ class SnakeGame:
                             self.single_player_selection = (self.single_player_selection + 1) % len(self.single_player_options)
                             self.sound_manager.play('blip_select')
                             self.axis_was_neutral = False
+                
+                elif self.state == GameState.MULTIPLAYER_MENU:
+                    if self.axis_was_neutral and abs(axis_y) > threshold:
+                        if axis_y < -threshold:
+                            self.multiplayer_menu_selection = (self.multiplayer_menu_selection - 1) % len(self.multiplayer_menu_options)
+                            self.sound_manager.play('blip_select')
+                            self.axis_was_neutral = False
+                        elif axis_y > threshold:
+                            self.multiplayer_menu_selection = (self.multiplayer_menu_selection + 1) % len(self.multiplayer_menu_options)
+                            self.sound_manager.play('blip_select')
+                            self.axis_was_neutral = False
+                
+                elif self.state == GameState.NETWORK_MENU:
+                    if self.axis_was_neutral and abs(axis_y) > threshold:
+                        if axis_y < -threshold:
+                            self.network_menu_selection = (self.network_menu_selection - 1) % len(self.network_menu_options)
+                            self.sound_manager.play('blip_select')
+                            self.axis_was_neutral = False
+                        elif axis_y > threshold:
+                            self.network_menu_selection = (self.network_menu_selection + 1) % len(self.network_menu_options)
+                            self.sound_manager.play('blip_select')
+                            self.axis_was_neutral = False
+                
+                elif self.state == GameState.MULTIPLAYER_LOBBY:
+                    # Only host can navigate and change settings in network games
+                    can_change = not self.is_network_game or self.network_manager.is_host()
+                    if can_change and self.axis_was_neutral:
+                        if abs(axis_y) > threshold:
+                            if axis_y < -threshold:
+                                self.lobby_selection = (self.lobby_selection - 1) % 7  # 3 settings + 4 players
+                                self.sound_manager.play('blip_select')
+                                self.axis_was_neutral = False
+                            elif axis_y > threshold:
+                                self.lobby_selection = (self.lobby_selection + 1) % 7
+                                self.sound_manager.play('blip_select')
+                                self.axis_was_neutral = False
+                        elif abs(axis_x) > threshold:
+                            # Left/right to change settings
+                            direction = 1 if axis_x > threshold else -1
+                            self.change_lobby_setting(self.lobby_selection, direction)
+                            self.axis_was_neutral = False
+                
+                elif self.state == GameState.NETWORK_CLIENT_LOBBY:
+                    # Analog stick for IP entry
+                    if self.axis_was_neutral:
+                        if abs(axis_x) > threshold:
+                            if axis_x < -threshold:
+                                # Left - move cursor left
+                                if self.network_join_ip_cursor > 0:
+                                    self.network_join_ip_cursor -= 1
+                                    self.sound_manager.play('blip_select')
+                                    self.axis_was_neutral = False
+                            elif axis_x > threshold:
+                                # Right - move cursor right
+                                if self.network_join_ip_cursor < len(self.network_join_ip) - 1:
+                                    self.network_join_ip_cursor += 1
+                                    self.sound_manager.play('blip_select')
+                                    self.axis_was_neutral = False
+                        elif abs(axis_y) > threshold:
+                            if axis_y < -threshold:
+                                # Up - increment digit (cycle 0-9-.)
+                                char = self.network_join_ip[self.network_join_ip_cursor]
+                                if char.isdigit():
+                                    new_val = int(char) + 1
+                                    if new_val > 9:
+                                        self.network_join_ip[self.network_join_ip_cursor] = '.'
+                                    else:
+                                        self.network_join_ip[self.network_join_ip_cursor] = str(new_val)
+                                    self.sound_manager.play('select_letter')
+                                    self.axis_was_neutral = False
+                                elif char == '.':
+                                    self.network_join_ip[self.network_join_ip_cursor] = '0'
+                                    self.sound_manager.play('select_letter')
+                                    self.axis_was_neutral = False
+                            elif axis_y > threshold:
+                                # Down - decrement digit (cycle 9-0-.)
+                                char = self.network_join_ip[self.network_join_ip_cursor]
+                                if char.isdigit():
+                                    new_val = int(char) - 1
+                                    if new_val < 0:
+                                        self.network_join_ip[self.network_join_ip_cursor] = '.'
+                                    else:
+                                        self.network_join_ip[self.network_join_ip_cursor] = str(new_val)
+                                    self.sound_manager.play('select_letter')
+                                    self.axis_was_neutral = False
+                                elif char == '.':
+                                    self.network_join_ip[self.network_join_ip_cursor] = '9'
+                                    self.sound_manager.play('select_letter')
+                                    self.axis_was_neutral = False
                 
                 elif self.state == GameState.EXTRAS_MENU:
                     if self.axis_was_neutral and abs(axis_y) > threshold:
@@ -5019,7 +5108,8 @@ class SnakeGame:
                     # Try to connect
                     self.sound_manager.play('blip_select')
                     self.network_status_message = "Connecting..."
-                    success, result = self.network_manager.connect_to_host(self.network_join_ip)
+                    ip_string = ''.join(self.network_join_ip)
+                    success, result = self.network_manager.connect_to_host(ip_string)
                     if success:
                         self.network_status_message = "Connected! Waiting for host..."
                         self.is_multiplayer = True
@@ -5032,15 +5122,62 @@ class SnakeGame:
                     self.sound_manager.play('blip_select')
                     self.network_manager.cleanup()
                     self.state = GameState.NETWORK_MENU
+                elif event.key == pygame.K_LEFT:
+                    # Move cursor left
+                    if self.network_join_ip_cursor > 0:
+                        self.network_join_ip_cursor -= 1
+                        self.sound_manager.play('blip_select')
+                elif event.key == pygame.K_RIGHT:
+                    # Move cursor right
+                    if self.network_join_ip_cursor < len(self.network_join_ip) - 1:
+                        self.network_join_ip_cursor += 1
+                        self.sound_manager.play('blip_select')
+                elif event.key == pygame.K_PERIOD or event.key == pygame.K_KP_PERIOD:
+                    # Insert period at cursor
+                    if len(self.network_join_ip) < 15:
+                        self.network_join_ip.insert(self.network_join_ip_cursor, '.')
+                        self.network_join_ip_cursor += 1
+                        self.sound_manager.play('select_letter')
+                elif event.key == pygame.K_UP:
+                    # Increment digit at cursor (cycle 0-9-.)
+                    char = self.network_join_ip[self.network_join_ip_cursor]
+                    if char.isdigit():
+                        new_val = int(char) + 1
+                        if new_val > 9:
+                            self.network_join_ip[self.network_join_ip_cursor] = '.'
+                        else:
+                            self.network_join_ip[self.network_join_ip_cursor] = str(new_val)
+                        self.sound_manager.play('select_letter')
+                    elif char == '.':
+                        # Cycle from . to 0
+                        self.network_join_ip[self.network_join_ip_cursor] = '0'
+                        self.sound_manager.play('select_letter')
+                elif event.key == pygame.K_DOWN:
+                    # Decrement digit at cursor (cycle 9-0-.)
+                    char = self.network_join_ip[self.network_join_ip_cursor]
+                    if char.isdigit():
+                        new_val = int(char) - 1
+                        if new_val < 0:
+                            self.network_join_ip[self.network_join_ip_cursor] = '.'
+                        else:
+                            self.network_join_ip[self.network_join_ip_cursor] = str(new_val)
+                        self.sound_manager.play('select_letter')
+                    elif char == '.':
+                        # Cycle from . to 9
+                        self.network_join_ip[self.network_join_ip_cursor] = '9'
+                        self.sound_manager.play('select_letter')
                 elif event.key == pygame.K_BACKSPACE:
-                    # Delete character
-                    if len(self.network_join_ip) > 0:
-                        self.network_join_ip = self.network_join_ip[:-1]
+                    # Delete character at cursor
+                    if len(self.network_join_ip) > 0 and self.network_join_ip_cursor < len(self.network_join_ip):
+                        self.network_join_ip.pop(self.network_join_ip_cursor)
+                        if self.network_join_ip_cursor >= len(self.network_join_ip) and self.network_join_ip_cursor > 0:
+                            self.network_join_ip_cursor -= 1
                         self.sound_manager.play('select_letter')
                 elif event.unicode and event.unicode in '0123456789.':
-                    # Add character (IP address chars only)
+                    # Insert character at cursor
                     if len(self.network_join_ip) < 15:  # Max IP length
-                        self.network_join_ip += event.unicode
+                        self.network_join_ip.insert(self.network_join_ip_cursor, event.unicode)
+                        self.network_join_ip_cursor += 1
                         self.sound_manager.play('select_letter')
             elif self.state == GameState.MULTIPLAYER_LEVEL_SELECT:
                 if event.key == pygame.K_UP:
@@ -5273,8 +5410,9 @@ class SnakeGame:
                         self.state = GameState.MULTIPLAYER_LOBBY
                         self.setup_multiplayer_game()
                     elif self.multiplayer_menu_selection == 1:
-                        # Local Network - Coming soon
-                        pass
+                        # Network Game - Go to network menu
+                        self.sound_manager.play('blip_select')
+                        self.state = GameState.NETWORK_MENU
                     elif self.multiplayer_menu_selection == 2:
                         # Back to main menu
                         self.sound_manager.play('blip_select')
@@ -5282,14 +5420,114 @@ class SnakeGame:
                 elif button == GamepadButton.BTN_B:
                     self.sound_manager.play('blip_select')
                     self.state = GameState.MENU
-            elif self.state == GameState.MULTIPLAYER_LOBBY:
-                if button == GamepadButton.BTN_START:
-                    # Start the multiplayer game
-                    self.sound_manager.play('start_game')
-                    self.state = GameState.DIFFICULTY_SELECT
+            elif self.state == GameState.NETWORK_MENU:
+                if button == GamepadButton.BTN_START or button == GamepadButton.BTN_A:
+                    if self.network_menu_selection == 0:
+                        # Host Game
+                        self.sound_manager.play('blip_select')
+                        success, result = self.network_manager.start_host(max_players=4)
+                        if success:
+                            self.network_host_ip = result
+                            self.network_status_message = f"Hosting on {result}"
+                            self.is_multiplayer = True
+                            self.is_network_game = True
+                            # Initialize default lobby settings
+                            self.player_slots = ['player', 'cpu', 'cpu', 'cpu']  # Host is player 1, rest are CPU
+                            self.lobby_selection = 0
+                            # Go to multiplayer lobby (setup screen)
+                            self.state = GameState.MULTIPLAYER_LOBBY
+                        else:
+                            self.network_status_message = f"Failed to host: {result}"
+                    elif self.network_menu_selection == 1:
+                        # Join Game - go to IP entry screen
+                        self.sound_manager.play('blip_select')
+                        self.state = GameState.NETWORK_CLIENT_LOBBY
+                        self.network_status_message = "Enter host IP address"
+                    elif self.network_menu_selection == 2:
+                        # Back
+                        self.sound_manager.play('blip_select')
+                        self.state = GameState.MULTIPLAYER_MENU
                 elif button == GamepadButton.BTN_B:
                     self.sound_manager.play('blip_select')
                     self.state = GameState.MULTIPLAYER_MENU
+            elif self.state == GameState.NETWORK_CLIENT_LOBBY:
+                # IP entry with gamepad
+                if button == GamepadButton.BTN_START or button == GamepadButton.BTN_A:
+                    # Try to connect
+                    self.sound_manager.play('blip_select')
+                    self.network_status_message = "Connecting..."
+                    ip_string = ''.join(self.network_join_ip)
+                    success, result = self.network_manager.connect_to_host(ip_string)
+                    if success:
+                        self.network_status_message = "Connected! Waiting for host..."
+                        self.is_multiplayer = True
+                        self.is_network_game = True
+                    else:
+                        self.network_status_message = f"Failed: {result}"
+                        self.network_manager.cleanup()
+                elif button == GamepadButton.BTN_B:
+                    # Cancel
+                    self.sound_manager.play('blip_select')
+                    self.network_manager.cleanup()
+                    self.state = GameState.NETWORK_MENU
+                elif button == GamepadButton.BTN_L:
+                    # Move cursor left (L shoulder)
+                    if self.network_join_ip_cursor > 0:
+                        self.network_join_ip_cursor -= 1
+                        self.sound_manager.play('blip_select')
+                elif button == GamepadButton.BTN_R:
+                    # Move cursor right (R shoulder)
+                    if self.network_join_ip_cursor < len(self.network_join_ip) - 1:
+                        self.network_join_ip_cursor += 1
+                        self.sound_manager.play('blip_select')
+                elif button == GamepadButton.BTN_X:
+                    # Insert a '0' digit AFTER cursor position
+                    if len(self.network_join_ip) < 15:
+                        self.network_join_ip.insert(self.network_join_ip_cursor + 1, '0')
+                        self.network_join_ip_cursor += 1
+                        self.sound_manager.play('select_letter')
+                elif button == GamepadButton.BTN_Y:
+                    # Insert a period AFTER cursor position
+                    if len(self.network_join_ip) < 15:
+                        self.network_join_ip.insert(self.network_join_ip_cursor + 1, '.')
+                        self.network_join_ip_cursor += 1
+                        self.sound_manager.play('select_letter')
+                elif button == GamepadButton.BTN_SELECT:
+                    # Delete character at cursor position
+                    if len(self.network_join_ip) > 1 and self.network_join_ip_cursor < len(self.network_join_ip):
+                        self.network_join_ip.pop(self.network_join_ip_cursor)
+                        if self.network_join_ip_cursor >= len(self.network_join_ip) and self.network_join_ip_cursor > 0:
+                            self.network_join_ip_cursor -= 1
+                        self.sound_manager.play('select_letter')
+            elif self.state == GameState.MULTIPLAYER_LOBBY:
+                # Only host can change settings in network games
+                can_change = not self.is_network_game or self.network_manager.is_host()
+                
+                if button == GamepadButton.BTN_START:
+                    # Only host can start game in network mode
+                    if not self.is_network_game or self.network_manager.is_host():
+                        self.sound_manager.play('start_game')
+                        # Broadcast game start to network clients
+                        if self.is_network_game:
+                            # Count active player slots (not 'off')
+                            num_players = len([s for s in self.player_slots if s != 'off'])
+                            start_msg = create_game_start_message(num_players)
+                            self.network_manager.broadcast_to_clients(start_msg)
+                        self.music_manager.stop_game_over_music()
+                        self.reset_game()
+                elif button == GamepadButton.BTN_A and can_change:
+                    # A button cycles settings forward
+                    self.change_lobby_setting(self.lobby_selection, 1)
+                elif button == GamepadButton.BTN_B:
+                    self.sound_manager.play('blip_select')
+                    # Network clients disconnect, host cancels
+                    if self.is_network_game:
+                        self.network_manager.cleanup()
+                        self.is_network_game = False
+                        self.is_multiplayer = False
+                        self.state = GameState.NETWORK_MENU if self.network_manager.role == NetworkRole.CLIENT else GameState.NETWORK_MENU
+                    else:
+                        self.state = GameState.MULTIPLAYER_MENU
             elif self.state == GameState.DIFFICULTY_SELECT:
                 if button == GamepadButton.BTN_START:
                     # Set difficulty and start game
@@ -5320,6 +5558,65 @@ class SnakeGame:
                 elif hat[1] == -1:
                     self.multiplayer_menu_selection = (self.multiplayer_menu_selection + 1) % len(self.multiplayer_menu_options)
                     self.sound_manager.play('blip_select')
+            elif self.state == GameState.NETWORK_MENU:
+                if hat[1] == 1:
+                    self.network_menu_selection = (self.network_menu_selection - 1) % len(self.network_menu_options)
+                    self.sound_manager.play('blip_select')
+                elif hat[1] == -1:
+                    self.network_menu_selection = (self.network_menu_selection + 1) % len(self.network_menu_options)
+                    self.sound_manager.play('blip_select')
+            elif self.state == GameState.MULTIPLAYER_LOBBY:
+                # Only host can navigate and change settings in network games
+                can_change = not self.is_network_game or self.network_manager.is_host()
+                if can_change:
+                    if hat[1] == 1:
+                        self.lobby_selection = (self.lobby_selection - 1) % 7  # 3 settings + 4 players
+                        self.sound_manager.play('blip_select')
+                    elif hat[1] == -1:
+                        self.lobby_selection = (self.lobby_selection + 1) % 7
+                        self.sound_manager.play('blip_select')
+                    elif hat[0] == -1 or hat[0] == 1:
+                        # Left/right to change settings
+                        direction = 1 if hat[0] == 1 else -1
+                        self.change_lobby_setting(self.lobby_selection, direction)
+            elif self.state == GameState.NETWORK_CLIENT_LOBBY:
+                # D-pad navigation for IP entry
+                if hat[0] == -1:
+                    # Left - move cursor left
+                    if self.network_join_ip_cursor > 0:
+                        self.network_join_ip_cursor -= 1
+                        self.sound_manager.play('blip_select')
+                elif hat[0] == 1:
+                    # Right - move cursor right
+                    if self.network_join_ip_cursor < len(self.network_join_ip) - 1:
+                        self.network_join_ip_cursor += 1
+                        self.sound_manager.play('blip_select')
+                elif hat[1] == 1:
+                    # Up - increment digit (cycle 0-9-.)
+                    char = self.network_join_ip[self.network_join_ip_cursor]
+                    if char.isdigit():
+                        new_val = int(char) + 1
+                        if new_val > 9:
+                            self.network_join_ip[self.network_join_ip_cursor] = '.'
+                        else:
+                            self.network_join_ip[self.network_join_ip_cursor] = str(new_val)
+                        self.sound_manager.play('select_letter')
+                    elif char == '.':
+                        self.network_join_ip[self.network_join_ip_cursor] = '0'
+                        self.sound_manager.play('select_letter')
+                elif hat[1] == -1:
+                    # Down - decrement digit (cycle 9-0-.)
+                    char = self.network_join_ip[self.network_join_ip_cursor]
+                    if char.isdigit():
+                        new_val = int(char) - 1
+                        if new_val < 0:
+                            self.network_join_ip[self.network_join_ip_cursor] = '.'
+                        else:
+                            self.network_join_ip[self.network_join_ip_cursor] = str(new_val)
+                        self.sound_manager.play('select_letter')
+                    elif char == '.':
+                        self.network_join_ip[self.network_join_ip_cursor] = '9'
+                        self.sound_manager.play('select_letter')
             elif self.state == GameState.DIFFICULTY_SELECT:
                 if hat[1] == 1:
                     self.difficulty_selection = (self.difficulty_selection - 1) % 3
@@ -7071,17 +7368,14 @@ class SnakeGame:
         
         # Render menu options
         for i, option in enumerate(self.multiplayer_menu_options):
-            if i == 1:  # "Coming Soon" option
-                color = DARK_GRAY if i == self.multiplayer_menu_selection else DARK_GRAY
-            else:
-                color = NEON_YELLOW if i == self.multiplayer_menu_selection else NEON_CYAN
+            color = NEON_YELLOW if i == self.multiplayer_menu_selection else NEON_CYAN
             
             text = self.font_medium.render(option, True, BLACK)
-            text_rect = text.get_rect(center=((SCREEN_WIDTH // 2)+1, 131 + i * 15))  # Moved lower to avoid snake
+            text_rect = text.get_rect(center=((SCREEN_WIDTH // 2)+1, 131 + i * 20))  # Moved lower to avoid snake
             self.screen.blit(text, text_rect)
             
             text = self.font_medium.render(option, True, color)
-            text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, 130 + i * 15))  # Moved lower to avoid snake
+            text_rect = text.get_rect(center=(SCREEN_WIDTH // 2, 130 + i * 20))  # Moved lower to avoid snake
             self.screen.blit(text, text_rect)
         
         # Hint text
@@ -7106,7 +7400,7 @@ class SnakeGame:
         title = self.font_large.render("NETWORK GAME", True, BLACK)
         title_rect = title.get_rect(center=((SCREEN_WIDTH // 2)+2, 39))
         self.screen.blit(title, title_rect)
-        title = self.font_large.render("NETWORK GAME", True, NEON_CYAN)
+        title = self.font_large.render("NETWORK GAME", True, NEON_YELLOW)
         title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 37))
         self.screen.blit(title, title_rect)
         
@@ -7245,22 +7539,41 @@ class SnakeGame:
             prompt_rect = prompt_text.get_rect(center=(SCREEN_WIDTH // 2, 70))
             self.screen.blit(prompt_text, prompt_rect)
             
-            # IP input box
-            ip_display = self.network_join_ip + "_"
-            ip_text = self.font_large.render(ip_display, True, BLACK)
-            ip_rect = ip_text.get_rect(center=((SCREEN_WIDTH // 2)+1, 101))
-            self.screen.blit(ip_text, ip_rect)
-            ip_text = self.font_large.render(ip_display, True, NEON_CYAN)
-            ip_rect = ip_text.get_rect(center=(SCREEN_WIDTH // 2, 100))
-            self.screen.blit(ip_text, ip_rect)
+            # IP input box - show each character individually with cursor highlight
+            ip_string = ''.join(self.network_join_ip)
+            char_width = 9  # Approximate width per character for monospace display
+            total_width = len(self.network_join_ip) * char_width
+            start_x = (SCREEN_WIDTH // 2) - (total_width // 2)
             
-            # Instructions
-            hint1 = self.font_small.render("Type IP address (numbers and dots)", True, BLACK)
-            hint1_rect = hint1.get_rect(center=((SCREEN_WIDTH // 2)+1, 136))
+            for i, char in enumerate(self.network_join_ip):
+                # Highlight the current character being edited
+                if i == self.network_join_ip_cursor:
+                    color = NEON_YELLOW  # Highlighted color
+                else:
+                    color = NEON_CYAN    # Normal color
+                
+                # Draw character with shadow
+                char_text = self.font_large.render(char, True, BLACK)
+                char_rect = char_text.get_rect(center=(start_x + i * char_width + 1, 101))
+                self.screen.blit(char_text, char_rect)
+                char_text = self.font_large.render(char, True, color)
+                char_rect = char_text.get_rect(center=(start_x + i * char_width, 100))
+                self.screen.blit(char_text, char_rect)
+            
+            # Instructions - two lines
+            hint1 = self.font_small.render("Up/Down: Change digit (9->0->.) | L/R: Move cursor", True, BLACK)
+            hint1_rect = hint1.get_rect(center=((SCREEN_WIDTH // 2)+1, 126))
             self.screen.blit(hint1, hint1_rect)
-            hint1 = self.font_small.render("Type IP address (numbers and dots)", True, WHITE)
-            hint1_rect = hint1.get_rect(center=(SCREEN_WIDTH // 2, 135))
+            hint1 = self.font_small.render("Up/Down: Change digit (9->0->.) | L/R: Move cursor", True, WHITE)
+            hint1_rect = hint1.get_rect(center=(SCREEN_WIDTH // 2, 125))
             self.screen.blit(hint1, hint1_rect)
+            
+            hint2a = self.font_small.render("X: Add 0 | Y: Add . | SELECT: Delete", True, BLACK)
+            hint2a_rect = hint2a.get_rect(center=((SCREEN_WIDTH // 2)+1, 141))
+            self.screen.blit(hint2a, hint2a_rect)
+            hint2a = self.font_small.render("X: Add 0 | Y: Add . | SELECT: Delete", True, WHITE)
+            hint2a_rect = hint2a.get_rect(center=(SCREEN_WIDTH // 2, 140))
+            self.screen.blit(hint2a, hint2a_rect)
         
         # Status message
         if self.network_status_message:
