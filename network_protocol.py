@@ -10,6 +10,7 @@ class MessageType(Enum):
     # Client to Host
     INPUT = "input"                  # Player input (direction change)
     READY = "ready"                  # Client is ready to start
+    CLIENT_LEAVE = "client_leave"    # Client is leaving the game
     
     # Host to Client
     GAME_STATE = "game_state"        # Full game state update
@@ -18,6 +19,9 @@ class MessageType(Enum):
     PLAYER_ASSIGNED = "player_assigned"  # Assign player ID to client
     LOBBY_STATE = "lobby_state"      # Lobby settings update
     RETURN_TO_LOBBY = "return_to_lobby"  # Return to lobby after game
+    HOST_SHUTDOWN = "host_shutdown"  # Host is shutting down the game
+    PLAYER_DISCONNECTED = "player_disconnected"  # A player has disconnected
+    GAME_IN_PROGRESS = "game_in_progress"  # Game already started, join as spectator
     
     # Bidirectional
     PING = "ping"                    # Keep-alive
@@ -163,4 +167,42 @@ def create_return_to_lobby_message():
     """Create a return to lobby message from host to clients"""
     return {
         "type": MessageType.RETURN_TO_LOBBY.value
+    }
+
+def create_host_shutdown_message():
+    """Create a host shutdown message to notify clients"""
+    return {
+        "type": MessageType.HOST_SHUTDOWN.value
+    }
+
+def create_client_leave_message(player_id):
+    """Create a client leave message from client to host"""
+    return {
+        "type": MessageType.CLIENT_LEAVE.value,
+        "player_id": player_id
+    }
+
+def create_player_disconnected_message(player_id):
+    """Create a player disconnected message from host to clients"""
+    return {
+        "type": MessageType.PLAYER_DISCONNECTED.value,
+        "player_id": player_id
+    }
+
+def create_game_in_progress_message(snakes, food_items, walls=None):
+    """Create a game in progress message for late joiners (spectator mode)"""
+    snake_data = []
+    for snake in snakes:
+        snake_data.append({
+            "player_id": snake.player_id,
+            "body": snake.body.copy(),
+            "direction": snake.direction.name,
+            "alive": snake.alive,
+            "lives": snake.lives if hasattr(snake, 'lives') else 3
+        })
+    
+    return {
+        "type": MessageType.GAME_IN_PROGRESS.value,
+        "snakes": snake_data,
+        "walls": walls or []
     }

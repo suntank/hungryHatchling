@@ -26,14 +26,24 @@ class NetworkManager:
         self.clients = []  # List of client sockets (host only)
         self.client_addresses = []  # List of client addresses for display
         self.host_address = None  # Host IP:Port (client only)
+        self.host_ip = None  # Just the IP for reconnection attempts
         self.running = False
         self.receive_thread = None
         self.message_queue = []  # Incoming messages
         self.connected = False
+        self.connection_lost = False  # Flag for temporary connection loss
+        self.disconnect_reason = None  # Reason for disconnect
         
         # Network settings
         self.port = GAME_PORT  # Default port for game (from discovery module)
         self.buffer_size = 4096
+        
+        # Connection health monitoring
+        self.last_message_time = 0  # Time of last received message
+        self.connection_timeout = 5.0  # Seconds before considering connection lost
+        self.reconnect_attempts = 0
+        self.max_reconnect_attempts = 3
+        self.reconnect_delay = 1.0  # Seconds between reconnect attempts
         
         # Discovery components
         self.discovery_server = None  # For host: broadcasts presence
@@ -83,10 +93,15 @@ class NetworkManager:
             
             self.socket.connect((host_ip, self.port))
             self.host_address = f"{host_ip}:{self.port}"
-            self.socket.settimeout(None)  # Remove timeout after connection
+            self.host_ip = host_ip  # Store for reconnection
+            self.socket.settimeout(0.1)  # Short timeout for responsive message handling
             
             self.running = True
             self.connected = True
+            self.connection_lost = False
+            self.disconnect_reason = None
+            self.reconnect_attempts = 0
+            self.last_message_time = time.time()
             
             # Start receiving messages
             self.receive_thread = threading.Thread(target=self._receive_loop, daemon=True)
@@ -184,7 +199,12 @@ class NetworkManager:
                 if not data:
                     print("Connection closed by host")
                     self.connected = False
+                    self.connection_lost = True
+                    self.disconnect_reason = "Host closed connection"
                     break
+                
+                # Update last message time for connection health
+                self.last_message_time = time.time()
                 
                 # Decode and add to buffer
                 buffer += data.decode('utf-8')
@@ -200,11 +220,25 @@ class NetworkManager:
                             print(f"JSON decode error: {e}")
                 
             except socket.timeout:
+                # Timeout is normal - just means no data right now
+                # Only flag connection lost if we haven't received anything for a very long time
+                # and we're not connected anymore
+                if not self.connected:
+                    self.connection_lost = True
+                    self.disconnect_reason = "Connection timeout"
                 continue
+            except ConnectionResetError:
+                print("Connection reset by host")
+                self.connected = False
+                self.connection_lost = True
+                self.disconnect_reason = "Connection reset"
+                break
             except Exception as e:
                 if self.running:
                     print(f"Error receiving data: {e}")
                     self.connected = False
+                    self.connection_lost = True
+                    self.disconnect_reason = str(e)
                 break
     
     def send_to_host(self, message):
@@ -365,3 +399,73 @@ class NetworkManager:
     def set_server_name(self, name):
         """Set the server name for discovery broadcasts"""
         self.server_name = name
+    
+    def attempt_reconnect(self):
+        """Attempt to reconnect to the host (client only)
+        
+        NOTE: This function is currently not used automatically.
+        Manual reconnection should be done by returning to the network menu
+        and rejoining the game, to avoid duplicate connection issues.
+        """
+        if self.role != NetworkRole.CLIENT or not self.host_ip:
+            return False, "Not a client or no host IP stored"
+        
+        if self.reconnect_attempts >= self.max_reconnect_attempts:
+            return False, "Max reconnection attempts reached"
+        
+        self.reconnect_attempts += 1
+        print(f"Reconnection attempt {self.reconnect_attempts}/{self.max_reconnect_attempts}")
+        
+        # Stop the receive thread first
+        self.running = False
+        if self.receive_thread and self.receive_thread.is_alive():
+            self.receive_thread.join(timeout=1.0)
+        
+        # Close existing socket
+        if self.socket:
+            try:
+                self.socket.close()
+            except:
+                pass
+        
+        # Try to reconnect
+        try:
+            self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)
+            self.socket.settimeout(3.0)  # Shorter timeout for reconnection
+            
+            self.socket.connect((self.host_ip, self.port))
+            self.socket.settimeout(0.1)
+            
+            self.connected = True
+            self.connection_lost = False
+            self.disconnect_reason = None
+            self.last_message_time = time.time()
+            self.running = True
+            
+            # Restart receive thread
+            self.receive_thread = threading.Thread(target=self._receive_loop, daemon=True)
+            self.receive_thread.start()
+            
+            print(f"Reconnected to host at {self.host_ip}:{self.port}")
+            return True, None
+            
+        except Exception as e:
+            print(f"Reconnection failed: {e}")
+            return False, str(e)
+    
+    def is_connection_lost(self):
+        """Check if connection was lost (for clients)"""
+        return self.connection_lost
+    
+    def get_disconnect_reason(self):
+        """Get the reason for disconnection"""
+        return self.disconnect_reason
+    
+    def reset_connection_state(self):
+        """Reset connection state for a fresh start"""
+        self.connected = False
+        self.connection_lost = False
+        self.disconnect_reason = None
+        self.reconnect_attempts = 0
+        self.role = NetworkRole.NONE
