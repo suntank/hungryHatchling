@@ -119,12 +119,19 @@ def create_game_state_message(snakes, food_items, frame, respawning_players=None
         "frame": frame
     }
 
-def create_game_start_message(num_players):
+def create_game_start_message(num_players, music_track=None, level_data=None):
     """Create a game start message from host to clients"""
-    return {
+    msg = {
         "type": MessageType.GAME_START.value,
         "num_players": num_players
     }
+    if music_track is not None:
+        msg["music_track"] = music_track
+    if level_data is not None:
+        # Include walls and background from level data
+        msg["walls"] = level_data.get("walls", [])
+        msg["background"] = level_data.get("background_image", "bg.png")
+    return msg
 
 def create_game_end_message(winner_id, final_scores):
     """Create a game end message from host to clients"""

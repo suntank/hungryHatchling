@@ -1,6 +1,7 @@
 """
 Network Manager for LAN Multiplayer
 Handles host-client connections for up to 4 players
+Includes UDP broadcast discovery for automatic server finding
 """
 
 import socket
@@ -8,6 +9,7 @@ import threading
 import json
 import time
 from enum import Enum
+from network_discovery import DiscoveryServer, DiscoveryClient, GAME_PORT
 
 class NetworkRole(Enum):
     """Role in the network game"""
@@ -30,8 +32,13 @@ class NetworkManager:
         self.connected = False
         
         # Network settings
-        self.port = 5555  # Default port for game
+        self.port = GAME_PORT  # Default port for game (from discovery module)
         self.buffer_size = 4096
+        
+        # Discovery components
+        self.discovery_server = None  # For host: broadcasts presence
+        self.discovery_client = None  # For client: listens for servers
+        self.server_name = "PySnake Server"  # Default server name
         
     def start_host(self, max_players=4):
         """Start hosting a game (server mode)"""
@@ -39,12 +46,13 @@ class NetworkManager:
             self.role = NetworkRole.HOST
             self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            self.socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)  # Disable Nagle for low latency
             
             # Bind to all available interfaces
             host_ip = self.get_local_ip()
             self.socket.bind((host_ip, self.port))
             self.socket.listen(max_players - 1)  # Host is player 1
-            self.socket.settimeout(1.0)  # Non-blocking with timeout
+            self.socket.settimeout(0.01)  # Short timeout for responsive client message handling
             
             self.running = True
             self.connected = True
@@ -52,6 +60,10 @@ class NetworkManager:
             # Start accepting connections in background
             self.receive_thread = threading.Thread(target=self._accept_clients_loop, daemon=True)
             self.receive_thread.start()
+            
+            # Start discovery broadcaster so clients can find us
+            self.discovery_server = DiscoveryServer(self.server_name, self.port)
+            self.discovery_server.start()
             
             print(f"Host started on {host_ip}:{self.port}")
             return True, host_ip
@@ -66,6 +78,7 @@ class NetworkManager:
         try:
             self.role = NetworkRole.CLIENT
             self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)  # Disable Nagle for low latency
             self.socket.settimeout(5.0)  # 5 second timeout for connection
             
             self.socket.connect((host_ip, self.port))
@@ -97,6 +110,7 @@ class NetworkManager:
             try:
                 client_socket, address = self.socket.accept()
                 client_socket.setblocking(False)  # Non-blocking mode
+                client_socket.setsockopt(socket.IPPROTO_TCP, socket.TCP_NODELAY, 1)  # Disable Nagle for low latency
                 
                 self.clients.append(client_socket)
                 self.client_addresses.append(f"{address[0]}:{address[1]}")
@@ -288,6 +302,14 @@ class NetworkManager:
         self.running = False
         self.connected = False
         
+        # Stop discovery components
+        if self.discovery_server:
+            self.discovery_server.stop()
+            self.discovery_server = None
+        if self.discovery_client:
+            self.discovery_client.stop()
+            self.discovery_client = None
+        
         # Close client connections (host)
         for client in self.clients:
             try:
@@ -320,3 +342,26 @@ class NetworkManager:
     def is_connected(self):
         """Check if connected to network game"""
         return self.connected
+    
+    def start_discovery(self):
+        """Start listening for LAN servers (client mode)"""
+        if self.discovery_client:
+            self.discovery_client.stop()
+        self.discovery_client = DiscoveryClient()
+        return self.discovery_client.start()
+    
+    def stop_discovery(self):
+        """Stop listening for LAN servers"""
+        if self.discovery_client:
+            self.discovery_client.stop()
+            self.discovery_client = None
+    
+    def get_discovered_servers(self):
+        """Get list of discovered LAN servers as [(name, ip, port), ...]"""
+        if self.discovery_client:
+            return self.discovery_client.get_servers()
+        return []
+    
+    def set_server_name(self, name):
+        """Set the server name for discovery broadcasts"""
+        self.server_name = name

@@ -311,6 +311,56 @@ class MusicManager:
         except:
             print(f"Warning: Could not load {self.current_track}")
     
+    def get_track_index(self):
+        """Get the index of the current track for network sync"""
+        if self.current_track in self.tracks:
+            return self.tracks.index(self.current_track)
+        return 0  # Default to first track
+    
+    def play_by_index(self, track_index):
+        """Play a track by index (for network sync - uses local paths)"""
+        if not self.music_enabled:
+            return
+        
+        self.theme_mode = False
+        self.game_over_mode = False
+        
+        # Clamp index to valid range
+        if track_index < 0 or track_index >= len(self.tracks):
+            track_index = 0
+        
+        track_path = self.tracks[track_index]
+        self.current_track = track_path
+        self.last_track = track_path
+        
+        try:
+            pygame.mixer.music.stop()
+            pygame.mixer.music.load(track_path)
+            pygame.mixer.music.set_volume(0.9)
+            pygame.mixer.music.play()
+            print(f"[MUSIC] Now playing track {track_index}: {track_path}")
+        except Exception as e:
+            print(f"Warning: Could not load {track_path}: {e}")
+    
+    def play_specific(self, track_path):
+        """Play a specific track (for network sync) - DEPRECATED, use play_by_index"""
+        if not self.music_enabled:
+            return
+        
+        self.theme_mode = False
+        self.game_over_mode = False
+        self.current_track = track_path
+        self.last_track = track_path
+        
+        try:
+            pygame.mixer.music.stop()  # Stop any current music first
+            pygame.mixer.music.load(track_path)
+            pygame.mixer.music.set_volume(0.9)
+            pygame.mixer.music.play()
+            print(f"[MUSIC] Now playing: {track_path}")  # DEBUG
+        except Exception as e:
+            print(f"Warning: Could not load {track_path}: {e}")
+    
     def play_game_over_music(self):
         """Play the game over music"""
         self.game_over_mode = True
