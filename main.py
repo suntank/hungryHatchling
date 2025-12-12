@@ -17,9 +17,15 @@ from game_core import NEON_GREEN, NEON_LIME, NEON_PINK, NEON_CYAN, NEON_ORANGE, 
 from game_core import GRID_COLOR, HUD_BG, DARK_BG
 from network_manager import NetworkManager, NetworkRole
 from network_protocol import MessageType, create_input_message, create_game_state_message, create_game_start_message, create_game_end_message, create_player_assigned_message, create_lobby_state_message, create_return_to_lobby_message, create_host_shutdown_message, create_client_leave_message, create_player_disconnected_message, create_game_in_progress_message
+from network_interpolation import NetworkInterpolator
 
 # Get the directory where this script is located
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+
+# Save files directory (for Raspberry Pi deployment)
+SAVE_DIR = '/home/pi/gamebird/saves/hungryHatchling'
+# Ensure save directory exists
+os.makedirs(SAVE_DIR, exist_ok=True)
 
 pygame.init()
 # Optimized audio settings for Raspberry Pi to prevent ALSA underruns
@@ -947,8 +953,8 @@ class SnakeGame:
         self.boss_attack_interval_max = 1200  # Slowest attack speed: 20 seconds
         self.boss_is_attacking = False  # Whether boss is currently in attack animation
         self.spewtums = []  # List of active spewtum projectiles
-        self.boss_health = 1  # Boss health
-        self.boss_max_health = 1  # Boss maximum health
+        self.boss_health = 50  # Boss health
+        self.boss_max_health = 50  # Boss maximum health
         self.boss_damage_flash = 0  # Timer for red flash when boss is hit
         self.boss_damage_sound_cooldown = 0  # Cooldown to prevent damage sounds from overlapping
         self.boss_super_attack_thresholds = [0.75, 0.5, 0.25]  # Health % thresholds for super attacks
@@ -1058,6 +1064,7 @@ class SnakeGame:
         
         # Network multiplayer
         self.network_manager = NetworkManager()
+        self.network_interpolator = NetworkInterpolator(buffer_time_ms=80)  # Lag compensation
         self.is_network_game = False  # True when playing over network
         self.network_menu_selection = 0
         self.network_menu_options = ["Host Game", "Join Game", "Back"]
@@ -1191,7 +1198,7 @@ class SnakeGame:
     
     def load_high_scores(self):
         try:
-            highscores_path = os.path.join(SCRIPT_DIR, 'highscores.json')
+            highscores_path = os.path.join(SAVE_DIR, 'highscores.json')
             if os.path.exists(highscores_path):
                 with open(highscores_path, 'r') as f:
                     return json.load(f)
@@ -1201,7 +1208,7 @@ class SnakeGame:
     
     def save_high_scores(self):
         try:
-            highscores_path = os.path.join(SCRIPT_DIR, 'highscores.json')
+            highscores_path = os.path.join(SAVE_DIR, 'highscores.json')
             with open(highscores_path, 'w') as f:
                 json.dump(self.high_scores, f)
         except:
@@ -1225,7 +1232,7 @@ class SnakeGame:
     def load_game_unlocks(self):
         """Load game unlocks from JSON file."""
         try:
-            unlocks_path = os.path.join(SCRIPT_DIR, 'game_unlocks.json')
+            unlocks_path = os.path.join(SAVE_DIR, 'game_unlocks.json')
             if os.path.exists(unlocks_path):
                 with open(unlocks_path, 'r') as f:
                     self.game_unlocks = json.load(f)
@@ -1240,7 +1247,7 @@ class SnakeGame:
     def save_game_unlocks(self):
         """Save game unlocks to JSON file."""
         try:
-            unlocks_path = os.path.join(SCRIPT_DIR, 'game_unlocks.json')
+            unlocks_path = os.path.join(SAVE_DIR, 'game_unlocks.json')
             with open(unlocks_path, 'w') as f:
                 json.dump(self.game_unlocks, f, indent=2)
         except Exception as e:
@@ -1342,7 +1349,7 @@ class SnakeGame:
     def load_level_scores(self):
         """Load level-specific high scores for adventure mode"""
         try:
-            level_scores_path = os.path.join(SCRIPT_DIR, 'level_scores.json')
+            level_scores_path = os.path.join(SAVE_DIR, 'level_scores.json')
             if os.path.exists(level_scores_path):
                 with open(level_scores_path, 'r') as f:
                     return json.load(f)
@@ -1353,7 +1360,7 @@ class SnakeGame:
     def save_level_scores(self):
         """Save level-specific high scores"""
         try:
-            level_scores_path = os.path.join(SCRIPT_DIR, 'level_scores.json')
+            level_scores_path = os.path.join(SAVE_DIR, 'level_scores.json')
             with open(level_scores_path, 'w') as f:
                 json.dump(self.level_scores, f, indent=2)
         except:
@@ -1376,7 +1383,7 @@ class SnakeGame:
     def load_unlocked_levels(self):
         """Load which levels are unlocked, total coins, and intro status"""
         try:
-            unlock_path = os.path.join(SCRIPT_DIR, 'level_unlocks.json')
+            unlock_path = os.path.join(SAVE_DIR, 'level_unlocks.json')
             if os.path.exists(unlock_path):
                 with open(unlock_path, 'r') as f:
                     data = json.load(f)
@@ -1392,7 +1399,7 @@ class SnakeGame:
     def save_unlocked_levels(self):
         """Save which levels are unlocked, total coins, and intro status"""
         try:
-            unlock_path = os.path.join(SCRIPT_DIR, 'level_unlocks.json')
+            unlock_path = os.path.join(SAVE_DIR, 'level_unlocks.json')
             with open(unlock_path, 'w') as f:
                 data = {
                     'intro': getattr(self, 'intro_seen', False),
@@ -2102,13 +2109,16 @@ class SnakeGame:
                     # NOW we can set boss_active = False since victory screen is triggered
                     self.boss_active = False
         
-        # Periodic isotope spawning
+        # Periodic isotope spawning - maintain 2 isotopes on the field
         if self.boss_spawned and hasattr(self, 'isotope_spawn_timer'):
             self.isotope_spawn_timer += 1
             if self.isotope_spawn_timer >= self.isotope_spawn_interval:
-                has_isotope = any(food_type == 'isotope' for _, food_type in self.food_items)
-                if not has_isotope:
-                    self.spawn_isotope()
+                isotope_count = sum(1 for _, food_type in self.food_items if food_type == 'isotope')
+                while isotope_count < 2:
+                    if self.spawn_isotope():
+                        isotope_count += 1
+                    else:
+                        break  # Stop if we can't find a valid spawn location
                 self.isotope_spawn_timer = 0
     
     def start_frog_tongue_attack(self):
@@ -2961,7 +2971,7 @@ class SnakeGame:
                 self.screen_shake_intensity = 8  # Shake intensity in pixels
             
             # At 28 seconds, spawn the boss
-            if self.boss_spawn_timer >= 2.0 and not self.boss_spawned:
+            if self.boss_spawn_timer >= 28.0 and not self.boss_spawned:
                 self.boss_spawned = True
                 self.screen_shake_intensity = 0  # Stop shaking when boss appears
                 self.boss_current_animation = 'wormBossEmerges'
@@ -3084,9 +3094,9 @@ class SnakeGame:
                                 elif minion.body[0] in self.snake.body[1:]:
                                     # Minion head hit player's body - minion dies
                                     minion.alive = False
-                                    self.boss_minion_respawn_timers[minion_idx] = 300  # 5 seconds at 60 FPS
+                                    self.boss_minion_respawn_timers[minion_idx] = 900  # 15 seconds at 60 FPS
                                     self.sound_manager.play('eat')
-                                    print("Boss minion {} killed, will respawn in 5 seconds".format(minion_idx + 1))
+                                    print("Boss minion {} killed, will respawn in 15 seconds".format(minion_idx + 1))
                             
                             # Boss minions don't eat food - they just wander as obstacles
                     else:
@@ -3211,15 +3221,17 @@ class SnakeGame:
                     self.create_particles(hit_x, hit_y, RED, 10)
                     print("Player hit by spewtum in body! Lost {} segments".format(removed_count))
             
-            # Periodic isotope spawning for boss battles
+            # Periodic isotope spawning for boss battles - maintain 2 isotopes
             if self.boss_spawned and hasattr(self, 'isotope_spawn_timer'):
                 self.isotope_spawn_timer += 1
                 if self.isotope_spawn_timer >= self.isotope_spawn_interval:
-                    # Check if there's already an isotope on the field
-                    has_isotope = any(food_type == 'isotope' for _, food_type in self.food_items)
-                    if not has_isotope:
-                        # Spawn a new isotope
-                        self.spawn_isotope()
+                    # Spawn isotopes until we have 2 on the field
+                    isotope_count = sum(1 for _, food_type in self.food_items if food_type == 'isotope')
+                    while isotope_count < 2:
+                        if self.spawn_isotope():
+                            isotope_count += 1
+                        else:
+                            break  # Stop if we can't find a valid spawn location
                     # Reset timer
                     self.isotope_spawn_timer = 0
         
@@ -3536,13 +3548,13 @@ class SnakeGame:
                         # Headshot - kill the minion
                         minion.alive = False
                         bullet.alive = False
-                        self.boss_minion_respawn_timers[minion_idx] = 300  # 5 seconds respawn
+                        self.boss_minion_respawn_timers[minion_idx] = 900  # 15 seconds respawn
                         self.sound_manager.play('die')
                         # Create particles at hit location
                         hit_x = bullet_pos[0] * GRID_SIZE + GRID_SIZE // 2
                         hit_y = bullet_pos[1] * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y
                         self.create_particles(hit_x, hit_y, RED, 15)
-                        print("Boss minion {} headshot! Respawning in 5 seconds.".format(minion_idx + 1))
+                        print("Boss minion {} headshot! Respawning in 15 seconds.".format(minion_idx + 1))
                         break
                     
                     # Check if bullet hit minion body (remove segment)
@@ -3562,9 +3574,9 @@ class SnakeGame:
                         # If minion is too small, kill it
                         if len(minion.body) < 2:
                             minion.alive = False
-                            self.boss_minion_respawn_timers[minion_idx] = 300
+                            self.boss_minion_respawn_timers[minion_idx] = 900
                             self.sound_manager.play('die')
-                            print("Boss minion {} destroyed! Respawning in 5 seconds.".format(minion_idx + 1))
+                            print("Boss minion {} destroyed! Respawning in 15 seconds.".format(minion_idx + 1))
                         break
         
         # Check bullet collisions with enemy snakes
@@ -7037,15 +7049,22 @@ class SnakeGame:
     
     def apply_network_game_state(self, message):
         """Client applies received game state from host"""
-        # Update snake positions
+        # Feed state into interpolator for smooth lag compensation
         snake_data = message.get('snakes', [])
+        frame_number = message.get('frame', 0)
+        
+        # Add to interpolation buffer
+        self.network_interpolator.add_server_state(snake_data, frame_number)
+        
+        # Process snake data for death effects and state updates
         for data in snake_data:
             player_id = data.get('player_id')
             if player_id < len(self.snakes):
                 snake = self.snakes[player_id]
                 new_body = [tuple(pos) for pos in data.get('body', [])]
+                new_alive = data.get('alive', True)
                 
-                # Check if snake actually moved (head position changed)
+                # Check if snake actually moved (head position changed) for smooth interpolation
                 snake_moved = False
                 if hasattr(snake, 'body') and snake.body and new_body:
                     if snake.body[0] != new_body[0]:
@@ -7053,9 +7072,9 @@ class SnakeGame:
                 elif new_body and (not hasattr(snake, 'body') or not snake.body):
                     snake_moved = True
                 
-                # Only update interpolation when snake actually moves
+                # Update interpolation tracking when snake moves
                 if snake_moved:
-                    # Store previous body for interpolation
+                    # Store previous body for per-frame interpolation
                     if hasattr(snake, 'body') and snake.body:
                         snake.previous_body = snake.body.copy()
                     else:
@@ -7072,18 +7091,17 @@ class SnakeGame:
                 
                 # Check for death transition (was alive, now dead) - trigger death effects
                 was_alive = snake.alive
-                new_alive = data.get('alive', True)
                 
                 if was_alive and not new_alive:
                     # Snake just died - play death sound and spawn particles
                     self.sound_manager.play('die')
-                    # Spawn white particles on all body segments (use current body before update)
-                    for segment_x, segment_y in snake.body:
+                    # Spawn white particles on all body segments
+                    for segment_x, segment_y in snake.body if snake.body else new_body:
                         self.create_particles(segment_x * GRID_SIZE + GRID_SIZE // 2,
                                             segment_y * GRID_SIZE + GRID_SIZE // 2 + GAME_OFFSET_Y,
                                             None, None, particle_type='white')
                 
-                # Always update current body and state
+                # Update authoritative state (used as fallback and for game logic)
                 snake.body = new_body
                 snake.alive = new_alive
                 snake.lives = data.get('lives', 3)
@@ -7155,6 +7173,9 @@ class SnakeGame:
         """Client handles game start message from host"""
         print("Game starting!")
         num_players = message.get('num_players', 2)
+        
+        # Reset network interpolator for fresh game
+        self.network_interpolator.reset()
         
         # Initialize client game state with level data from host
         # Load walls from message - walls come as dicts with 'x' and 'y' keys
@@ -8439,10 +8460,10 @@ class SnakeGame:
     def draw_snake(self, snake, player_id):
         """Draw a single snake with its color-shifted graphics."""
         # Get interpolated positions for smooth movement
-        # Calculate progress between frames for interpolation
         is_boss_minion = hasattr(snake, 'is_boss_minion') and snake.is_boss_minion
         is_enemy_snake = hasattr(snake, 'is_enemy_snake') and snake.is_enemy_snake
         
+        # Calculate progress between frames for smooth per-frame interpolation
         if self.is_multiplayer or is_boss_minion or is_enemy_snake:
             # Use snake's individual timer and interval (for multiplayer, boss minions, or enemy snakes)
             move_interval = max(1, snake.last_move_interval)
