@@ -4568,6 +4568,103 @@ class SnakeGame:
                         self.last_sent_direction = new_direction
                 return  # Don't process local input for clients
             
+            # Network host: Allow gamepad control for player 0 (host's snake)
+            if self.is_network_game and self.network_manager.is_host():
+                if len(self.snakes) > 0:
+                    snake = self.snakes[0]
+                    
+                    # Check if host is respawning
+                    if snake.player_id in self.respawning_players:
+                        egg_data = self.respawning_players[snake.player_id]
+                        chosen_direction = None
+                        
+                        # Keyboard
+                        if keys[pygame.K_UP]:
+                            chosen_direction = Direction.UP
+                        elif keys[pygame.K_DOWN]:
+                            chosen_direction = Direction.DOWN
+                        elif keys[pygame.K_LEFT]:
+                            chosen_direction = Direction.LEFT
+                        elif keys[pygame.K_RIGHT]:
+                            chosen_direction = Direction.RIGHT
+                        
+                        # Gamepad D-pad
+                        if chosen_direction is None and self.joystick:
+                            if self.joystick.get_numhats() > 0:
+                                hat = self.joystick.get_hat(0)
+                                if hat[1] == 1:
+                                    chosen_direction = Direction.UP
+                                elif hat[1] == -1:
+                                    chosen_direction = Direction.DOWN
+                                elif hat[0] == -1:
+                                    chosen_direction = Direction.LEFT
+                                elif hat[0] == 1:
+                                    chosen_direction = Direction.RIGHT
+                            
+                            # Analog stick
+                            if chosen_direction is None and self.joystick.get_numaxes() >= 2:
+                                axis_x = self.joystick.get_axis(0)
+                                axis_y = self.joystick.get_axis(1)
+                                dead_zone = 0.5
+                                if abs(axis_x) > dead_zone or abs(axis_y) > dead_zone:
+                                    if abs(axis_x) > abs(axis_y):
+                                        if axis_x < -dead_zone:
+                                            chosen_direction = Direction.LEFT
+                                        elif axis_x > dead_zone:
+                                            chosen_direction = Direction.RIGHT
+                                    else:
+                                        if axis_y < -dead_zone:
+                                            chosen_direction = Direction.UP
+                                        elif axis_y > dead_zone:
+                                            chosen_direction = Direction.DOWN
+                        
+                        if chosen_direction:
+                            self.respawn_player(snake.player_id, egg_data['pos'], chosen_direction)
+                    elif snake.alive:
+                        # Normal movement - check keyboard first
+                        if keys[pygame.K_UP]:
+                            snake.change_direction(Direction.UP)
+                        elif keys[pygame.K_DOWN]:
+                            snake.change_direction(Direction.DOWN)
+                        elif keys[pygame.K_LEFT]:
+                            snake.change_direction(Direction.LEFT)
+                        elif keys[pygame.K_RIGHT]:
+                            snake.change_direction(Direction.RIGHT)
+                        # Gamepad D-pad
+                        elif self.joystick:
+                            chosen_direction = None
+                            if self.joystick.get_numhats() > 0:
+                                hat = self.joystick.get_hat(0)
+                                if hat[1] == 1:
+                                    chosen_direction = Direction.UP
+                                elif hat[1] == -1:
+                                    chosen_direction = Direction.DOWN
+                                elif hat[0] == -1:
+                                    chosen_direction = Direction.LEFT
+                                elif hat[0] == 1:
+                                    chosen_direction = Direction.RIGHT
+                            
+                            # Analog stick
+                            if chosen_direction is None and self.joystick.get_numaxes() >= 2:
+                                axis_x = self.joystick.get_axis(0)
+                                axis_y = self.joystick.get_axis(1)
+                                dead_zone = 0.5
+                                if abs(axis_x) > dead_zone or abs(axis_y) > dead_zone:
+                                    if abs(axis_x) > abs(axis_y):
+                                        if axis_x < -dead_zone:
+                                            chosen_direction = Direction.LEFT
+                                        elif axis_x > dead_zone:
+                                            chosen_direction = Direction.RIGHT
+                                    else:
+                                        if axis_y < -dead_zone:
+                                            chosen_direction = Direction.UP
+                                        elif axis_y > dead_zone:
+                                            chosen_direction = Direction.DOWN
+                            
+                            if chosen_direction:
+                                snake.change_direction(chosen_direction)
+                return  # Host input handled
+            
             if self.is_multiplayer:
                 
                 # Handle input for each player based on their controller
@@ -4863,6 +4960,17 @@ class SnakeGame:
                             self.sound_manager.play('blip_select')
                             self.axis_was_neutral = False
                 
+                elif self.state == GameState.MULTIPLAYER_LEVEL_SELECT:
+                    if len(self.multiplayer_levels) > 0 and self.axis_was_neutral and abs(axis_y) > threshold:
+                        if axis_y < -threshold:
+                            self.multiplayer_level_selection = (self.multiplayer_level_selection - 1) % len(self.multiplayer_levels)
+                            self.sound_manager.play('blip_select')
+                            self.axis_was_neutral = False
+                        elif axis_y > threshold:
+                            self.multiplayer_level_selection = (self.multiplayer_level_selection + 1) % len(self.multiplayer_levels)
+                            self.sound_manager.play('blip_select')
+                            self.axis_was_neutral = False
+                
                 elif self.state == GameState.HIGH_SCORE_ENTRY:
                     if self.axis_was_neutral:
                         if abs(axis_x) > threshold:
@@ -5046,6 +5154,8 @@ class SnakeGame:
                         self.music_manager.stop_game_over_music()
                         self.music_manager.play_theme()
                         self.state = GameState.ADVENTURE_LEVEL_SELECT
+                        # Clean up memory after game over to prevent slowdown on Pi
+                        gc.collect()
                     else:
                         # Endless mode - reset game and go to menu
                         self.reset_game()
@@ -5062,6 +5172,8 @@ class SnakeGame:
                         # Stop victory jingle and start theme music
                         pygame.mixer.music.stop()
                         self.music_manager.play_theme()
+                        # Clean up memory between levels to prevent slowdown on Pi
+                        gc.collect()
                     else:
                         self.next_level()
             elif self.state == GameState.CREDITS:
@@ -5451,7 +5563,11 @@ class SnakeGame:
                         # Adventure mode - reset lives and go back to level select
                         self.sound_manager.play('blip_select')
                         self.lives = 3
+                        self.music_manager.stop_game_over_music()
+                        self.music_manager.play_theme()
                         self.state = GameState.ADVENTURE_LEVEL_SELECT
+                        # Clean up memory after game over to prevent slowdown on Pi
+                        gc.collect()
                     else:
                         # Endless mode - reset game and go to menu
                         self.reset_game()
@@ -5465,6 +5581,8 @@ class SnakeGame:
                         # Stop victory jingle and start theme music
                         pygame.mixer.music.stop()
                         self.music_manager.play_theme()
+                        # Clean up memory between levels to prevent slowdown on Pi
+                        gc.collect()
                     else:
                         self.next_level()
             elif self.state == GameState.CREDITS:
@@ -5649,6 +5767,27 @@ class SnakeGame:
                     self.music_manager.stop_game_over_music()
                     self.reset_game()
                     # reset_game() already sets state to EGG_HATCHING, don't override it
+            elif self.state == GameState.MULTIPLAYER_LEVEL_SELECT:
+                if button == GamepadButton.BTN_A or button == GamepadButton.BTN_START:
+                    # Select level and return to lobby
+                    if len(self.multiplayer_levels) > 0:
+                        self.sound_manager.play('blip_select')
+                        self.lobby_settings['level'] = self.multiplayer_level_selection
+                        self.load_selected_multiplayer_level()
+                        if self.level_select_return_state:
+                            self.state = self.level_select_return_state
+                            # Broadcast lobby state update if network host
+                            if self.is_network_game and self.network_manager.is_host():
+                                self.broadcast_lobby_state()
+                        else:
+                            self.state = GameState.MULTIPLAYER_LOBBY
+                elif button == GamepadButton.BTN_B:
+                    # Cancel and return to lobby
+                    self.sound_manager.play('blip_select')
+                    if self.level_select_return_state:
+                        self.state = self.level_select_return_state
+                    else:
+                        self.state = GameState.MULTIPLAYER_LOBBY
         
         if event.type == pygame.JOYHATMOTION and self.joystick:
             hat = event.value
@@ -5706,6 +5845,14 @@ class SnakeGame:
                 elif hat[1] == -1:
                     self.difficulty_selection = (self.difficulty_selection + 1) % 3
                     self.sound_manager.play('blip_select')
+            elif self.state == GameState.MULTIPLAYER_LEVEL_SELECT:
+                if len(self.multiplayer_levels) > 0:
+                    if hat[1] == 1:
+                        self.multiplayer_level_selection = (self.multiplayer_level_selection - 1) % len(self.multiplayer_levels)
+                        self.sound_manager.play('blip_select')
+                    elif hat[1] == -1:
+                        self.multiplayer_level_selection = (self.multiplayer_level_selection + 1) % len(self.multiplayer_levels)
+                        self.sound_manager.play('blip_select')
             elif self.state == GameState.HIGH_SCORE_ENTRY:
                 if hat[0] == -1:
                     self.keyboard_selection[1] = max(0, self.keyboard_selection[1] - 1)
@@ -5969,6 +6116,19 @@ class SnakeGame:
     def load_level(self, level_number):
         """Load a level from JSON file"""
         try:
+            # Clean up memory from previous level to prevent slowdown on Pi
+            # Free old background before loading new one
+            if hasattr(self, 'background') and self.background is not None:
+                del self.background
+                self.background = None
+            
+            # Clear particles and egg pieces from previous level
+            self.particles = []
+            self.egg_pieces = []
+            
+            # Force garbage collection to free memory
+            gc.collect()
+            
             level_file = os.path.join(SCRIPT_DIR, 'levels', 'level_{:02d}.json'.format(level_number))
             with open(level_file, 'r') as f:
                 self.current_level_data = json.load(f)
@@ -6310,14 +6470,15 @@ class SnakeGame:
         return directions[:num_players]
 
     def reset_game(self):
+        # Clean up memory before reset to prevent slowdown on Pi
+        if hasattr(self, 'background') and self.background is not None:
+            del self.background
+            self.background = None
+        gc.collect()
+        
         if self.is_multiplayer:
             # Multiplayer reset - start fresh
             self.setup_multiplayer_game()
-            
-            print("DEBUG: reset_game called for multiplayer")
-            print("DEBUG: Has current_level_data?", hasattr(self, 'current_level_data'))
-            if hasattr(self, 'current_level_data'):
-                print("DEBUG: current_level_data is not None?", self.current_level_data is not None)
             
             # Apply loaded multiplayer level data if available
             if hasattr(self, 'current_level_data') and self.current_level_data:
@@ -7175,6 +7336,12 @@ class SnakeGame:
         """Client handles game start message from host"""
         print("Game starting!")
         num_players = message.get('num_players', 2)
+        
+        # Clean up memory before loading new game state
+        if hasattr(self, 'background') and self.background is not None:
+            del self.background
+            self.background = None
+        gc.collect()
         
         # Reset network interpolator for fresh game
         self.network_interpolator.reset()
