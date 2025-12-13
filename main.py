@@ -4688,8 +4688,9 @@ class SnakeGame:
                     self.snake.change_direction(Direction.RIGHT)
         
         # For joysticks without hats, use axes (analog stick)
-        # But skip this in multiplayer mode - controller mapping is handled above
-        elif not self.is_multiplayer and self.joystick and not self.joystick_has_hat:
+        # Skip gameplay states in multiplayer mode - controller mapping is handled above
+        # But allow menu navigation in lobby states even during multiplayer
+        elif self.joystick and not self.joystick_has_hat:
             if self.joystick.get_numaxes() >= 2:
                 axis_x = self.joystick.get_axis(0)
                 axis_y = self.joystick.get_axis(1)
@@ -4700,7 +4701,8 @@ class SnakeGame:
                 # Check if axis is in neutral position
                 is_neutral = abs(axis_x) < threshold and abs(axis_y) < threshold
                 
-                if self.state == GameState.EGG_HATCHING:
+                # Skip gameplay states in multiplayer - they have their own controller handling
+                if not self.is_multiplayer and self.state == GameState.EGG_HATCHING:
                     # Prioritize the axis with larger absolute value
                     if abs(axis_y) > abs(axis_x) and abs(axis_y) > threshold:
                         if axis_y < -threshold:
@@ -4712,7 +4714,7 @@ class SnakeGame:
                             self.hatch_egg(Direction.LEFT)
                         elif axis_x > threshold:
                             self.hatch_egg(Direction.RIGHT)
-                elif self.state == GameState.PLAYING:
+                elif not self.is_multiplayer and self.state == GameState.PLAYING:
                     # Prioritize the axis with larger absolute value
                     if abs(axis_y) > abs(axis_x) and abs(axis_y) > threshold:
                         if axis_y < -threshold:
