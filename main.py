@@ -1572,24 +1572,18 @@ class SnakeGame:
             print("Gamepad {} connected: {}".format(i, joystick.get_name()))
         
         # Assignment logic:
-        # If keyboard detected (always true on PC), player 1 = keyboard
-        # If no keyboard expected (gamebird), player 1 = first gamepad
-        # Subsequent players get remaining gamepads
+        # Prioritize gamepads for all players when available
+        # Keyboard is used as fallback or for additional players
         
-        # We assume keyboard is available unless we detect we're running on a handheld
-        has_keyboard = True
-        
-        if has_keyboard and num_joysticks > 0:
-            # PC mode: Keyboard + gamepads
-            self.player_controllers.append(('keyboard', 0))
-            for i in range(min(3, num_joysticks)):  # Up to 3 more players with gamepads
-                self.player_controllers.append(('gamepad', i))
-        elif num_joysticks > 0:
-            # Handheld mode: Only gamepads
+        if num_joysticks > 0:
+            # Assign gamepads to players first
             for i in range(min(4, num_joysticks)):
                 self.player_controllers.append(('gamepad', i))
+            # If less than 4 gamepads, fill remaining slots with keyboard
+            if num_joysticks < 4:
+                self.player_controllers.append(('keyboard', 0))
         else:
-            # Fallback: Only keyboard
+            # No gamepads - only keyboard
             self.player_controllers.append(('keyboard', 0))
         
         print("Controller mapping: {}".format(self.player_controllers))

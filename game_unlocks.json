@@ -18,14 +18,14 @@
     },
     "FinalBoss.ogg": {
       "unlocked": false,
-      "cost": 200
+      "cost": 250
     },
     "GameOver.ogg": {
-      "unlocked": false,
+      "unlocked": true,
       "cost": 0
     },
     "Theme.ogg": {
-      "unlocked": false,
+      "unlocked": true,
       "cost": 0
     },
     "Victory.ogg": {
@@ -33,7 +33,7 @@
       "cost": 75
     },
     "music1.ogg": {
-      "unlocked": false,
+      "unlocked": true,
       "cost": 0
     },
     "music2.ogg": {
