@@ -5102,13 +5102,14 @@ class SnakeGame:
                     self.music_manager.play_theme()
                 return True
             
-            # Skip intro with ESC, Enter, or any other key
+            # Skip intro with ESC, Enter, or Space (only if not first time)
             if self.state == GameState.INTRO:
                 if event.key == pygame.K_ESCAPE or event.key == pygame.K_RETURN or event.key == pygame.K_SPACE:
-                    self.intro_seen = True
-                    self.save_unlocked_levels()
-                    self.state = GameState.ADVENTURE_LEVEL_SELECT
-                    self.adventure_level_selection = 0
+                    if not getattr(self, 'intro_first_time', False):
+                        self.intro_seen = True
+                        self.save_unlocked_levels()
+                        self.state = GameState.ADVENTURE_LEVEL_SELECT
+                        self.adventure_level_selection = 0
                 return True
             
             # Skip outro with ESC, Enter, or Space
@@ -5559,12 +5560,13 @@ class SnakeGame:
         
         if event.type == pygame.JOYBUTTONDOWN and self.joystick:
             button = event.button
-            # Skip intro with any button press
+            # Skip intro with any button press (only if not first time)
             if self.state == GameState.INTRO:
-                self.intro_seen = True
-                self.save_unlocked_levels()
-                self.state = GameState.ADVENTURE_LEVEL_SELECT
-                self.adventure_level_selection = 0
+                if not getattr(self, 'intro_first_time', False):
+                    self.intro_seen = True
+                    self.save_unlocked_levels()
+                    self.state = GameState.ADVENTURE_LEVEL_SELECT
+                    self.adventure_level_selection = 0
             elif self.state == GameState.MENU:
                 if button == GamepadButton.BTN_START or button == GamepadButton.BTN_A:
                     self.select_menu_option()
@@ -6801,6 +6803,8 @@ class SnakeGame:
         self.intro_fading = False
         self.intro_final_fade = False
         self.intro_final_fade_timer = 0
+        # Track if this is first time viewing intro (no skipping allowed)
+        self.intro_first_time = not self.intro_seen
         self.intro_final_fade_duration = 120  # 2 seconds fade to black
         
         # Shot 1: Meteorite animation variables
