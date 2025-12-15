@@ -22,8 +22,8 @@ from network_interpolation import NetworkInterpolator
 # Get the directory where this script is located
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Save files directory (for Raspberry Pi deployment)
-SAVE_DIR = '/home/pi/gamebird/saves/hungryHatchling'
+# Save files directory (relative to script - goes up to gamebird/, then into saves/)
+SAVE_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, '..', '..', 'saves', 'hungryHatchling'))
 # Ensure save directory exists
 os.makedirs(SAVE_DIR, exist_ok=True)
 
@@ -5277,6 +5277,8 @@ class SnakeGame:
                             # Initialize default lobby settings
                             self.player_slots = ['player', 'cpu', 'cpu', 'cpu']  # Host is player 1, rest are CPU
                             self.lobby_selection = 0
+                            self.lobby_settings['level'] = 0  # Default to first level
+                            self.load_selected_multiplayer_level()  # Load the level data
                             # Go to multiplayer lobby (setup screen)
                             self.state = GameState.MULTIPLAYER_LOBBY
                         else:
@@ -5666,6 +5668,8 @@ class SnakeGame:
                             # Initialize default lobby settings
                             self.player_slots = ['player', 'cpu', 'cpu', 'cpu']  # Host is player 1, rest are CPU
                             self.lobby_selection = 0
+                            self.lobby_settings['level'] = 0  # Default to first level
+                            self.load_selected_multiplayer_level()  # Load the level data
                             # Go to multiplayer lobby (setup screen)
                             self.state = GameState.MULTIPLAYER_LOBBY
                         else:
@@ -6492,6 +6496,7 @@ class SnakeGame:
                 try:
                     bg_path = os.path.join(SCRIPT_DIR, 'img', 'bg', bg_image)
                     self.background = pygame.image.load(bg_path).convert()
+                    self.background = pygame.transform.scale(self.background, (SCREEN_WIDTH, SCREEN_HEIGHT))
                     print("Loaded background: {}".format(bg_image))
                 except Exception as e:
                     print("Warning: Could not load background: {} - {}".format(bg_image, e))
