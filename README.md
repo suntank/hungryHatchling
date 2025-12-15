@@ -20,9 +20,9 @@ pip install -r requirements.txt
 ```
 
 2. Add your music files to the game directory:
-   - `music1.mp3`
-   - `music2.mp3`
-   - `music3.mp3`
+   - `music1.ogg`
+   - `music2.ogg`
+   - `music3.ogg`
 
 ## How to Play
 

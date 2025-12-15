@@ -28,9 +28,11 @@ SAVE_DIR = '/home/pi/gamebird/saves/hungryHatchling'
 os.makedirs(SAVE_DIR, exist_ok=True)
 
 pygame.init()
-# Optimized audio settings for Raspberry Pi to prevent ALSA underruns
-# Larger buffer (4096) and lower frequency (22050) help with slower hardware
-pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=4096)
+# Optimized audio settings for Raspberry Pi Zero 2W to prevent underruns/static
+# - Lower frequency (22050) reduces CPU load for MP3 decoding
+# - Larger buffer (8192) prevents stuttering on slow hardware
+# - Mono output (1 channel) halves the audio processing load
+pygame.mixer.init(frequency=22050, size=-16, channels=1, buffer=8192)
 
 FPS = 60
 
@@ -1219,12 +1221,12 @@ class SnakeGame:
         music_dir = os.path.join(SCRIPT_DIR, 'sound', 'music')
         if os.path.exists(music_dir):
             # Get all mp3 files
-            files = [f for f in os.listdir(music_dir) if f.endswith('.mp3')]
+            files = [f for f in os.listdir(music_dir) if f.endswith('.ogg')]
             # Sort them alphabetically
             files.sort()
             # Store as tuples of (display_name, full_path, filename)
             for filename in files:
-                # Remove .mp3 extension for display
+                # Remove .ogg extension for display
                 display_name = filename[:-4]
                 full_path = os.path.join(music_dir, filename)
                 self.music_player_tracks.append((display_name, full_path, filename))
@@ -6131,14 +6133,14 @@ class SnakeGame:
                 # If it's a wormBoss (FINAL BOSS), play epic FinalBoss music
                 if self.boss_data == 'wormBoss':
                     try:
-                        boss_music_path = os.path.join(SCRIPT_DIR, 'sound', 'music', 'FinalBoss.mp3')
+                        boss_music_path = os.path.join(SCRIPT_DIR, 'sound', 'music', 'FinalBoss.ogg')
                         pygame.mixer.music.load(boss_music_path)
                         pygame.mixer.music.set_volume(0.9)
                         pygame.mixer.music.play(-1)  # Loop
                         self.music_manager.theme_mode = False
                         print("Playing FinalBoss music for final boss battle")
                     except Exception as e:
-                        print("Warning: Could not load FinalBoss.mp3: {}".format(e))
+                        print("Warning: Could not load FinalBoss.ogg: {}".format(e))
                 
                 # If it's a Frog Boss, initialize frog-specific state
                 if self.boss_data == 'frog':
@@ -6167,14 +6169,14 @@ class SnakeGame:
                     
                     # Play boss music if available
                     try:
-                        boss_music_path = os.path.join(SCRIPT_DIR, 'sound', 'music', 'Boss.mp3')
+                        boss_music_path = os.path.join(SCRIPT_DIR, 'sound', 'music', 'Boss.ogg')
                         pygame.mixer.music.load(boss_music_path)
                         pygame.mixer.music.set_volume(0.9)
                         pygame.mixer.music.play(-1)  # Loop
                         self.music_manager.theme_mode = False
                         print("Playing Boss music for Frog Boss battle")
                     except Exception as e:
-                        print("Warning: Could not load Boss.mp3: {}".format(e))
+                        print("Warning: Could not load Boss.ogg: {}".format(e))
             else:
                 self.boss_data = None
                 self.boss_active = False
@@ -6692,7 +6694,7 @@ class SnakeGame:
         self.outro_pan_hold_timer = 0
         self.outro_pan_hold_duration = 600  # 10 seconds total at 60 FPS
         
-        # Keep music playing (Final.mp3 should already be playing)
+        # Keep music playing (Final.ogg should already be playing)
         # No need to restart it
     
     def update_outro(self):
@@ -6703,7 +6705,7 @@ class SnakeGame:
             if self.outro_final_fade_timer >= self.outro_final_fade_duration:
                 # Outro complete - go to credits screen
                 self.state = GameState.CREDITS
-                # Music should already be playing Final.mp3
+                # Music should already be playing Final.ogg
             return
         
         # Special handling for image 4 (index 3) - the tall panning image
@@ -7377,7 +7379,7 @@ class SnakeGame:
             # Handle outro sequence
             if self.state == GameState.OUTRO:
                 self.update_outro()
-                # Update music - outro uses Final.mp3
+                # Update music - outro uses Final.ogg
                 self.music_manager.update(in_menu=True)
             
             if self.state == GameState.EGG_HATCHING:

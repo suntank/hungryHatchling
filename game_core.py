@@ -253,11 +253,11 @@ class MusicManager:
     """Manages random music playback without immediate repeats"""
     def __init__(self):
         self.tracks = [
-            os.path.join(SCRIPT_DIR, 'sound', 'music', 'music1.mp3'),
-            os.path.join(SCRIPT_DIR, 'sound', 'music', 'music2.mp3'),
-            os.path.join(SCRIPT_DIR, 'sound', 'music', 'music3.mp3')
+            os.path.join(SCRIPT_DIR, 'sound', 'music', 'music1.ogg'),
+            os.path.join(SCRIPT_DIR, 'sound', 'music', 'music2.ogg'),
+            os.path.join(SCRIPT_DIR, 'sound', 'music', 'music3.ogg')
         ]
-        self.theme_track = os.path.join(SCRIPT_DIR, 'sound', 'music', 'Theme.mp3')
+        self.theme_track = os.path.join(SCRIPT_DIR, 'sound', 'music', 'Theme.ogg')
         self.last_track = None
         self.current_track = None
         self.music_enabled = True
@@ -280,7 +280,7 @@ class MusicManager:
                 pygame.mixer.music.set_volume(0.9)
                 pygame.mixer.music.play(-1)  # Loop indefinitely
             except:
-                print("Warning: Could not load Theme.mp3")
+                print("Warning: Could not load Theme.ogg")
     
     def stop_theme(self):
         """Stop the theme music"""
@@ -365,12 +365,12 @@ class MusicManager:
         """Play the game over music"""
         self.game_over_mode = True
         try:
-            game_over_path = os.path.join(SCRIPT_DIR, 'sound', 'music', 'GameOver.mp3')
+            game_over_path = os.path.join(SCRIPT_DIR, 'sound', 'music', 'GameOver.ogg')
             pygame.mixer.music.load(game_over_path)
             pygame.mixer.music.set_volume(0.9)
             pygame.mixer.music.play(-1)  # Loop indefinitely
         except:
-            print("Warning: Could not load GameOver.mp3")
+            print("Warning: Could not load GameOver.ogg")
     
     def stop_game_over_music(self):
         """Stop game over music and resume normal music"""
@@ -384,13 +384,13 @@ class MusicManager:
         self.silent_mode = False  # Re-enable music system for jingle
         self.victory_jingle_playing = True
         try:
-            victory_path = os.path.join(SCRIPT_DIR, 'sound', 'music', 'victoryJingle.mp3')
+            victory_path = os.path.join(SCRIPT_DIR, 'sound', 'music', 'victoryJingle.ogg')
             pygame.mixer.music.load(victory_path)
             pygame.mixer.music.set_volume(0.9)
             pygame.mixer.music.play()  # Play once (not looping)
             # Note: After this finishes, update() will automatically resume theme music
         except:
-            print("Warning: Could not load victoryJingle.mp3")
+            print("Warning: Could not load victoryJingle.ogg")
             self.victory_jingle_playing = False
             # If jingle can't load, resume theme music for menus
             self.play_theme()
@@ -401,13 +401,13 @@ class MusicManager:
         self.theme_mode = False
         self.game_over_mode = False
         try:
-            final_path = os.path.join(SCRIPT_DIR, 'sound', 'music', 'Final.mp3')
+            final_path = os.path.join(SCRIPT_DIR, 'sound', 'music', 'Final.ogg')
             pygame.mixer.music.load(final_path)
             pygame.mixer.music.set_volume(0.9)
             pygame.mixer.music.play(-1)  # Loop indefinitely
             print("Playing Final song for credits...")
         except:
-            print("Warning: Could not load Final.mp3")
+            print("Warning: Could not load Final.ogg")
     
     def update(self, in_menu=False):
         """Check if music finished and play next track
