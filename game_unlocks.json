@@ -1,4 +1,8 @@
 {
+  "multiplayer": {
+    "levels_unlocked": 1,
+    "brutal_unlocked": false
+  },
   "music": {
     "Bonus.ogg": {
       "unlocked": false,

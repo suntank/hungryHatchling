@@ -22,6 +22,7 @@ class MessageType(Enum):
     HOST_SHUTDOWN = "host_shutdown"  # Host is shutting down the game
     PLAYER_DISCONNECTED = "player_disconnected"  # A player has disconnected
     GAME_IN_PROGRESS = "game_in_progress"  # Game already started, join as spectator
+    UNLOCK_EARNED = "unlock_earned"  # Multiplayer unlock earned (level/brutal)
     
     # Bidirectional
     PING = "ping"                    # Keep-alive
@@ -187,6 +188,14 @@ def create_player_disconnected_message(player_id):
     return {
         "type": MessageType.PLAYER_DISCONNECTED.value,
         "player_id": player_id
+    }
+
+def create_unlock_earned_message(level_unlocked=None, brutal_unlocked=False):
+    """Create an unlock earned message to share unlocks with clients"""
+    return {
+        "type": MessageType.UNLOCK_EARNED.value,
+        "level_unlocked": level_unlocked,
+        "brutal_unlocked": brutal_unlocked
     }
 
 def create_game_in_progress_message(snakes, food_items, walls=None):

@@ -17,7 +17,7 @@ from game_core import BLACK, WHITE, GREEN, DARK_GREEN, RED, YELLOW, ORANGE, GRAY
 from game_core import NEON_GREEN, NEON_LIME, NEON_PINK, NEON_CYAN, NEON_ORANGE, NEON_PURPLE, NEON_YELLOW, NEON_BLUE
 from game_core import GRID_COLOR, HUD_BG, DARK_BG
 from network_manager import NetworkManager, NetworkRole
-from network_protocol import MessageType, create_input_message, create_game_state_message, create_game_start_message, create_game_end_message, create_player_assigned_message, create_lobby_state_message, create_return_to_lobby_message, create_host_shutdown_message, create_client_leave_message, create_player_disconnected_message, create_game_in_progress_message
+from network_protocol import MessageType, create_input_message, create_game_state_message, create_game_start_message, create_game_end_message, create_player_assigned_message, create_lobby_state_message, create_return_to_lobby_message, create_host_shutdown_message, create_client_leave_message, create_player_disconnected_message, create_game_in_progress_message, create_unlock_earned_message
 from network_interpolation import NetworkInterpolator
 
 # Get the directory where this script is located
@@ -1348,6 +1348,52 @@ class SnakeGame:
         achievements.sort(key=lambda x: int(x['id']))
         return achievements
     
+    def get_multiplayer_levels_unlocked(self):
+        """Get the number of multiplayer levels unlocked."""
+        if 'multiplayer' not in self.game_unlocks:
+            return 1
+        return self.game_unlocks['multiplayer'].get('levels_unlocked', 1)
+    
+    def unlock_multiplayer_level(self, level_number):
+        """Unlock a multiplayer level (unlocks all levels up to and including this one)."""
+        if 'multiplayer' not in self.game_unlocks:
+            self.game_unlocks['multiplayer'] = {'levels_unlocked': 1, 'brutal_unlocked': False}
+        
+        current_unlocked = self.game_unlocks['multiplayer'].get('levels_unlocked', 1)
+        if level_number > current_unlocked:
+            self.game_unlocks['multiplayer']['levels_unlocked'] = level_number
+            self.save_game_unlocks()
+            self.check_multiplayer_master_achievement()
+            return True
+        return False
+    
+    def is_brutal_unlocked(self):
+        """Check if brutal AI difficulty is unlocked."""
+        if 'multiplayer' not in self.game_unlocks:
+            return False
+        return self.game_unlocks['multiplayer'].get('brutal_unlocked', False)
+    
+    def unlock_brutal_difficulty(self):
+        """Unlock brutal AI difficulty."""
+        if 'multiplayer' not in self.game_unlocks:
+            self.game_unlocks['multiplayer'] = {'levels_unlocked': 1, 'brutal_unlocked': False}
+        
+        if not self.game_unlocks['multiplayer'].get('brutal_unlocked', False):
+            self.game_unlocks['multiplayer']['brutal_unlocked'] = True
+            self.save_game_unlocks()
+            self.check_multiplayer_master_achievement()
+            return True
+        return False
+    
+    def check_multiplayer_master_achievement(self):
+        """Check if player has unlocked all multiplayer levels and brutal difficulty."""
+        levels_unlocked = self.get_multiplayer_levels_unlocked()
+        brutal_unlocked = self.is_brutal_unlocked()
+        total_levels = len(self.multiplayer_levels) if hasattr(self, 'multiplayer_levels') else 12
+        
+        if levels_unlocked >= total_levels and brutal_unlocked:
+            self.unlock_achievement(5)  # Multiplayer Master achievement
+    
     def add_high_score(self, name, score):
         self.high_scores.append({'name': name, 'score': score})
         self.high_scores.sort(key=lambda x: x['score'], reverse=True)
@@ -2547,6 +2593,28 @@ class SnakeGame:
             winner = players_with_lives[0]
             print("Player {} wins the match!".format(winner.player_id + 1))
             self.sound_manager.play('level_up')
+            
+            # Unlock next multiplayer level if human player won
+            if not winner.is_cpu:
+                current_level = self.lobby_settings.get('level', 0) + 1  # 1-indexed
+                next_level = current_level + 1
+                level_unlocked = None
+                brutal_unlocked = False
+                
+                if next_level <= len(self.multiplayer_levels):
+                    if self.unlock_multiplayer_level(next_level):
+                        level_unlocked = next_level
+                
+                # Unlock brutal difficulty if won on Hard difficulty
+                if self.lobby_settings.get('cpu_difficulty', 0) >= 2:
+                    if self.unlock_brutal_difficulty():
+                        brutal_unlocked = True
+                
+                # Broadcast unlocks to LAN clients so they get them too
+                if self.is_network_game and self.network_manager.is_host():
+                    if level_unlocked or brutal_unlocked:
+                        unlock_msg = create_unlock_earned_message(level_unlocked, brutal_unlocked)
+                        self.network_manager.broadcast_to_clients(unlock_msg)
             # Broadcast game end to network clients
             if self.is_network_game and self.network_manager.is_host():
                 final_scores = [0] * len(self.snakes)  # TODO: Track actual scores
@@ -4984,13 +5052,15 @@ class SnakeGame:
                             self.axis_was_neutral = False
                 
                 elif self.state == GameState.MULTIPLAYER_LEVEL_SELECT:
-                    if len(self.multiplayer_levels) > 0 and self.axis_was_neutral and abs(axis_y) > threshold:
+                    levels_unlocked = self.get_multiplayer_levels_unlocked()
+                    max_level = min(levels_unlocked, len(self.multiplayer_levels))
+                    if max_level > 0 and self.axis_was_neutral and abs(axis_y) > threshold:
                         if axis_y < -threshold:
-                            self.multiplayer_level_selection = (self.multiplayer_level_selection - 1) % len(self.multiplayer_levels)
+                            self.multiplayer_level_selection = (self.multiplayer_level_selection - 1) % max_level
                             self.sound_manager.play('blip_select')
                             self.axis_was_neutral = False
                         elif axis_y > threshold:
-                            self.multiplayer_level_selection = (self.multiplayer_level_selection + 1) % len(self.multiplayer_levels)
+                            self.multiplayer_level_selection = (self.multiplayer_level_selection + 1) % max_level
                             self.sound_manager.play('blip_select')
                             self.axis_was_neutral = False
                 
@@ -5390,13 +5460,15 @@ class SnakeGame:
                     self.network_manager.cleanup()
                     self.state = GameState.NETWORK_MENU
             elif self.state == GameState.MULTIPLAYER_LEVEL_SELECT:
+                levels_unlocked = self.get_multiplayer_levels_unlocked()
+                max_level = min(levels_unlocked, len(self.multiplayer_levels))
                 if event.key == pygame.K_UP:
-                    if len(self.multiplayer_levels) > 0:
-                        self.multiplayer_level_selection = (self.multiplayer_level_selection - 1) % len(self.multiplayer_levels)
+                    if max_level > 0:
+                        self.multiplayer_level_selection = (self.multiplayer_level_selection - 1) % max_level
                         self.sound_manager.play('blip_select')
                 elif event.key == pygame.K_DOWN:
-                    if len(self.multiplayer_levels) > 0:
-                        self.multiplayer_level_selection = (self.multiplayer_level_selection + 1) % len(self.multiplayer_levels)
+                    if max_level > 0:
+                        self.multiplayer_level_selection = (self.multiplayer_level_selection + 1) % max_level
                         self.sound_manager.play('blip_select')
                 elif event.key == pygame.K_RETURN:
                     # Select level and return to lobby
@@ -5873,12 +5945,14 @@ class SnakeGame:
                     self.difficulty_selection = (self.difficulty_selection + 1) % 3
                     self.sound_manager.play('blip_select')
             elif self.state == GameState.MULTIPLAYER_LEVEL_SELECT:
-                if len(self.multiplayer_levels) > 0:
+                levels_unlocked = self.get_multiplayer_levels_unlocked()
+                max_level = min(levels_unlocked, len(self.multiplayer_levels))
+                if max_level > 0:
                     if hat[1] == 1:
-                        self.multiplayer_level_selection = (self.multiplayer_level_selection - 1) % len(self.multiplayer_levels)
+                        self.multiplayer_level_selection = (self.multiplayer_level_selection - 1) % max_level
                         self.sound_manager.play('blip_select')
                     elif hat[1] == -1:
-                        self.multiplayer_level_selection = (self.multiplayer_level_selection + 1) % len(self.multiplayer_levels)
+                        self.multiplayer_level_selection = (self.multiplayer_level_selection + 1) % max_level
                         self.sound_manager.play('blip_select')
             elif self.state == GameState.HIGH_SCORE_ENTRY:
                 if hat[0] == -1:
@@ -6135,6 +6209,7 @@ class SnakeGame:
             pygame.mixer.music.stop()
             self.music_player_playing = False
             self.music_player_current_track = None
+        gc.collect()
     
     def load_level(self, level_number):
         """Load a level from JSON file"""
@@ -6387,12 +6462,21 @@ class SnakeGame:
             # Item frequency
             self.lobby_settings['item_frequency'] = (self.lobby_settings['item_frequency'] + direction) % 3
         elif selection == 2:
-            # CPU difficulty
-            self.lobby_settings['cpu_difficulty'] = (self.lobby_settings['cpu_difficulty'] + direction) % 4
+            # CPU difficulty - enforce brutal unlock
+            max_difficulty = 4 if self.is_brutal_unlocked() else 3
+            new_diff = (self.lobby_settings['cpu_difficulty'] + direction) % max_difficulty
+            self.lobby_settings['cpu_difficulty'] = new_diff
         elif selection == 3:
-            # Level selection - cycle through available levels with left/right
+            # Level selection - cycle through unlocked levels only
             if len(self.multiplayer_levels) > 0:
-                self.lobby_settings['level'] = (self.lobby_settings['level'] + direction) % len(self.multiplayer_levels)
+                levels_unlocked = self.get_multiplayer_levels_unlocked()
+                max_level = min(levels_unlocked, len(self.multiplayer_levels))
+                new_level = self.lobby_settings['level'] + direction
+                if new_level < 0:
+                    new_level = max_level - 1
+                elif new_level >= max_level:
+                    new_level = 0
+                self.lobby_settings['level'] = new_level
                 # Load the selected level data
                 self.load_selected_multiplayer_level()
         elif selection >= 4 and selection <= 7:
@@ -7155,6 +7239,18 @@ class SnakeGame:
                     print("Game in progress - entering spectator mode")
                     self.is_spectator = True
                     self.state = GameState.PLAYING
+            
+            elif msg_type == MessageType.UNLOCK_EARNED.value:
+                # Client receives unlock from host - cooperative unlock!
+                if self.network_manager.is_client():
+                    level_unlocked = message.get('level_unlocked')
+                    brutal_unlocked = message.get('brutal_unlocked', False)
+                    if level_unlocked:
+                        self.unlock_multiplayer_level(level_unlocked)
+                        print(f"Unlocked multiplayer level {level_unlocked}!")
+                    if brutal_unlocked:
+                        self.unlock_brutal_difficulty()
+                        print("Unlocked Brutal AI difficulty!")
     
     def handle_network_input(self, message):
         """Host processes input from a network client"""
@@ -8217,6 +8313,7 @@ class SnakeGame:
                 scroll_offset = self.multiplayer_level_selection
             
             # Draw visible levels
+            levels_unlocked = self.get_multiplayer_levels_unlocked()
             for i in range(min(visible_levels, len(self.multiplayer_levels))):
                 level_index = i + scroll_offset
                 if level_index >= len(self.multiplayer_levels):
@@ -8224,18 +8321,23 @@ class SnakeGame:
                 
                 level = self.multiplayer_levels[level_index]
                 y_pos = list_y + i * line_height
+                is_locked = (level_index + 1) > levels_unlocked
                 
                 # Highlight selected level
                 is_selected = (level_index == self.multiplayer_level_selection)
                 
-                if is_selected:
+                if is_selected and not is_locked:
                     # Draw selection indicator
                     indicator = self.font_small.render(">", True, NEON_YELLOW)
                     self.screen.blit(indicator, (list_x - 15, y_pos))
                 
                 # Draw level number and name
-                level_text = "Level {:02d}".format(level['number'])
-                color = NEON_CYAN if is_selected else WHITE
+                if is_locked:
+                    level_text = "Level {:02d} [LOCKED]".format(level['number'])
+                    color = GRAY
+                else:
+                    level_text = "Level {:02d}".format(level['number'])
+                    color = NEON_CYAN if is_selected else WHITE
                 
                 # Shadow
                 text_shadow = self.font_small.render(level_text, True, BLACK)
@@ -8408,10 +8510,14 @@ class SnakeGame:
         star_spacing = 19  # Halved from 38
         start_x = center_x - 40  # Halved from 80
         star_names = ['easy', 'medium', 'hard', 'brutal']
+        brutal_unlocked = self.is_brutal_unlocked()
         
         for i, star_name in enumerate(star_names):
+            # Check if brutal is locked
+            is_brutal_locked = (star_name == 'brutal' and not brutal_unlocked)
+            
             # Show filled star up to difficulty level, empty after
-            if i <= difficulty_level:
+            if i <= difficulty_level and not is_brutal_locked:
                 star_img = self.star_icons.get(star_name)
             else:
                 star_img = self.star_icons.get('starEmpty')
@@ -8419,6 +8525,9 @@ class SnakeGame:
             if star_img:
                 # Scale star down slightly for better fit
                 star_scaled = pygame.transform.scale(star_img, (18, 18))  # Halved from 36
+                # Darken locked brutal star
+                if is_brutal_locked:
+                    star_scaled.set_alpha(100)
                 self.screen.blit(star_scaled, (start_x + i * star_spacing, y - 9))  # Halved from 18
         
         y += 18  # Compact spacing
@@ -9830,7 +9939,7 @@ class SnakeGame:
         else:
             # Draw achievements list
             start_y = 35
-            line_height = 14  # Halved from 28
+            line_height = 18  # Increased for medium font
             
             for i, achievement in enumerate(achievements):
                 y_pos = start_y + i * line_height
@@ -9840,23 +9949,23 @@ class SnakeGame:
                     color = NEON_CYAN
                     # Draw trophy icon
                     if self.trophy_icon:
-                        trophy_scaled = pygame.transform.scale(self.trophy_icon, (5, 5))  # Halved from 10
-                        self.screen.blit(trophy_scaled, (15, y_pos - 1))  # Halved from 30
+                        trophy_scaled = pygame.transform.scale(self.trophy_icon, (8, 8))
+                        self.screen.blit(trophy_scaled, (12, y_pos + 2))
                 else:
                     color = GRAY
                 
                 # Highlight selected achievement
                 if i == self.achievement_selection:
                     # Draw selection indicator
-                    indicator = self.font_small.render(">", True, NEON_YELLOW)
-                    self.screen.blit(indicator, (8, y_pos))  # Halved from 15
+                    indicator = self.font_medium.render(">", True, NEON_YELLOW)
+                    self.screen.blit(indicator, (5, y_pos))
                 
-                # Draw achievement name with shadow
-                name_shadow = self.font_small.render(achievement['name'], True, BLACK)
-                self.screen.blit(name_shadow, (29, y_pos + 1))  # Halved from 57
+                # Draw achievement name with shadow (using medium font)
+                name_shadow = self.font_medium.render(achievement['name'], True, BLACK)
+                self.screen.blit(name_shadow, (24, y_pos + 1))
                 
-                name_text = self.font_small.render(achievement['name'], True, color)
-                self.screen.blit(name_text, (28, y_pos))  # Halved from 55
+                name_text = self.font_medium.render(achievement['name'], True, color)
+                self.screen.blit(name_text, (23, y_pos))
             
             # Draw description box at bottom for selected achievement
             if 0 <= self.achievement_selection < len(achievements):
