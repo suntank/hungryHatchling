@@ -1,47 +1,47 @@
 {
   "music": {
     "Bonus.ogg": {
-      "unlocked": true,
+      "unlocked": false,
       "cost": 50
     },
     "Boss.ogg": {
-      "unlocked": true,
+      "unlocked": false,
       "cost": 100
     },
     "Final.ogg": {
-      "unlocked": true,
+      "unlocked": false,
       "cost": 150
     },
     "FinalBoss.ogg": {
-      "unlocked": true,
+      "unlocked": false,
       "cost": 200
     },
     "GameOver.ogg": {
-      "unlocked": true,
+      "unlocked": false,
       "cost": 0
     },
     "Theme.ogg": {
-      "unlocked": true,
+      "unlocked": false,
       "cost": 0
     },
     "Victory.ogg": {
-      "unlocked": true,
+      "unlocked": false,
       "cost": 75
     },
     "music1.ogg": {
-      "unlocked": true,
+      "unlocked": false,
       "cost": 0
     },
     "music2.ogg": {
-      "unlocked": true,
+      "unlocked": false,
       "cost": 25
     },
     "music3.ogg": {
-      "unlocked": true,
+      "unlocked": false,
       "cost": 25
     },
     "victoryJingle.ogg": {
-      "unlocked": true,
+      "unlocked": false,
       "cost": 50
     }
   },
@@ -52,7 +52,7 @@
       "description": "Defeat the Frog Boss!"
     },
     "2": {
-      "unlocked": true,
+      "unlocked": false,
       "name": "Worm Smasher",
       "description": "Defeat the Worm Boss!"
     },
@@ -72,7 +72,7 @@
       "description": "Unlock all multiplayer levels and Brutal AI Difficulty"
     },
     "6": {
-      "unlocked": true,
+      "unlocked": false,
       "name": "Gold Farmer",
       "description": "Save up 1000 coins"
     },

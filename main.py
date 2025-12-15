@@ -4,6 +4,7 @@ import json
 import os
 import random
 import gc
+import shutil
 
 # CRITICAL: Set SDL to grab input and prevent passthrough to EmulationStation
 # This must be set BEFORE pygame.init()
@@ -26,6 +27,14 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 SAVE_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, '..', '..', 'saves', 'hungryHatchling'))
 # Ensure save directory exists
 os.makedirs(SAVE_DIR, exist_ok=True)
+
+# Copy template files to saves folder if they don't exist
+for template_file in ['game_unlocks.json', 'level_unlocks.json']:
+    dest_path = os.path.join(SAVE_DIR, template_file)
+    if not os.path.exists(dest_path):
+        src_path = os.path.join(SCRIPT_DIR, template_file)
+        if os.path.exists(src_path):
+            shutil.copy2(src_path, dest_path)
 
 pygame.init()
 # Optimized audio settings for Raspberry Pi Zero 2W to prevent underruns/static
@@ -1163,7 +1172,7 @@ class SnakeGame:
         
         # Extras menu
         self.extras_menu_selection = 0
-        self.extras_menu_options = ["Achievements", "Music Player", "Level Editor", "Credits", "Back"]
+        self.extras_menu_options = ["Achievements", "Music Player", "Credits", "Back"]
         
         # Music Player
         self.music_player_tracks = []
@@ -4917,6 +4926,18 @@ class SnakeGame:
                             self.sound_manager.play('blip_select')
                             self.axis_was_neutral = False
                 
+                elif self.state == GameState.ACHIEVEMENTS:
+                    achievements = self.get_achievement_list()
+                    if self.axis_was_neutral and abs(axis_y) > threshold and achievements:
+                        if axis_y < -threshold:
+                            self.achievement_selection = (self.achievement_selection - 1) % len(achievements)
+                            self.sound_manager.play('blip_select')
+                            self.axis_was_neutral = False
+                        elif axis_y > threshold:
+                            self.achievement_selection = (self.achievement_selection + 1) % len(achievements)
+                            self.sound_manager.play('blip_select')
+                            self.axis_was_neutral = False
+                
                 elif self.state == GameState.MUSIC_PLAYER:
                     if self.axis_was_neutral and abs(axis_y) > threshold:
                         if axis_y < -threshold:
@@ -5997,14 +6018,10 @@ class SnakeGame:
             # Stop theme music when entering music player
             self.music_manager.stop_theme()
         elif self.extras_menu_selection == 2:
-            # Level Editor
-            self.sound_manager.play('blip_select')
-            self.state = GameState.LEVEL_EDITOR_MENU
-        elif self.extras_menu_selection == 3:
             # Credits
             self.sound_manager.play('blip_select')
             self.state = GameState.CREDITS
-        elif self.extras_menu_selection == 4:
+        elif self.extras_menu_selection == 3:
             # Back to main menu
             self.sound_manager.play('blip_select')
             self.state = GameState.MENU
@@ -9793,10 +9810,10 @@ class SnakeGame:
         
         # Title
         title = self.font_large.render("ACHIEVEMENTS", True, BLACK)
-        title_rect = title.get_rect(center=((SCREEN_WIDTH // 2)+3, 53))
+        title_rect = title.get_rect(center=((SCREEN_WIDTH // 2)+3, 18))
         self.screen.blit(title, title_rect)
         title = self.font_large.render("ACHIEVEMENTS", True, NEON_YELLOW)
-        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 50))
+        title_rect = title.get_rect(center=(SCREEN_WIDTH // 2, 15))
         self.screen.blit(title, title_rect)
         
         # Get achievements list
@@ -9812,7 +9829,7 @@ class SnakeGame:
             self.screen.blit(msg, msg_rect)
         else:
             # Draw achievements list
-            start_y = 45  # Halved from 90
+            start_y = 35
             line_height = 14  # Halved from 28
             
             for i, achievement in enumerate(achievements):
